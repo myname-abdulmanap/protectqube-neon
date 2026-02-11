@@ -172,10 +172,10 @@ export default function LoginPage() {
               </div>
               <div className="text-left">
                 <h1 className="text-2xl font-bold tracking-tight">
-                  Energy Monitor
+                  Energy Monitoring
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  Sistem Monitoring Listrik
+                  by ProtectQube
                 </p>
               </div>
             </Link>

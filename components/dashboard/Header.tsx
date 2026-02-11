@@ -15,6 +15,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSidebar } from "@/components/providers/SidebarProvider";
+import { HeaderSelector } from "@/components/dashboard/HeaderSelector";
 import { motion } from "framer-motion";
 
 interface UserData {
@@ -26,9 +27,15 @@ interface UserData {
 
 interface HeaderProps {
   user: UserData;
+  selectorValue?: string;
+  onSelectorChange?: (value: string) => void;
 }
 
-export default function Header({ user }: HeaderProps) {
+export default function Header({
+  user,
+  selectorValue,
+  onSelectorChange,
+}: HeaderProps) {
   const { toggle } = useSidebar();
 
   const handleLogout = async () => {
@@ -58,16 +65,16 @@ export default function Header({ user }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-16 items-center justify-between px-4 sm:px-6">
+      <div className="flex h-8 items-center justify-between px-1.5 sm:px-2">
         {/* Mobile menu button */}
         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
+            className="lg:hidden h-6 w-6"
             onClick={toggle}
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-3.5 w-3.5" />
             <span className="sr-only">Open menu</span>
           </Button>
         </motion.div>
@@ -76,15 +83,21 @@ export default function Header({ user }: HeaderProps) {
         <div className="hidden lg:block" />
 
         {/* Right side */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          {/* Dynamic Selector */}
+          <HeaderSelector
+            value={selectorValue}
+            onValueChange={onSelectorChange}
+          />
+
           {/* Theme Toggle */}
           <ThemeToggle />
 
           {/* Notifications */}
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            <Button variant="ghost" size="icon" className="relative h-6 w-6">
+              <Bell className="h-3 w-3" />
+              <span className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
               <span className="sr-only">Notifications</span>
             </Button>
           </motion.div>
@@ -98,10 +111,10 @@ export default function Header({ user }: HeaderProps) {
               >
                 <Button
                   variant="ghost"
-                  className="relative h-9 w-9 rounded-full"
+                  className="relative h-6 w-6 rounded-full p-0"
                 >
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="bg-primary text-primary-foreground text-sm font-medium">
+                  <Avatar className="h-5 w-5">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-[9px] font-medium">
                       {getInitials(user?.name)}
                     </AvatarFallback>
                   </Avatar>

@@ -1,25 +1,22 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
-  Activity,
   Settings,
   Users,
   FileText,
   Bell,
   Gauge,
-  ChevronRight,
-  ChevronDown,
   Fuel,
   X,
   PanelLeftClose,
   PanelLeft,
   Zap,
-  Building2,
+  ChevronRight,
+  ChefHat,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -53,24 +50,16 @@ const navigationItems = [
     roles: ["ADMIN", "OPERATOR", "VIEWER"],
   },
   {
-    name: "Monitoring",
-    href: "/dashboard/monitoring",
-    icon: Activity,
+    name: "Outlet Listrik",
+    href: "/dashboard/electricity",
+    icon: Zap,
     roles: ["ADMIN", "OPERATOR", "VIEWER"],
-    submenu: [
-      {
-        name: "Outlet Listrik",
-        href: "/dashboard/electricity",
-        icon: Zap,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
-      },
-      {
-        name: "Regional",
-        href: "/dashboard/regional",
-        icon: Building2,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
-      },
-    ],
+  },
+  {
+    name: "Kitchen Monitor",
+    href: "/dashboard/kitchen",
+    icon: ChefHat,
+    roles: ["ADMIN", "OPERATOR", "VIEWER"],
   },
   {
     name: "Fuel Monitor",
@@ -113,14 +102,14 @@ const navigationItems = [
 // Animation variants
 const sidebarVariants = {
   expanded: {
-    width: 256,
+    width: 160,
     transition: {
       duration: 0.3,
       ease: "easeInOut" as const,
     },
   },
   collapsed: {
-    width: 72,
+    width: 44,
     transition: {
       duration: 0.3,
       ease: "easeInOut" as const,
@@ -195,20 +184,11 @@ export default function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapse, setOpen } = useSidebar();
   const userRole = user?.role || "VIEWER";
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(["Monitoring"]);
 
   // Filter navigation items based on user role
   const filteredNavItems = navigationItems.filter((item) =>
     item.roles.includes(userRole),
   );
-
-  const toggleSubmenu = (menuName: string) => {
-    setExpandedMenus((prev) =>
-      prev.includes(menuName)
-        ? prev.filter((name) => name !== menuName)
-        : [...prev, menuName],
-    );
-  };
 
   const getInitials = (name: string | null | undefined) => {
     if (!name) return "U";
@@ -241,133 +221,10 @@ export default function Sidebar({ user }: SidebarProps) {
     collapsed?: boolean;
   }) => {
     const Icon = item.icon;
-    const hasSubmenu = item.submenu && item.submenu.length > 0;
-    const isExpanded = expandedMenus.includes(item.name);
     const isActive =
       pathname === item.href ||
-      (item.href !== "/dashboard" && pathname.startsWith(item.href)) ||
-      (hasSubmenu &&
-        item.submenu?.some(
-          (sub) => pathname === sub.href || pathname.startsWith(sub.href),
-        ));
-    const isSubmenuActive =
-      hasSubmenu &&
-      item.submenu?.some(
-        (sub) => pathname === sub.href || pathname.startsWith(sub.href),
-      );
+      (item.href !== "/dashboard" && pathname.startsWith(item.href));
 
-    // For items with submenu
-    if (hasSubmenu) {
-      const submenuContent = (
-        <motion.div
-          custom={index}
-          variants={menuItemVariants}
-          initial="initial"
-          animate="animate"
-        >
-          <button
-            onClick={() => !collapsed && toggleSubmenu(item.name)}
-            className={cn(
-              "group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-              isSubmenuActive
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              collapsed && "justify-center px-2",
-            )}
-          >
-            <motion.div variants={iconVariants}>
-              <Icon className="h-5 w-5 flex-shrink-0" />
-            </motion.div>
-            {!collapsed && (
-              <>
-                <motion.span
-                  className="flex-1 text-left"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                >
-                  {item.name}
-                </motion.span>
-                <motion.div
-                  animate={{ rotate: isExpanded ? 180 : 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <ChevronDown className="h-4 w-4 opacity-50" />
-                </motion.div>
-              </>
-            )}
-          </button>
-          {/* Submenu items */}
-          <AnimatePresence>
-            {!collapsed && isExpanded && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div className="ml-4 mt-1 space-y-1 border-l-2 border-muted pl-3">
-                  {item.submenu
-                    ?.filter((sub) => sub.roles.includes(userRole))
-                    .map((subItem, subIndex) => {
-                      const SubIcon = subItem.icon;
-                      const isSubActive =
-                        pathname === subItem.href ||
-                        pathname.startsWith(subItem.href);
-                      return (
-                        <Link
-                          key={subItem.href}
-                          href={subItem.href}
-                          onClick={() => setOpen(false)}
-                          className={cn(
-                            "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
-                            isSubActive
-                              ? "bg-primary text-primary-foreground shadow-md"
-                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                          )}
-                        >
-                          <SubIcon className="h-4 w-4" />
-                          {subItem.name}
-                        </Link>
-                      );
-                    })}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-      );
-
-      if (collapsed) {
-        return (
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>{submenuContent}</TooltipTrigger>
-            <TooltipContent side="right" className="font-medium">
-              <div className="space-y-1">
-                <p className="font-semibold">{item.name}</p>
-                {item.submenu
-                  ?.filter((sub) => sub.roles.includes(userRole))
-                  .map((subItem) => (
-                    <Link
-                      key={subItem.href}
-                      href={subItem.href}
-                      onClick={() => setOpen(false)}
-                      className="block text-sm text-muted-foreground hover:text-foreground"
-                    >
-                      {subItem.name}
-                    </Link>
-                  ))}
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        );
-      }
-
-      return submenuContent;
-    }
-
-    // For regular items without submenu
     const content = (
       <motion.div
         custom={index}
@@ -381,15 +238,15 @@ export default function Sidebar({ user }: SidebarProps) {
           href={item.href}
           onClick={() => setOpen(false)}
           className={cn(
-            "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+            "group flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
             isActive
-              ? "bg-primary text-primary-foreground shadow-md"
+              ? "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-            collapsed && "justify-center px-2",
+            collapsed && "justify-center px-1.5",
           )}
         >
           <motion.div variants={iconVariants}>
-            <Icon className="h-5 w-5 flex-shrink-0" />
+            <Icon className="h-4 w-4 flex-shrink-0" />
           </motion.div>
           {!collapsed && (
             <motion.span
@@ -407,7 +264,7 @@ export default function Sidebar({ user }: SidebarProps) {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.2 }}
             >
-              <ChevronRight className="h-4 w-4 opacity-50" />
+              <ChevronRight className="h-3 w-3 opacity-50" />
             </motion.div>
           )}
         </Link>
@@ -439,22 +296,22 @@ export default function Sidebar({ user }: SidebarProps) {
       >
         <div className="flex h-full flex-col">
           {/* Header */}
-          <div className="flex h-16 items-center gap-3 px-3 border-b">
+          <div className="flex h-8 items-center gap-1.5 px-1.5 border-b">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={toggleCollapse}
-                className="h-10 w-10 flex-shrink-0"
+                className="h-6 w-6 flex-shrink-0"
               >
                 <motion.div
                   animate={{ rotate: isCollapsed ? 180 : 0 }}
                   transition={{ duration: 0.3 }}
                 >
                   {isCollapsed ? (
-                    <PanelLeft className="h-5 w-5" />
+                    <PanelLeft className="h-3.5 w-3.5" />
                   ) : (
-                    <PanelLeftClose className="h-5 w-5" />
+                    <PanelLeftClose className="h-3.5 w-3.5" />
                   )}
                 </motion.div>
               </Button>
@@ -467,20 +324,17 @@ export default function Sidebar({ user }: SidebarProps) {
                   exit={{ opacity: 0, x: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <h1 className="font-bold tracking-tight whitespace-nowrap">
+                  <h1 className="text-xs font-bold tracking-tight whitespace-nowrap">
                     Energy Monitor
                   </h1>
-                  <p className="text-xs text-muted-foreground whitespace-nowrap">
-                    by protectQube
-                  </p>
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto p-3">
-            <div className="space-y-1">
+          <nav className="flex-1 overflow-y-auto p-1.5">
+            <div className="space-y-0.5">
               {filteredNavItems.map((item, index) => (
                 <NavItem
                   key={item.href}
@@ -495,17 +349,17 @@ export default function Sidebar({ user }: SidebarProps) {
           <Separator />
 
           {/* User info at bottom */}
-          <div className="p-3">
+          <div className="p-1.5">
             <motion.div
               className={cn(
-                "flex items-center gap-3 rounded-lg bg-muted/50 p-3",
-                isCollapsed && "justify-center p-2",
+                "flex items-center gap-2 rounded-md bg-muted/50 p-1.5",
+                isCollapsed && "justify-center p-1",
               )}
               whileHover={{ scale: 1.02 }}
               transition={{ duration: 0.2 }}
             >
-              <Avatar className="h-10 w-10 flex-shrink-0">
-                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-medium">
+              <Avatar className="h-6 w-6 flex-shrink-0">
+                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-[10px] font-medium">
                   {getInitials(user?.name)}
                 </AvatarFallback>
               </Avatar>
@@ -518,12 +372,12 @@ export default function Sidebar({ user }: SidebarProps) {
                     exit={{ opacity: 0, x: -10 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <p className="text-sm font-medium truncate">
+                    <p className="text-[10px] font-medium truncate">
                       {user?.name || "User"}
                     </p>
                     <span
                       className={cn(
-                        "inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider",
+                        "inline-flex px-1 py-0 rounded text-[8px] font-semibold uppercase",
                         getRoleBadge(userRole),
                       )}
                     >
@@ -555,7 +409,7 @@ export default function Sidebar({ user }: SidebarProps) {
       <AnimatePresence>
         {isOpen && (
           <motion.aside
-            className="fixed inset-y-0 left-0 z-50 w-64 border-r bg-card lg:hidden"
+            className="fixed inset-y-0 left-0 z-50 w-48 border-r bg-card lg:hidden"
             variants={mobileMenuVariants}
             initial="closed"
             animate="open"
@@ -563,22 +417,23 @@ export default function Sidebar({ user }: SidebarProps) {
           >
             <div className="flex h-full flex-col">
               {/* Header */}
-              <div className="flex h-16 items-center justify-between gap-3 px-4 border-b">
-                <div className="flex items-center gap-3">
-                  <h1 className="font-bold tracking-tight">Energy Monitor</h1>
-                </div>
+              <div className="flex h-10 items-center justify-between gap-2 px-2 border-b">
+                <h1 className="text-xs font-bold tracking-tight">
+                  Energy Monitor
+                </h1>
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="h-7 w-7"
                   onClick={() => setOpen(false)}
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </Button>
               </div>
 
               {/* Navigation */}
-              <nav className="flex-1 overflow-y-auto p-3">
-                <div className="space-y-1">
+              <nav className="flex-1 overflow-y-auto p-1.5">
+                <div className="space-y-0.5">
                   {filteredNavItems.map((item, index) => (
                     <NavItem key={item.href} item={item} index={index} />
                   ))}
@@ -588,20 +443,20 @@ export default function Sidebar({ user }: SidebarProps) {
               <Separator />
 
               {/* User info at bottom */}
-              <div className="p-3">
-                <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
-                  <Avatar className="h-10 w-10">
-                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-medium">
+              <div className="p-1.5">
+                <div className="flex items-center gap-2 rounded-md bg-muted/50 p-1.5">
+                  <Avatar className="h-6 w-6">
+                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-[10px] font-medium">
                       {getInitials(user?.name)}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
+                    <p className="text-[10px] font-medium truncate">
                       {user?.name || "User"}
                     </p>
                     <span
                       className={cn(
-                        "inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider",
+                        "inline-flex px-1 py-0 rounded text-[8px] font-semibold uppercase",
                         getRoleBadge(userRole),
                       )}
                     >
