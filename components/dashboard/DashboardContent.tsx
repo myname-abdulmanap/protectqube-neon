@@ -26,7 +26,7 @@ export function DashboardContent({ children, user }: DashboardContentProps) {
     <div
       className={cn(
         "flex flex-col min-h-screen transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
-        "lg:pl-[160px]",
+        "lg:pl-[180px]",
         isCollapsed && "lg:pl-11",
       )}
     >

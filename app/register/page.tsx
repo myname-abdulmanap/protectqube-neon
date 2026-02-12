@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Zap,
   Eye,
   EyeOff,
   Loader2,
@@ -14,6 +13,7 @@ import {
   ArrowRight,
   Check,
 } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,15 +119,19 @@ export default function RegisterPage() {
           {/* Logo */}
           <div className="text-center">
             <Link href="/" className="inline-flex items-center gap-3 group">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25 transition-transform group-hover:scale-105">
-                <Zap className="h-7 w-7 text-white" />
-              </div>
+              <Image
+                src="/logo-protectcube.png"
+                alt="ProtectQube"
+                width={48}
+                height={48}
+                className="transition-transform group-hover:scale-105"
+              />
               <div className="text-left">
                 <h1 className="text-2xl font-bold tracking-tight">
-                  Energy Monitor
+                  ProtectQube
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  Sistem Monitoring Listrik
+                  Energy Monitoring System
                 </p>
               </div>
             </Link>
@@ -235,14 +239,14 @@ export default function RegisterPage() {
                             "group relative flex items-center gap-4 rounded-xl border-2 p-4 text-left transition-all",
                             isSelected
                               ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50 hover:bg-muted/50"
+                              : "border-border hover:border-primary/50 hover:bg-muted/50",
                           )}
                         >
                           <div
                             className={cn(
                               "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg transition-transform",
                               role.color,
-                              isSelected && "scale-110"
+                              isSelected && "scale-110",
                             )}
                           >
                             <Icon className="h-5 w-5" />
@@ -258,7 +262,7 @@ export default function RegisterPage() {
                               "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
                               isSelected
                                 ? "border-primary bg-primary text-primary-foreground"
-                                : "border-muted-foreground/30"
+                                : "border-muted-foreground/30",
                             )}
                           >
                             {isSelected && <Check className="h-4 w-4" />}
@@ -303,7 +307,7 @@ export default function RegisterPage() {
           </Card>
 
           <p className="text-center text-xs text-muted-foreground">
-            &copy; {new Date().getFullYear()} Energy Monitoring System
+            &copy; {new Date().getFullYear()} ProtectQube
           </p>
         </div>
       </div>

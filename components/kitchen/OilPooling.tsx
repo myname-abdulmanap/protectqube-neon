@@ -1,18 +1,40 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
-import { Droplets, Timer, TrendingUp, Package, User } from "lucide-react";
+import {
+  Droplets,
+  Timer,
+  TrendingUp,
+  Package,
+  User,
+  MapPin,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const outlets = [
+  { id: "mall-abcd", name: "Recheese Mall ABCD" },
+  { id: "central-park", name: "Recheese Central Park" },
+  { id: "paris-van-java", name: "Recheese Paris Van Java" },
+  { id: "tunjungan-plaza", name: "Recheese Tunjungan Plaza" },
+  { id: "paragon-mall", name: "Recheese Paragon Mall" },
+];
 
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
 
-const poolingLog = [
+const _defaultPoolingLog = [
   {
     time: "2:15 PM",
     staff: "Ahmad",
@@ -57,7 +79,7 @@ const poolingLog = [
   },
 ];
 
-const summaryStats = [
+const _defaultSummaryStats = [
   { label: "Total Drums", value: "4", icon: Package, color: "text-indigo-500" },
   {
     label: "Active Filling",
@@ -79,10 +101,281 @@ const summaryStats = [
   },
 ];
 
+const poolingLogPerOutlet: Record<string, typeof _defaultPoolingLog> = {
+  "mall-abcd": _defaultPoolingLog,
+  "central-park": [
+    {
+      time: "2:30 PM",
+      staff: "Dedi",
+      drum: "Drum #2",
+      amount: "9L",
+      action: "Pouring",
+    },
+    {
+      time: "1:50 PM",
+      staff: "Rina",
+      drum: "Drum #1",
+      amount: "6L",
+      action: "Pouring",
+    },
+    {
+      time: "1:10 PM",
+      staff: "Dedi",
+      drum: "Drum #3",
+      amount: "11L",
+      action: "Completed",
+    },
+    {
+      time: "12:40 PM",
+      staff: "Rina",
+      drum: "Drum #2",
+      amount: "7L",
+      action: "Pouring",
+    },
+    {
+      time: "12:00 PM",
+      staff: "Dedi",
+      drum: "Drum #1",
+      amount: "8L",
+      action: "Pouring",
+    },
+  ],
+  "paris-van-java": [
+    {
+      time: "2:00 PM",
+      staff: "Yusuf",
+      drum: "Drum #1",
+      amount: "10L",
+      action: "Pouring",
+    },
+    {
+      time: "1:30 PM",
+      staff: "Andi",
+      drum: "Drum #2",
+      amount: "7L",
+      action: "Pouring",
+    },
+    {
+      time: "1:00 PM",
+      staff: "Yusuf",
+      drum: "Drum #3",
+      amount: "12L",
+      action: "Completed",
+    },
+    {
+      time: "12:30 PM",
+      staff: "Andi",
+      drum: "Drum #4",
+      amount: "5L",
+      action: "Pouring",
+    },
+    {
+      time: "11:45 AM",
+      staff: "Yusuf",
+      drum: "Drum #1",
+      amount: "9L",
+      action: "Pouring",
+    },
+    {
+      time: "11:00 AM",
+      staff: "Andi",
+      drum: "Drum #2",
+      amount: "8L",
+      action: "Completed",
+    },
+  ],
+  "tunjungan-plaza": [
+    {
+      time: "2:10 PM",
+      staff: "Hadi",
+      drum: "Drum #1",
+      amount: "6L",
+      action: "Pouring",
+    },
+    {
+      time: "1:40 PM",
+      staff: "Siti",
+      drum: "Drum #2",
+      amount: "8L",
+      action: "Pouring",
+    },
+    {
+      time: "1:05 PM",
+      staff: "Hadi",
+      drum: "Drum #1",
+      amount: "10L",
+      action: "Completed",
+    },
+    {
+      time: "12:20 PM",
+      staff: "Siti",
+      drum: "Drum #3",
+      amount: "4L",
+      action: "Pouring",
+    },
+  ],
+  "paragon-mall": [
+    {
+      time: "2:20 PM",
+      staff: "Fajar",
+      drum: "Drum #2",
+      amount: "7L",
+      action: "Pouring",
+    },
+    {
+      time: "1:55 PM",
+      staff: "Wati",
+      drum: "Drum #1",
+      amount: "11L",
+      action: "Pouring",
+    },
+    {
+      time: "1:15 PM",
+      staff: "Fajar",
+      drum: "Drum #3",
+      amount: "9L",
+      action: "Completed",
+    },
+    {
+      time: "12:45 PM",
+      staff: "Wati",
+      drum: "Drum #4",
+      amount: "6L",
+      action: "Pouring",
+    },
+    {
+      time: "12:05 PM",
+      staff: "Fajar",
+      drum: "Drum #2",
+      amount: "13L",
+      action: "Completed",
+    },
+  ],
+};
+
+const summaryStatsPerOutlet: Record<string, typeof _defaultSummaryStats> = {
+  "mall-abcd": _defaultSummaryStats,
+  "central-park": [
+    {
+      label: "Total Drums",
+      value: "3",
+      icon: Package,
+      color: "text-indigo-500",
+    },
+    {
+      label: "Active Filling",
+      value: "2",
+      icon: Droplets,
+      color: "text-cyan-500",
+    },
+    {
+      label: "Full Drums",
+      value: "1",
+      icon: TrendingUp,
+      color: "text-green-500",
+    },
+    {
+      label: "Total Collected",
+      value: "380L",
+      icon: Timer,
+      color: "text-amber-500",
+    },
+  ],
+  "paris-van-java": [
+    {
+      label: "Total Drums",
+      value: "5",
+      icon: Package,
+      color: "text-indigo-500",
+    },
+    {
+      label: "Active Filling",
+      value: "3",
+      icon: Droplets,
+      color: "text-cyan-500",
+    },
+    {
+      label: "Full Drums",
+      value: "2",
+      icon: TrendingUp,
+      color: "text-green-500",
+    },
+    {
+      label: "Total Collected",
+      value: "620L",
+      icon: Timer,
+      color: "text-amber-500",
+    },
+  ],
+  "tunjungan-plaza": [
+    {
+      label: "Total Drums",
+      value: "3",
+      icon: Package,
+      color: "text-indigo-500",
+    },
+    {
+      label: "Active Filling",
+      value: "2",
+      icon: Droplets,
+      color: "text-cyan-500",
+    },
+    {
+      label: "Full Drums",
+      value: "1",
+      icon: TrendingUp,
+      color: "text-green-500",
+    },
+    {
+      label: "Total Collected",
+      value: "310L",
+      icon: Timer,
+      color: "text-amber-500",
+    },
+  ],
+  "paragon-mall": [
+    {
+      label: "Total Drums",
+      value: "4",
+      icon: Package,
+      color: "text-indigo-500",
+    },
+    {
+      label: "Active Filling",
+      value: "2",
+      icon: Droplets,
+      color: "text-cyan-500",
+    },
+    {
+      label: "Full Drums",
+      value: "2",
+      icon: TrendingUp,
+      color: "text-green-500",
+    },
+    {
+      label: "Total Collected",
+      value: "470L",
+      icon: Timer,
+      color: "text-amber-500",
+    },
+  ],
+};
+
 const DRUM_CAPACITY = 200; // Liters
 
 export function OilPooling() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [selectedOutlet, setSelectedOutlet] = useState("mall-abcd");
+
+  const poolingLog = useMemo(
+    () => poolingLogPerOutlet[selectedOutlet] || _defaultPoolingLog,
+    [selectedOutlet],
+  );
+  const summaryStats = useMemo(
+    () => summaryStatsPerOutlet[selectedOutlet] || _defaultSummaryStats,
+    [selectedOutlet],
+  );
+
   const [drumFillPercent, setDrumFillPercent] = useState(0);
   const [drumLiters, setDrumLiters] = useState(0);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
@@ -366,7 +659,7 @@ export function OilPooling() {
                 playsInline
                 preload="auto"
               >
-                <source src="/poling-hasil.mp4" type="video/mp4" />
+                <source src="/poling.mp4" type="video/mp4" />
               </video>
               {/* Bottom overlay */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
@@ -375,6 +668,27 @@ export function OilPooling() {
                   <span>Drum: {drumFillPercent}%</span>
                 </div>
               </div>
+            </div>
+
+            {/* Outlet Selector */}
+            <div className="flex items-center gap-2 mt-1.5">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+              <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
+                <SelectTrigger size="sm" className="w-full h-7 text-[10px]">
+                  <SelectValue placeholder="Pilih Outlet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {outlets.map((outlet) => (
+                    <SelectItem
+                      key={outlet.id}
+                      value={outlet.id}
+                      className="text-[10px]"
+                    >
+                      {outlet.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>

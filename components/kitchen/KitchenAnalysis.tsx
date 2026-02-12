@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Activity,
@@ -11,18 +11,34 @@ import {
   ShoppingBag,
   Package,
   Eye,
+  MapPin,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const outlets = [
+  { id: "mall-abcd", name: "Recheese Mall ABCD" },
+  { id: "central-park", name: "Recheese Central Park" },
+  { id: "paris-van-java", name: "Recheese Paris Van Java" },
+  { id: "tunjungan-plaza", name: "Recheese Tunjungan Plaza" },
+  { id: "paragon-mall", name: "Recheese Paragon Mall" },
+];
 
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
 
-const detections = [
+const _defaultDetections = [
   {
     id: 1,
     type: "Frying Activity",
@@ -91,15 +107,285 @@ const detections = [
   },
 ];
 
-const stats = [
+const detectionsPerOutlet: Record<string, typeof _defaultDetections> = {
+  "mall-abcd": _defaultDetections,
+  "central-park": [
+    {
+      id: 1,
+      type: "Frying Activity",
+      icon: Flame,
+      confidence: 91,
+      status: "active",
+      time: "3 min ago",
+      detail: "Deep frying at Station #1",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+    {
+      id: 2,
+      type: "Serving Customer",
+      icon: ShoppingBag,
+      confidence: 85,
+      status: "active",
+      time: "1 min ago",
+      detail: "Staff serving at Counter #2",
+      color: "text-blue-500",
+      bgColor: "bg-blue-500/10",
+    },
+    {
+      id: 3,
+      type: "Drum Detected",
+      icon: Package,
+      confidence: 89,
+      status: "idle",
+      time: "8 min ago",
+      detail: "Oil drum at storage area",
+      color: "text-purple-500",
+      bgColor: "bg-purple-500/10",
+    },
+    {
+      id: 4,
+      type: "Cleaning Activity",
+      icon: Activity,
+      confidence: 82,
+      status: "completed",
+      time: "20 min ago",
+      detail: "Floor cleaning near Station #1",
+      color: "text-green-500",
+      bgColor: "bg-green-500/10",
+    },
+    {
+      id: 5,
+      type: "Frying Activity",
+      icon: Flame,
+      confidence: 90,
+      status: "active",
+      time: "5 min ago",
+      detail: "Pan frying at Station #3",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+  ],
+  "paris-van-java": [
+    {
+      id: 1,
+      type: "Frying Activity",
+      icon: Flame,
+      confidence: 96,
+      status: "active",
+      time: "1 min ago",
+      detail: "Batch frying at Station #1",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+    {
+      id: 2,
+      type: "Jerrycan Detected",
+      icon: Package,
+      confidence: 93,
+      status: "idle",
+      time: "3 min ago",
+      detail: "Jerrycan near Station #2",
+      color: "text-amber-500",
+      bgColor: "bg-amber-500/10",
+    },
+    {
+      id: 3,
+      type: "Serving Customer",
+      icon: ShoppingBag,
+      confidence: 88,
+      status: "active",
+      time: "2 min ago",
+      detail: "Staff serving at Counter #1",
+      color: "text-blue-500",
+      bgColor: "bg-blue-500/10",
+    },
+    {
+      id: 4,
+      type: "Frying Activity",
+      icon: Flame,
+      confidence: 91,
+      status: "active",
+      time: "4 min ago",
+      detail: "Deep frying at Station #3",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+    {
+      id: 5,
+      type: "Drum Detected",
+      icon: Package,
+      confidence: 87,
+      status: "idle",
+      time: "10 min ago",
+      detail: "Empty drum near exit",
+      color: "text-purple-500",
+      bgColor: "bg-purple-500/10",
+    },
+    {
+      id: 6,
+      type: "Cleaning Activity",
+      icon: Activity,
+      confidence: 81,
+      status: "completed",
+      time: "25 min ago",
+      detail: "Station #2 cleanup",
+      color: "text-green-500",
+      bgColor: "bg-green-500/10",
+    },
+  ],
+  "tunjungan-plaza": [
+    {
+      id: 1,
+      type: "Serving Customer",
+      icon: ShoppingBag,
+      confidence: 92,
+      status: "active",
+      time: "30 sec ago",
+      detail: "Staff serving at Counter #3",
+      color: "text-blue-500",
+      bgColor: "bg-blue-500/10",
+    },
+    {
+      id: 2,
+      type: "Frying Activity",
+      icon: Flame,
+      confidence: 89,
+      status: "active",
+      time: "2 min ago",
+      detail: "Deep frying at Station #1",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+    {
+      id: 3,
+      type: "Drum Detected",
+      icon: Package,
+      confidence: 94,
+      status: "idle",
+      time: "6 min ago",
+      detail: "Oil drum at loading area",
+      color: "text-purple-500",
+      bgColor: "bg-purple-500/10",
+    },
+    {
+      id: 4,
+      type: "Cleaning Activity",
+      icon: Activity,
+      confidence: 76,
+      status: "completed",
+      time: "30 min ago",
+      detail: "Counter cleanup",
+      color: "text-green-500",
+      bgColor: "bg-green-500/10",
+    },
+  ],
+  "paragon-mall": [
+    {
+      id: 1,
+      type: "Frying Activity",
+      icon: Flame,
+      confidence: 95,
+      status: "active",
+      time: "1 min ago",
+      detail: "Batch frying at Station #2",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+    {
+      id: 2,
+      type: "Serving Customer",
+      icon: ShoppingBag,
+      confidence: 90,
+      status: "active",
+      time: "45 sec ago",
+      detail: "Staff serving at Counter #1",
+      color: "text-blue-500",
+      bgColor: "bg-blue-500/10",
+    },
+    {
+      id: 3,
+      type: "Jerrycan Detected",
+      icon: Package,
+      confidence: 86,
+      status: "idle",
+      time: "7 min ago",
+      detail: "Jerrycan at Station #1",
+      color: "text-amber-500",
+      bgColor: "bg-amber-500/10",
+    },
+    {
+      id: 4,
+      type: "Frying Activity",
+      icon: Flame,
+      confidence: 93,
+      status: "active",
+      time: "3 min ago",
+      detail: "Deep frying at Station #1",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+    {
+      id: 5,
+      type: "Cleaning Activity",
+      icon: Activity,
+      confidence: 84,
+      status: "completed",
+      time: "12 min ago",
+      detail: "Floor mopping near Station #2",
+      color: "text-green-500",
+      bgColor: "bg-green-500/10",
+    },
+  ],
+};
+
+const _defaultStats = [
   { label: "Total Detections", value: "142", change: "+12%", icon: Eye },
   { label: "Active Activities", value: "3", change: "", icon: Activity },
   { label: "Alerts Today", value: "2", change: "-50%", icon: AlertTriangle },
   { label: "Uptime", value: "99.2%", change: "", icon: CheckCircle2 },
 ];
 
+const statsPerOutlet: Record<string, typeof _defaultStats> = {
+  "mall-abcd": _defaultStats,
+  "central-park": [
+    { label: "Total Detections", value: "118", change: "+8%", icon: Eye },
+    { label: "Active Activities", value: "3", change: "", icon: Activity },
+    { label: "Alerts Today", value: "1", change: "-75%", icon: AlertTriangle },
+    { label: "Uptime", value: "98.5%", change: "", icon: CheckCircle2 },
+  ],
+  "paris-van-java": [
+    { label: "Total Detections", value: "156", change: "+15%", icon: Eye },
+    { label: "Active Activities", value: "4", change: "", icon: Activity },
+    { label: "Alerts Today", value: "3", change: "+50%", icon: AlertTriangle },
+    { label: "Uptime", value: "99.8%", change: "", icon: CheckCircle2 },
+  ],
+  "tunjungan-plaza": [
+    { label: "Total Detections", value: "98", change: "+5%", icon: Eye },
+    { label: "Active Activities", value: "2", change: "", icon: Activity },
+    { label: "Alerts Today", value: "0", change: "-100%", icon: AlertTriangle },
+    { label: "Uptime", value: "99.9%", change: "", icon: CheckCircle2 },
+  ],
+  "paragon-mall": [
+    { label: "Total Detections", value: "131", change: "+10%", icon: Eye },
+    { label: "Active Activities", value: "3", change: "", icon: Activity },
+    { label: "Alerts Today", value: "2", change: "-25%", icon: AlertTriangle },
+    { label: "Uptime", value: "97.8%", change: "", icon: CheckCircle2 },
+  ],
+};
+
 export function KitchenAnalysis() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [selectedOutlet, setSelectedOutlet] = useState("mall-abcd");
+
+  const detections = useMemo(
+    () => detectionsPerOutlet[selectedOutlet] || _defaultDetections,
+    [selectedOutlet],
+  );
+  const stats = useMemo(
+    () => statsPerOutlet[selectedOutlet] || _defaultStats,
+    [selectedOutlet],
+  );
 
   useEffect(() => {
     const video = videoRef.current;
@@ -268,7 +554,7 @@ export function KitchenAnalysis() {
                 playsInline
                 preload="auto"
               >
-                <source src="/kitchen-hasil.mp4" type="video/mp4" />
+                <source src="/kitchen.mp4" type="video/mp4" />
               </video>
               {/* Bottom overlay */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
@@ -277,6 +563,27 @@ export function KitchenAnalysis() {
                   <span>Last Update: 2 sec ago</span>
                 </div>
               </div>
+            </div>
+
+            {/* Outlet Selector */}
+            <div className="flex items-center gap-2 mt-1.5">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+              <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
+                <SelectTrigger size="sm" className="w-full h-7 text-[10px]">
+                  <SelectValue placeholder="Pilih Outlet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {outlets.map((outlet) => (
+                    <SelectItem
+                      key={outlet.id}
+                      value={outlet.id}
+                      className="text-[10px]"
+                    >
+                      {outlet.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>

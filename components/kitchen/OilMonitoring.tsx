@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Droplets,
@@ -8,18 +8,34 @@ import {
   AlertTriangle,
   CheckCircle2,
   Thermometer,
+  MapPin,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const outlets = [
+  { id: "mall-abcd", name: "Recheese Mall ABCD" },
+  { id: "central-park", name: "Recheese Central Park" },
+  { id: "paris-van-java", name: "Recheese Paris Van Java" },
+  { id: "tunjungan-plaza", name: "Recheese Tunjungan Plaza" },
+  { id: "paragon-mall", name: "Recheese Paragon Mall" },
+];
 
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
 
-const trayData = [
+const _defaultTrayData = [
   {
     id: 1,
     name: "Tray #1",
@@ -82,7 +98,7 @@ const trayData = [
   },
 ];
 
-const summaryStats = [
+const _defaultSummaryStats = [
   {
     label: "Fresh Oil",
     value: "2",
@@ -104,8 +120,334 @@ const summaryStats = [
   },
 ];
 
+const trayDataPerOutlet: Record<string, typeof _defaultTrayData> = {
+  "mall-abcd": _defaultTrayData,
+  "central-park": [
+    {
+      id: 1,
+      name: "Tray #1",
+      oilColor: "Clear Yellow",
+      colorHex: "#ffd700",
+      status: "Fresh Oil",
+      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
+      startTime: "07:00 AM",
+      duration: "5h 00m",
+      temp: "168°C",
+      tds: 6,
+    },
+    {
+      id: 2,
+      name: "Tray #2",
+      oilColor: "Light Yellow",
+      colorHex: "#ffe066",
+      status: "Good",
+      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
+      startTime: "06:30 AM",
+      duration: "5h 30m",
+      temp: "170°C",
+      tds: 12,
+    },
+    {
+      id: 3,
+      name: "Tray #3",
+      oilColor: "Dark Yellow",
+      colorHex: "#b8860b",
+      status: "Warning",
+      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
+      startTime: "06:00 AM",
+      duration: "6h 00m",
+      temp: "174°C",
+      tds: 20,
+    },
+    {
+      id: 4,
+      name: "Tray #4",
+      oilColor: "Clear Yellow",
+      colorHex: "#ffd700",
+      status: "Fresh Oil",
+      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
+      startTime: "09:00 AM",
+      duration: "3h 00m",
+      temp: "165°C",
+      tds: 5,
+    },
+  ],
+  "paris-van-java": [
+    {
+      id: 1,
+      name: "Tray #1",
+      oilColor: "Brown Black",
+      colorHex: "#3b2f2f",
+      status: "Need Change",
+      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
+      startTime: "05:00 AM",
+      duration: "10h 00m",
+      temp: "182°C",
+      tds: 33,
+    },
+    {
+      id: 2,
+      name: "Tray #2",
+      oilColor: "Dark Brown",
+      colorHex: "#654321",
+      status: "Need Change",
+      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
+      startTime: "05:30 AM",
+      duration: "9h 30m",
+      temp: "179°C",
+      tds: 29,
+    },
+    {
+      id: 3,
+      name: "Tray #3",
+      oilColor: "Dark Yellow",
+      colorHex: "#b8860b",
+      status: "Warning",
+      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
+      startTime: "07:00 AM",
+      duration: "8h 00m",
+      temp: "176°C",
+      tds: 23,
+    },
+    {
+      id: 4,
+      name: "Tray #4",
+      oilColor: "Clear Yellow",
+      colorHex: "#ffd700",
+      status: "Fresh Oil",
+      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
+      startTime: "11:00 AM",
+      duration: "4h 00m",
+      temp: "167°C",
+      tds: 7,
+    },
+    {
+      id: 5,
+      name: "Tray #5",
+      oilColor: "Light Yellow",
+      colorHex: "#ffe066",
+      status: "Good",
+      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
+      startTime: "09:30 AM",
+      duration: "5h 30m",
+      temp: "169°C",
+      tds: 13,
+    },
+    {
+      id: 6,
+      name: "Tray #6",
+      oilColor: "Dark Yellow",
+      colorHex: "#b8860b",
+      status: "Warning",
+      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
+      startTime: "06:30 AM",
+      duration: "8h 30m",
+      temp: "175°C",
+      tds: 21,
+    },
+  ],
+  "tunjungan-plaza": [
+    {
+      id: 1,
+      name: "Tray #1",
+      oilColor: "Clear Yellow",
+      colorHex: "#ffd700",
+      status: "Fresh Oil",
+      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
+      startTime: "08:00 AM",
+      duration: "4h 00m",
+      temp: "166°C",
+      tds: 5,
+    },
+    {
+      id: 2,
+      name: "Tray #2",
+      oilColor: "Light Yellow",
+      colorHex: "#ffe066",
+      status: "Good",
+      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
+      startTime: "07:30 AM",
+      duration: "4h 30m",
+      temp: "168°C",
+      tds: 10,
+    },
+    {
+      id: 3,
+      name: "Tray #3",
+      oilColor: "Light Yellow",
+      colorHex: "#ffe066",
+      status: "Good",
+      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
+      startTime: "07:00 AM",
+      duration: "5h 00m",
+      temp: "170°C",
+      tds: 15,
+    },
+  ],
+  "paragon-mall": [
+    {
+      id: 1,
+      name: "Tray #1",
+      oilColor: "Dark Yellow",
+      colorHex: "#b8860b",
+      status: "Warning",
+      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
+      startTime: "06:00 AM",
+      duration: "7h 00m",
+      temp: "173°C",
+      tds: 19,
+    },
+    {
+      id: 2,
+      name: "Tray #2",
+      oilColor: "Clear Yellow",
+      colorHex: "#ffd700",
+      status: "Fresh Oil",
+      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
+      startTime: "10:00 AM",
+      duration: "3h 00m",
+      temp: "164°C",
+      tds: 4,
+    },
+    {
+      id: 3,
+      name: "Tray #3",
+      oilColor: "Brown Black",
+      colorHex: "#3b2f2f",
+      status: "Need Change",
+      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
+      startTime: "05:00 AM",
+      duration: "8h 00m",
+      temp: "178°C",
+      tds: 28,
+    },
+    {
+      id: 4,
+      name: "Tray #4",
+      oilColor: "Light Yellow",
+      colorHex: "#ffe066",
+      status: "Good",
+      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
+      startTime: "08:30 AM",
+      duration: "4h 30m",
+      temp: "167°C",
+      tds: 11,
+    },
+    {
+      id: 5,
+      name: "Tray #5",
+      oilColor: "Dark Brown",
+      colorHex: "#654321",
+      status: "Need Change",
+      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
+      startTime: "05:30 AM",
+      duration: "7h 30m",
+      temp: "177°C",
+      tds: 27,
+    },
+  ],
+};
+
+const summaryStatsPerOutlet: Record<string, typeof _defaultSummaryStats> = {
+  "mall-abcd": _defaultSummaryStats,
+  "central-park": [
+    {
+      label: "Fresh Oil",
+      value: "2",
+      icon: CheckCircle2,
+      color: "text-green-500",
+    },
+    {
+      label: "Need Change",
+      value: "0",
+      icon: AlertTriangle,
+      color: "text-red-500",
+    },
+    { label: "Warning", value: "1", icon: Droplets, color: "text-orange-500" },
+    {
+      label: "Avg Temp",
+      value: "169°C",
+      icon: Thermometer,
+      color: "text-cyan-500",
+    },
+  ],
+  "paris-van-java": [
+    {
+      label: "Fresh Oil",
+      value: "1",
+      icon: CheckCircle2,
+      color: "text-green-500",
+    },
+    {
+      label: "Need Change",
+      value: "2",
+      icon: AlertTriangle,
+      color: "text-red-500",
+    },
+    { label: "Warning", value: "2", icon: Droplets, color: "text-orange-500" },
+    {
+      label: "Avg Temp",
+      value: "175°C",
+      icon: Thermometer,
+      color: "text-cyan-500",
+    },
+  ],
+  "tunjungan-plaza": [
+    {
+      label: "Fresh Oil",
+      value: "1",
+      icon: CheckCircle2,
+      color: "text-green-500",
+    },
+    {
+      label: "Need Change",
+      value: "0",
+      icon: AlertTriangle,
+      color: "text-red-500",
+    },
+    { label: "Warning", value: "0", icon: Droplets, color: "text-orange-500" },
+    {
+      label: "Avg Temp",
+      value: "168°C",
+      icon: Thermometer,
+      color: "text-cyan-500",
+    },
+  ],
+  "paragon-mall": [
+    {
+      label: "Fresh Oil",
+      value: "1",
+      icon: CheckCircle2,
+      color: "text-green-500",
+    },
+    {
+      label: "Need Change",
+      value: "2",
+      icon: AlertTriangle,
+      color: "text-red-500",
+    },
+    { label: "Warning", value: "1", icon: Droplets, color: "text-orange-500" },
+    {
+      label: "Avg Temp",
+      value: "172°C",
+      icon: Thermometer,
+      color: "text-cyan-500",
+    },
+  ],
+};
+
 export function OilMonitoring() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [selectedOutlet, setSelectedOutlet] = useState("mall-abcd");
+
+  const trayData = useMemo(
+    () => trayDataPerOutlet[selectedOutlet] || _defaultTrayData,
+    [selectedOutlet],
+  );
+  const summaryStats = useMemo(
+    () => summaryStatsPerOutlet[selectedOutlet] || _defaultSummaryStats,
+    [selectedOutlet],
+  );
 
   useEffect(() => {
     const video = videoRef.current;
@@ -253,17 +595,18 @@ export function OilMonitoring() {
             </div>
           </CardHeader>
           <CardContent className="px-2 pb-2 pt-1">
-            <div className="relative h-[420px] rounded-md overflow-hidden bg-black">
+            <div className="relative h-[280px] rounded-md overflow-hidden bg-black">
               <video
                 ref={videoRef}
-                className="w-full h-full object-cover"
+                className="w-full"
                 autoPlay
                 loop
                 muted
                 playsInline
                 preload="auto"
               >
-                <source src="/minyak-hasil.mp4" type="video/mp4" />
+                ``
+                <source src="/minyak.mp4" type="video/mp4" />
               </video>
               {/* Bottom overlay */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
@@ -272,6 +615,27 @@ export function OilMonitoring() {
                   <span>Last Update: 5 sec ago</span>
                 </div>
               </div>
+            </div>
+
+            {/* Outlet Selector */}
+            <div className="flex items-center gap-2 mt-1.5">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+              <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
+                <SelectTrigger size="sm" className="w-full h-7 text-[10px]">
+                  <SelectValue placeholder="Pilih Outlet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {outlets.map((outlet) => (
+                    <SelectItem
+                      key={outlet.id}
+                      value={outlet.id}
+                      className="text-[10px]"
+                    >
+                      {outlet.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>

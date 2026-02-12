@@ -4,7 +4,8 @@ import { useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Zap, Eye, EyeOff, Loader2, ArrowRight } from "lucide-react";
+import Image from "next/image";
+import { Eye, EyeOff, Loader2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -167,15 +168,19 @@ export default function LoginPage() {
           {/* Logo */}
           <div className="text-center">
             <Link href="/" className="inline-flex items-center gap-3 group">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25 transition-transform group-hover:scale-105">
-                <Zap className="h-7 w-7 text-white" />
-              </div>
+              <Image
+                src="/logo-protectcube.png"
+                alt="ProtectQube"
+                width={48}
+                height={48}
+                className="transition-transform group-hover:scale-105"
+              />
               <div className="text-left">
                 <h1 className="text-2xl font-bold tracking-tight">
-                  Energy Monitoring
+                  ProtectQube
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  by ProtectQube
+                  Energy Monitoring System
                 </p>
               </div>
             </Link>
@@ -194,7 +199,7 @@ export default function LoginPage() {
           </Suspense>
 
           <p className="text-center text-xs text-muted-foreground">
-            &copy; {new Date().getFullYear()} Energy Monitoring System
+            &copy; {new Date().getFullYear()} ProtectQube
           </p>
         </div>
       </div>
