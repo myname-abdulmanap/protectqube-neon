@@ -247,13 +247,7 @@ export function OilMonitoring() {
                   margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
                 >
                   <defs>
-                    <linearGradient
-                      id="fillEmpty"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
+                    <linearGradient id="fillEmpty" x1="0" y1="0" x2="0" y2="1">
                       <stop
                         offset="0%"
                         stopColor="hsl(0, 84%, 60%)"
