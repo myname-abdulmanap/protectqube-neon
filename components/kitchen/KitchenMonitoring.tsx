@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Hand, Shirt, HardHat, Droplets, Users } from "lucide-react";
+import { Hand, Shirt, Droplets, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -50,7 +50,6 @@ const hourlyChartConfig: ChartConfig = {
 const trendChartConfig: ChartConfig = {
   glove: { label: "Sarung Tangan", color: "hsl(45, 93%, 47%)" },
   apron: { label: "Apron", color: "hsl(25, 95%, 53%)" },
-  headcover: { label: "Penutup Kepala", color: "hsl(0, 84%, 60%)" },
 };
 
 const complianceChartConfig: ChartConfig = {
@@ -98,15 +97,6 @@ export function KitchenMonitoring() {
       icon: Shirt,
       color: "text-orange-500",
       bg: "from-orange-500/10 to-orange-500/5",
-    },
-    {
-      label: "Tanpa Penutup Kepala",
-      value: outletData
-        ? Math.round(d.headcoverViolations / 5)
-        : d.headcoverViolations,
-      icon: HardHat,
-      color: "text-red-500",
-      bg: "from-red-500/10 to-red-500/5",
     },
     {
       label: "Dirty Oil Found",
@@ -168,7 +158,7 @@ export function KitchenMonitoring() {
       )}
 
       {/* KPI Cards */}
-      <motion.div variants={itemVariants} className="grid grid-cols-5 gap-1">
+      <motion.div variants={itemVariants} className="grid grid-cols-4 gap-1">
         {kpiCards.map((stat, i) => {
           const Icon = stat.icon;
           return (
@@ -299,13 +289,6 @@ export function KitchenMonitoring() {
                     type="monotone"
                     dataKey="apron"
                     stroke="hsl(25, 95%, 53%)"
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="headcover"
-                    stroke="hsl(0, 84%, 60%)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />

@@ -63,6 +63,10 @@ const outletChartConfig: ChartConfig = {
   alerts: { label: "Alerts", color: "hsl(0, 84%, 60%)" },
 };
 
+const emptyFryerChartConfig: ChartConfig = {
+  emptyFryer: { label: "Empty Fryer", color: "hsl(0, 84%, 60%)" },
+};
+
 export function OilMonitoring() {
   const [selectedOutlet, setSelectedOutlet] = useState("all");
   const d = oilOverviewData;
@@ -220,6 +224,68 @@ export function OilMonitoring() {
                     dot={{ r: 2 }}
                   />
                 </LineChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Empty Fryer Harian */}
+        <motion.div variants={itemVariants}>
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="px-2 pt-1.5 pb-0">
+              <CardTitle className="text-[10px] font-semibold">
+                Empty Fryer Harian
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-1 pb-1 pt-1">
+              <ChartContainer
+                config={emptyFryerChartConfig}
+                className="h-[130px] w-full"
+              >
+                <BarChart
+                  data={d.dailyQuality}
+                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="fillEmpty"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor="hsl(0, 84%, 60%)"
+                        stopOpacity={0.9}
+                      />
+                      <stop
+                        offset="100%"
+                        stopColor="hsl(0, 84%, 60%)"
+                        stopOpacity={0.3}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar
+                    dataKey="emptyFryer"
+                    fill="url(#fillEmpty)"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={20}
+                  />
+                </BarChart>
               </ChartContainer>
             </CardContent>
           </Card>

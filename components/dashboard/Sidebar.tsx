@@ -497,7 +497,7 @@ export default function Sidebar({ user }: SidebarProps) {
                     alt="ProtectQube"
                     width={120}
                     height={32}
-                    className="h-6 w-auto"
+                    className="h-6 w-auto dark:invert dark:hue-rotate-180"
                   />
                 </motion.div>
               )}
@@ -596,7 +596,7 @@ export default function Sidebar({ user }: SidebarProps) {
                     alt="ProtectQube"
                     width={120}
                     height={32}
-                    className="h-7 w-auto"
+                    className="h-7 w-auto dark:invert dark:hue-rotate-180"
                   />
                 </div>
                 <Button

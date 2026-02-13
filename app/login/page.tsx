@@ -173,9 +173,8 @@ export default function LoginPage() {
                 alt="ProtectQube"
                 width={150}
                 height={150}
-                className="transition-transform group-hover:scale-105"
+                className="transition-transform group-hover:scale-105 dark:invert dark:hue-rotate-180"
               />
-              
             </Link>
           </div>
 

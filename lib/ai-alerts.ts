@@ -173,11 +173,10 @@ export interface KitchenOverview {
   activeWorkers: number;
   gloveViolations: number;
   apronViolations: number;
-  headcoverViolations: number;
   dirtyOilDetected: number;
   totalAttributeViolations: number;
   hourlyViolations: number[];
-  dailyTrend: { day: string; glove: number; apron: number; headcover: number }[];
+  dailyTrend: { day: string; glove: number; apron: number }[];
   outletBreakdown: { outlet: string; outletId: string; violations: number; compliance: number }[];
   complianceRate: { day: string; rate: number }[];
   violationsByType: { type: string; count: number; color: string }[];
@@ -185,16 +184,16 @@ export interface KitchenOverview {
 
 export const kitchenOverviewData: KitchenOverview = {
   activeWorkers: 8, gloveViolations: 7, apronViolations: 4,
-  headcoverViolations: 3, dirtyOilDetected: 3, totalAttributeViolations: 14,
+  dirtyOilDetected: 3, totalAttributeViolations: 11,
   hourlyViolations: [0, 0, 0, 0, 0, 0, 1, 3, 2, 1, 1, 2, 0, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
   dailyTrend: [
-    { day: "Sen", glove: 5, apron: 3, headcover: 2 },
-    { day: "Sel", glove: 8, apron: 4, headcover: 3 },
-    { day: "Rab", glove: 6, apron: 2, headcover: 1 },
-    { day: "Kam", glove: 4, apron: 5, headcover: 2 },
-    { day: "Jum", glove: 3, apron: 2, headcover: 1 },
-    { day: "Sab", glove: 9, apron: 6, headcover: 4 },
-    { day: "Min", glove: 7, apron: 4, headcover: 3 },
+    { day: "Sen", glove: 5, apron: 3 },
+    { day: "Sel", glove: 8, apron: 4 },
+    { day: "Rab", glove: 6, apron: 2 },
+    { day: "Kam", glove: 4, apron: 5 },
+    { day: "Jum", glove: 3, apron: 2 },
+    { day: "Sab", glove: 9, apron: 6 },
+    { day: "Min", glove: 7, apron: 4 },
   ],
   outletBreakdown: [
     { outlet: "Mall ABCD", outletId: "mall-abcd", violations: 5, compliance: 78 },
@@ -215,7 +214,6 @@ export const kitchenOverviewData: KitchenOverview = {
   violationsByType: [
     { type: "Tanpa Sarung Tangan", count: 7, color: "hsl(45, 93%, 47%)" },
     { type: "Tanpa Apron", count: 4, color: "hsl(25, 95%, 53%)" },
-    { type: "Tanpa Penutup Kepala", count: 3, color: "hsl(0, 84%, 60%)" },
     { type: "Dirty Oil", count: 3, color: "hsl(271, 91%, 65%)" },
   ],
 };

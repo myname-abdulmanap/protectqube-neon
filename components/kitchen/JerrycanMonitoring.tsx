@@ -107,7 +107,7 @@ export function JerrycanMonitoring() {
       bg: "from-red-500/10 to-red-500/5",
     },
     {
-      label: "Person + Apron",
+      label: "Person",
       value: outletData ? Math.round(d.personWithApron / 5) : d.personWithApron,
       icon: Shirt,
       color: "text-green-500",
