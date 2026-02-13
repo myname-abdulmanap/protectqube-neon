@@ -53,8 +53,8 @@ const severitySections: {
     badgeColor: "border-blue-500/30 text-blue-500 bg-blue-500/10",
   },
   {
-    key: "Warning",
-    label: "Warning Alerts",
+    key: "Health",
+    label: "Health Alerts",
     icon: AlertTriangle,
     color: "text-amber-500",
     badgeColor: "border-amber-500/30 text-amber-500 bg-amber-500/10",
@@ -98,7 +98,7 @@ export function AlertsView({ alerts, summary }: AlertsViewProps) {
     return {
       Critical: filteredAlerts.filter((a) => a.severity === "Critical"),
       Suspicious: filteredAlerts.filter((a) => a.severity === "Suspicious"),
-      Warning: filteredAlerts.filter((a) => a.severity === "Warning"),
+      Health: filteredAlerts.filter((a) => a.severity === "Health"),
     };
   }, [filteredAlerts]);
 

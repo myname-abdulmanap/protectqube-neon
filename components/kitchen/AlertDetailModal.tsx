@@ -52,17 +52,17 @@ const severityConfig: Record<
     icon: ShieldAlert,
     badgeBg: "bg-red-500/10 text-red-500 border-red-500/30",
   },
-  Warning: {
-    bg: "bg-amber-500/10",
-    text: "text-amber-500",
-    icon: AlertTriangle,
-    badgeBg: "bg-amber-500/10 text-amber-500 border-amber-500/30",
-  },
   Suspicious: {
     bg: "bg-blue-500/10",
     text: "text-blue-500",
     icon: Info,
     badgeBg: "bg-blue-500/10 text-blue-500 border-blue-500/30",
+  },
+  Health: {
+    bg: "bg-amber-500/10",
+    text: "text-amber-500",
+    icon: AlertTriangle,
+    badgeBg: "bg-amber-500/10 text-amber-500 border-amber-500/30",
   },
 };
 
@@ -83,7 +83,7 @@ function AlertLocationMap({ alert }: { alert: AIAlert }) {
       const severityColor =
         alert.severity === "Critical"
           ? "#ef4444"
-          : alert.severity === "Warning"
+          : alert.severity === "Health"
             ? "#f59e0b"
             : "#3b82f6";
       setLeafletIcon(

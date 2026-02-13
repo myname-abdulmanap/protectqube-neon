@@ -2,14 +2,8 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import {
-  Droplets,
-  CheckCircle2,
-  AlertTriangle,
-  Thermometer,
-} from "lucide-react";
+import { Droplets, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -48,16 +42,10 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
 
-const tdsChartConfig: ChartConfig = {
-  fryer1: { label: "Fryer 1", color: "hsl(142, 71%, 45%)" },
-  fryer2: { label: "Fryer 2", color: "hsl(271, 91%, 65%)" },
-  fryer3: { label: "Fryer 3", color: "hsl(0, 84%, 60%)" },
-};
-
 const qualityChartConfig: ChartConfig = {
   fresh: { label: "Fresh", color: "hsl(142, 71%, 45%)" },
   dirty: { label: "Dirty", color: "hsl(271, 91%, 65%)" },
-  needChange: { label: "Need Change", color: "hsl(0, 84%, 60%)" },
+  emptyFryer: { label: "Empty Fryer", color: "hsl(0, 84%, 60%)" },
 };
 
 const changesChartConfig: ChartConfig = {
@@ -72,7 +60,7 @@ const tempChartConfig: ChartConfig = {
 };
 
 const outletChartConfig: ChartConfig = {
-  avgTds: { label: "Avg TDS", color: "hsl(271, 91%, 65%)" },
+  alerts: { label: "Alerts", color: "hsl(0, 84%, 60%)" },
 };
 
 export function OilMonitoring() {
@@ -104,22 +92,13 @@ export function OilMonitoring() {
       bg: "from-purple-500/10 to-purple-500/5",
     },
     {
-      label: "Need Change",
+      label: "Empty Fryer",
       value: outletData
-        ? Math.max(0, Math.round(d.needChangeCount / 5))
-        : d.needChangeCount,
+        ? Math.max(0, Math.round(d.emptyFryerCount / 5))
+        : d.emptyFryerCount,
       icon: AlertTriangle,
       color: "text-red-500",
       bg: "from-red-500/10 to-red-500/5",
-    },
-    {
-      label: "Avg TDS",
-      value: outletData
-        ? outletData.avgTds
-        : Math.round(d.fryers.reduce((a, f) => a + f.tds, 0) / d.fryers.length),
-      icon: Thermometer,
-      color: "text-amber-500",
-      bg: "from-amber-500/10 to-amber-500/5",
     },
   ];
 
@@ -160,7 +139,7 @@ export function OilMonitoring() {
       )}
 
       {/* KPI Cards */}
-      <motion.div variants={itemVariants} className="grid grid-cols-4 gap-1">
+      <motion.div variants={itemVariants} className="grid grid-cols-3 gap-1">
         {kpiCards.map((stat, i) => {
           const Icon = stat.icon;
           return (
@@ -188,72 +167,6 @@ export function OilMonitoring() {
 
       {/* Charts Row 1 */}
       <div className="grid grid-cols-2 gap-1.5">
-        {/* TDS History */}
-        <motion.div variants={itemVariants}>
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="px-2 pt-1.5 pb-0">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-[10px] font-semibold">
-                  TDS History (Hari Ini)
-                </CardTitle>
-                <Badge
-                  variant="outline"
-                  className="text-[7px] px-1 py-0 h-3.5 border-red-500/30 text-red-500"
-                >
-                  Threshold: 25
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="px-1 pb-1 pt-1">
-              <ChartContainer
-                config={tdsChartConfig}
-                className="h-[130px] w-full"
-              >
-                <LineChart
-                  data={d.tdsHistory}
-                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="hour"
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                    domain={[0, 40]}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line
-                    type="monotone"
-                    dataKey="fryer1"
-                    stroke="hsl(142, 71%, 45%)"
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="fryer2"
-                    stroke="hsl(271, 91%, 65%)"
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="fryer3"
-                    stroke="hsl(0, 84%, 60%)"
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                  />
-                </LineChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
-
         {/* Temperature History */}
         <motion.div variants={itemVariants}>
           <Card className="border-0 shadow-sm">
@@ -360,7 +273,7 @@ export function OilMonitoring() {
                     maxBarSize={20}
                   />
                   <Bar
-                    dataKey="needChange"
+                    dataKey="emptyFryer"
                     stackId="q"
                     fill="hsl(0, 84%, 60%)"
                     radius={[3, 3, 0, 0]}
@@ -426,7 +339,7 @@ export function OilMonitoring() {
         <Card className="border-0 shadow-sm">
           <CardHeader className="px-2 pt-1.5 pb-0">
             <CardTitle className="text-[10px] font-semibold">
-              Perbandingan Outlet — Avg TDS
+              Perbandingan Outlet — Alerts
             </CardTitle>
           </CardHeader>
           <CardContent className="px-1 pb-1 pt-1">
@@ -439,15 +352,15 @@ export function OilMonitoring() {
                 margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
               >
                 <defs>
-                  <linearGradient id="fillTds" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="fillAlerts" x1="0" y1="0" x2="0" y2="1">
                     <stop
                       offset="0%"
-                      stopColor="hsl(271, 91%, 65%)"
+                      stopColor="hsl(0, 84%, 60%)"
                       stopOpacity={0.9}
                     />
                     <stop
                       offset="100%"
-                      stopColor="hsl(271, 91%, 65%)"
+                      stopColor="hsl(0, 84%, 60%)"
                       stopOpacity={0.3}
                     />
                   </linearGradient>
@@ -466,8 +379,8 @@ export function OilMonitoring() {
                 />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar
-                  dataKey="avgTds"
-                  fill="url(#fillTds)"
+                  dataKey="alerts"
+                  fill="url(#fillAlerts)"
                   radius={[3, 3, 0, 0]}
                   maxBarSize={28}
                 />

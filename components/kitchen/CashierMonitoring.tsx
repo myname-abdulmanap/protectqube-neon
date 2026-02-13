@@ -8,7 +8,7 @@ import {
   UserCheck,
   ShieldAlert,
   Banknote,
-  TrendingUp,
+  CloudSun,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -60,13 +60,8 @@ const trendChartConfig: ChartConfig = {
   ojol: { label: "OJOL", color: "hsl(142, 71%, 45%)" },
 };
 
-const upsellingChartConfig: ChartConfig = {
-  detected: { label: "Detected", color: "hsl(142, 71%, 45%)" },
-  missed: { label: "Missed", color: "hsl(0, 84%, 60%)" },
-};
-
-const revenueChartConfig: ChartConfig = {
-  revenue: { label: "Revenue (Rp)", color: "hsl(217, 91%, 60%)" },
+const weatherChartConfig: ChartConfig = {
+  customers: { label: "Pelanggan", color: "hsl(217, 91%, 60%)" },
 };
 
 const outletChartConfig: ChartConfig = {
@@ -119,11 +114,6 @@ export function CashierMonitoring() {
   const hourlyData = d.hourlyVisitors.slice(6, 22).map((v, i) => ({
     hour: String(i + 6).padStart(2, "0"),
     visitors: selectedOutlet === "all" ? v : Math.round(v / 5),
-  }));
-
-  const revenueData = d.hourlyRevenue.map((r) => ({
-    ...r,
-    revenue: selectedOutlet === "all" ? r.revenue : Math.round(r.revenue / 5),
   }));
 
   const overviewContent = (
@@ -253,26 +243,31 @@ export function CashierMonitoring() {
           </Card>
         </motion.div>
 
-        {/* Revenue per Jam */}
+        {/* Weather vs Customer Insight */}
         <motion.div variants={itemVariants}>
           <Card className="border-0 shadow-sm">
             <CardHeader className="px-2 pt-1.5 pb-0">
-              <CardTitle className="text-[10px] font-semibold">
-                Revenue per Jam (Rp 000)
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <CloudSun className="h-3 w-3 text-blue-500" />
+                  <CardTitle className="text-[10px] font-semibold">
+                    Cuaca vs Pelanggan
+                  </CardTitle>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="px-1 pb-1 pt-1">
               <ChartContainer
-                config={revenueChartConfig}
+                config={weatherChartConfig}
                 className="h-[130px] w-full"
               >
                 <BarChart
-                  data={revenueData}
+                  data={d.weatherCustomers}
                   margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
                 >
                   <defs>
                     <linearGradient
-                      id="fillRevenue"
+                      id="fillWeather"
                       x1="0"
                       y1="0"
                       x2="0"
@@ -292,7 +287,7 @@ export function CashierMonitoring() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
-                    dataKey="hour"
+                    dataKey="weather"
                     tick={{ fontSize: 8 }}
                     tickLine={false}
                     axisLine={false}
@@ -301,14 +296,13 @@ export function CashierMonitoring() {
                     tick={{ fontSize: 8 }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar
-                    dataKey="revenue"
-                    fill="url(#fillRevenue)"
+                    dataKey="customers"
+                    fill="url(#fillWeather)"
                     radius={[3, 3, 0, 0]}
-                    maxBarSize={20}
+                    maxBarSize={28}
                   />
                 </BarChart>
               </ChartContainer>
@@ -369,70 +363,6 @@ export function CashierMonitoring() {
           </Card>
         </motion.div>
 
-        {/* Upselling Weekly */}
-        <motion.div variants={itemVariants}>
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="px-2 pt-1.5 pb-0">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-[10px] font-semibold">
-                  Upselling Mingguan
-                </CardTitle>
-                <Badge
-                  variant="outline"
-                  className="text-[7px] px-1 py-0 h-3.5 border-green-500/30 text-green-500"
-                >
-                  {Math.round(
-                    (d.upsellingDetected /
-                      (d.upsellingDetected + d.upsellingMissed)) *
-                      100,
-                  )}
-                  % rate
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="px-1 pb-1 pt-1">
-              <ChartContainer
-                config={upsellingChartConfig}
-                className="h-[130px] w-full"
-              >
-                <BarChart
-                  data={d.weeklyUpselling}
-                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="day"
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="detected"
-                    fill="hsl(142, 71%, 45%)"
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={16}
-                  />
-                  <Bar
-                    dataKey="missed"
-                    fill="hsl(0, 84%, 60%)"
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={16}
-                  />
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Charts Row 3 — 2 columns */}
-      <div className="grid grid-cols-2 gap-1.5">
         {/* Outlet Comparison */}
         <motion.div variants={itemVariants}>
           <Card className="border-0 shadow-sm">
@@ -509,7 +439,7 @@ export function CashierMonitoring() {
                       <span className="flex-1 truncate">{e.description}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[6px] px-0.5 py-0 h-3 ${e.severity === "Critical" ? "border-red-500/30 text-red-500" : e.severity === "Warning" ? "border-amber-500/30 text-amber-500" : "border-blue-500/30 text-blue-500"}`}
+                        className={`text-[6px] px-0.5 py-0 h-3 ${e.severity === "Critical" ? "border-red-500/30 text-red-500" : e.severity === "Health" ? "border-amber-500/30 text-amber-500" : "border-blue-500/30 text-blue-500"}`}
                       >
                         {e.severity}
                       </Badge>

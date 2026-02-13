@@ -22,43 +22,37 @@ const summaryItems = [
     key: "totalDevices",
     label: "Total Devices",
     icon: Monitor,
-    color: "text-slate-500",
-    bg: "from-slate-500/10 to-slate-500/5",
+    bg: "bg-purple-600",
   },
   {
     key: "activeDevices",
     label: "Active Devices",
     icon: Wifi,
-    color: "text-green-500",
-    bg: "from-green-500/10 to-green-500/5",
+    bg: "bg-green-600",
   },
   {
     key: "totalAlertsToday",
     label: "AI Alerts Today",
     icon: Bell,
-    color: "text-violet-500",
-    bg: "from-violet-500/10 to-violet-500/5",
+    bg: "bg-violet-600",
   },
   {
     key: "criticalAlerts",
     label: "Critical",
     icon: ShieldAlert,
-    color: "text-red-500",
-    bg: "from-red-500/10 to-red-500/5",
+    bg: "bg-red-600",
   },
   {
     key: "suspiciousAlerts",
     label: "Suspicious",
     icon: Info,
-    color: "text-blue-500",
-    bg: "from-blue-500/10 to-blue-500/5",
+    bg: "bg-blue-600",
   },
   {
-    key: "warningAlerts",
-    label: "Warning",
+    key: "healthAlerts",
+    label: "Health",
     icon: AlertTriangle,
-    color: "text-amber-500",
-    bg: "from-amber-500/10 to-amber-500/5",
+    bg: "bg-amber-500",
   },
 ] as const;
 
@@ -75,18 +69,18 @@ export function AISummaryCards({ summary }: AISummaryCardsProps) {
         return (
           <Card
             key={item.key}
-            className={`border-0 shadow-sm bg-gradient-to-br ${item.bg}`}
+            className={`border-0 shadow-lg rounded-xl ${item.bg} text-white`}
           >
             <CardContent className="p-2">
               <div className="flex items-center gap-1.5">
-                <div className="h-5 w-5 rounded bg-background/80 flex items-center justify-center flex-shrink-0">
-                  <Icon className={`h-3 w-3 ${item.color}`} />
+                <div className="h-5 w-5 rounded bg-white/20 flex items-center justify-center flex-shrink-0">
+                  <Icon className="h-3 w-3 text-white" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[7px] text-muted-foreground truncate">
+                  <p className="text-[7px] text-white/80 truncate">
                     {item.label}
                   </p>
-                  <p className="text-sm font-bold">{value}</p>
+                  <p className="text-sm font-extrabold">{value}</p>
                 </div>
               </div>
             </CardContent>

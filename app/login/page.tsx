@@ -171,18 +171,11 @@ export default function LoginPage() {
               <Image
                 src="/logo-protectcube.png"
                 alt="ProtectQube"
-                width={48}
-                height={48}
+                width={150}
+                height={150}
                 className="transition-transform group-hover:scale-105"
               />
-              <div className="text-left">
-                <h1 className="text-2xl font-bold tracking-tight">
-                  ProtectQube
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  Energy Monitoring System
-                </p>
-              </div>
+              
             </Link>
           </div>
 

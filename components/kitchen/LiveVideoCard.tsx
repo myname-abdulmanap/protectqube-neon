@@ -37,7 +37,10 @@ export function LiveVideoCard({ src, outletName }: LiveVideoCardProps) {
           </CardTitle>
         </CardHeader>
         <CardContent className="px-2 pb-1.5 pt-1 flex justify-center">
-          <div className="relative rounded-md overflow-hidden bg-black" style={{ width: 600, height: 340 }}>
+          <div
+            className="relative rounded-md overflow-hidden bg-black"
+            style={{ width: 600, height: 340 }}
+          >
             <video
               ref={videoRef}
               key={src}

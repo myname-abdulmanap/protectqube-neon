@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Hand, Shirt, HardHat, Droplets, Package } from "lucide-react";
+import { Hand, Shirt, HardHat, Droplets, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -77,6 +77,15 @@ export function KitchenMonitoring() {
 
   const kpiCards = [
     {
+      label: "Pegawai Aktif",
+      value: outletData
+        ? Math.max(1, Math.round(d.activeWorkers / 5))
+        : d.activeWorkers,
+      icon: Users,
+      color: "text-blue-500",
+      bg: "from-blue-500/10 to-blue-500/5",
+    },
+    {
       label: "Tanpa Sarung Tangan",
       value: outletData ? Math.round(d.gloveViolations / 5) : d.gloveViolations,
       icon: Hand,
@@ -91,11 +100,13 @@ export function KitchenMonitoring() {
       bg: "from-orange-500/10 to-orange-500/5",
     },
     {
-      label: "Person + Drum",
-      value: outletData ? Math.round(d.personWithDrum / 5) : d.personWithDrum,
-      icon: Package,
-      color: "text-blue-500",
-      bg: "from-blue-500/10 to-blue-500/5",
+      label: "Tanpa Penutup Kepala",
+      value: outletData
+        ? Math.round(d.headcoverViolations / 5)
+        : d.headcoverViolations,
+      icon: HardHat,
+      color: "text-red-500",
+      bg: "from-red-500/10 to-red-500/5",
     },
     {
       label: "Dirty Oil Found",
@@ -103,8 +114,8 @@ export function KitchenMonitoring() {
         ? Math.round(d.dirtyOilDetected / 5)
         : d.dirtyOilDetected,
       icon: Droplets,
-      color: "text-red-500",
-      bg: "from-red-500/10 to-red-500/5",
+      color: "text-purple-500",
+      bg: "from-purple-500/10 to-purple-500/5",
     },
   ];
 
@@ -157,7 +168,7 @@ export function KitchenMonitoring() {
       )}
 
       {/* KPI Cards */}
-      <motion.div variants={itemVariants} className="grid grid-cols-4 gap-1">
+      <motion.div variants={itemVariants} className="grid grid-cols-5 gap-1">
         {kpiCards.map((stat, i) => {
           const Icon = stat.icon;
           return (
