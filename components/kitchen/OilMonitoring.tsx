@@ -1,19 +1,16 @@
 "use client";
 
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Droplets,
-  Clock,
-  AlertTriangle,
   CheckCircle2,
+  AlertTriangle,
   Thermometer,
-  MapPin,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -21,463 +18,114 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const outlets = [
-  { id: "mall-abcd", name: "Recheese Mall ABCD" },
-  { id: "central-park", name: "Recheese Central Park" },
-  { id: "paris-van-java", name: "Recheese Paris Van Java" },
-  { id: "tunjungan-plaza", name: "Recheese Tunjungan Plaza" },
-  { id: "paragon-mall", name: "Recheese Paragon Mall" },
-];
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
+import { AISummaryCards } from "./AISummaryCards";
+import { LiveVideoCard } from "./LiveVideoCard";
+import { AlertsView } from "./AlertsView";
+import {
+  oilDeviceSummary,
+  oilAlerts,
+  oilOverviewData,
+  outlets,
+} from "@/lib/ai-alerts";
 
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
 
-const _defaultTrayData = [
-  {
-    id: 1,
-    name: "Tray #1",
-    oilColor: "Dark Yellow",
-    colorHex: "#b8860b",
-    status: "Need Change",
-    statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
-    startTime: "06:00 AM",
-    duration: "8h 30m",
-    temp: "175°C",
-    tds: 24,
-  },
-  {
-    id: 2,
-    name: "Tray #2",
-    oilColor: "Clear Yellow",
-    colorHex: "#ffd700",
-    status: "Fresh Oil",
-    statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
-    startTime: "10:30 AM",
-    duration: "4h 00m",
-    temp: "170°C",
-    tds: 8,
-  },
-  {
-    id: 3,
-    name: "Tray #3",
-    oilColor: "Brown Black",
-    colorHex: "#3b2f2f",
-    status: "Need Change",
-    statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
-    startTime: "05:30 AM",
-    duration: "9h 00m",
-    temp: "180°C",
-    tds: 31,
-  },
-  {
-    id: 4,
-    name: "Tray #4",
-    oilColor: "Light Yellow",
-    colorHex: "#ffe066",
-    status: "Good",
-    statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
-    startTime: "08:00 AM",
-    duration: "6h 30m",
-    temp: "165°C",
-    tds: 14,
-  },
-  {
-    id: 5,
-    name: "Tray #5",
-    oilColor: "Dark Brown",
-    colorHex: "#654321",
-    status: "Warning",
-    statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
-    startTime: "07:00 AM",
-    duration: "7h 30m",
-    temp: "172°C",
-    tds: 22,
-  },
-];
-
-const _defaultSummaryStats = [
-  {
-    label: "Fresh Oil",
-    value: "2",
-    icon: CheckCircle2,
-    color: "text-green-500",
-  },
-  {
-    label: "Need Change",
-    value: "2",
-    icon: AlertTriangle,
-    color: "text-red-500",
-  },
-  { label: "Warning", value: "1", icon: Droplets, color: "text-orange-500" },
-  {
-    label: "Avg Temp",
-    value: "172°C",
-    icon: Thermometer,
-    color: "text-cyan-500",
-  },
-];
-
-const trayDataPerOutlet: Record<string, typeof _defaultTrayData> = {
-  "mall-abcd": _defaultTrayData,
-  "central-park": [
-    {
-      id: 1,
-      name: "Tray #1",
-      oilColor: "Clear Yellow",
-      colorHex: "#ffd700",
-      status: "Fresh Oil",
-      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
-      startTime: "07:00 AM",
-      duration: "5h 00m",
-      temp: "168°C",
-      tds: 6,
-    },
-    {
-      id: 2,
-      name: "Tray #2",
-      oilColor: "Light Yellow",
-      colorHex: "#ffe066",
-      status: "Good",
-      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
-      startTime: "06:30 AM",
-      duration: "5h 30m",
-      temp: "170°C",
-      tds: 12,
-    },
-    {
-      id: 3,
-      name: "Tray #3",
-      oilColor: "Dark Yellow",
-      colorHex: "#b8860b",
-      status: "Warning",
-      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
-      startTime: "06:00 AM",
-      duration: "6h 00m",
-      temp: "174°C",
-      tds: 20,
-    },
-    {
-      id: 4,
-      name: "Tray #4",
-      oilColor: "Clear Yellow",
-      colorHex: "#ffd700",
-      status: "Fresh Oil",
-      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
-      startTime: "09:00 AM",
-      duration: "3h 00m",
-      temp: "165°C",
-      tds: 5,
-    },
-  ],
-  "paris-van-java": [
-    {
-      id: 1,
-      name: "Tray #1",
-      oilColor: "Brown Black",
-      colorHex: "#3b2f2f",
-      status: "Need Change",
-      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
-      startTime: "05:00 AM",
-      duration: "10h 00m",
-      temp: "182°C",
-      tds: 33,
-    },
-    {
-      id: 2,
-      name: "Tray #2",
-      oilColor: "Dark Brown",
-      colorHex: "#654321",
-      status: "Need Change",
-      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
-      startTime: "05:30 AM",
-      duration: "9h 30m",
-      temp: "179°C",
-      tds: 29,
-    },
-    {
-      id: 3,
-      name: "Tray #3",
-      oilColor: "Dark Yellow",
-      colorHex: "#b8860b",
-      status: "Warning",
-      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
-      startTime: "07:00 AM",
-      duration: "8h 00m",
-      temp: "176°C",
-      tds: 23,
-    },
-    {
-      id: 4,
-      name: "Tray #4",
-      oilColor: "Clear Yellow",
-      colorHex: "#ffd700",
-      status: "Fresh Oil",
-      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
-      startTime: "11:00 AM",
-      duration: "4h 00m",
-      temp: "167°C",
-      tds: 7,
-    },
-    {
-      id: 5,
-      name: "Tray #5",
-      oilColor: "Light Yellow",
-      colorHex: "#ffe066",
-      status: "Good",
-      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
-      startTime: "09:30 AM",
-      duration: "5h 30m",
-      temp: "169°C",
-      tds: 13,
-    },
-    {
-      id: 6,
-      name: "Tray #6",
-      oilColor: "Dark Yellow",
-      colorHex: "#b8860b",
-      status: "Warning",
-      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
-      startTime: "06:30 AM",
-      duration: "8h 30m",
-      temp: "175°C",
-      tds: 21,
-    },
-  ],
-  "tunjungan-plaza": [
-    {
-      id: 1,
-      name: "Tray #1",
-      oilColor: "Clear Yellow",
-      colorHex: "#ffd700",
-      status: "Fresh Oil",
-      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
-      startTime: "08:00 AM",
-      duration: "4h 00m",
-      temp: "166°C",
-      tds: 5,
-    },
-    {
-      id: 2,
-      name: "Tray #2",
-      oilColor: "Light Yellow",
-      colorHex: "#ffe066",
-      status: "Good",
-      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
-      startTime: "07:30 AM",
-      duration: "4h 30m",
-      temp: "168°C",
-      tds: 10,
-    },
-    {
-      id: 3,
-      name: "Tray #3",
-      oilColor: "Light Yellow",
-      colorHex: "#ffe066",
-      status: "Good",
-      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
-      startTime: "07:00 AM",
-      duration: "5h 00m",
-      temp: "170°C",
-      tds: 15,
-    },
-  ],
-  "paragon-mall": [
-    {
-      id: 1,
-      name: "Tray #1",
-      oilColor: "Dark Yellow",
-      colorHex: "#b8860b",
-      status: "Warning",
-      statusColor: "text-orange-500 bg-orange-500/10 border-orange-500/30",
-      startTime: "06:00 AM",
-      duration: "7h 00m",
-      temp: "173°C",
-      tds: 19,
-    },
-    {
-      id: 2,
-      name: "Tray #2",
-      oilColor: "Clear Yellow",
-      colorHex: "#ffd700",
-      status: "Fresh Oil",
-      statusColor: "text-green-500 bg-green-500/10 border-green-500/30",
-      startTime: "10:00 AM",
-      duration: "3h 00m",
-      temp: "164°C",
-      tds: 4,
-    },
-    {
-      id: 3,
-      name: "Tray #3",
-      oilColor: "Brown Black",
-      colorHex: "#3b2f2f",
-      status: "Need Change",
-      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
-      startTime: "05:00 AM",
-      duration: "8h 00m",
-      temp: "178°C",
-      tds: 28,
-    },
-    {
-      id: 4,
-      name: "Tray #4",
-      oilColor: "Light Yellow",
-      colorHex: "#ffe066",
-      status: "Good",
-      statusColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
-      startTime: "08:30 AM",
-      duration: "4h 30m",
-      temp: "167°C",
-      tds: 11,
-    },
-    {
-      id: 5,
-      name: "Tray #5",
-      oilColor: "Dark Brown",
-      colorHex: "#654321",
-      status: "Need Change",
-      statusColor: "text-red-500 bg-red-500/10 border-red-500/30",
-      startTime: "05:30 AM",
-      duration: "7h 30m",
-      temp: "177°C",
-      tds: 27,
-    },
-  ],
+const tdsChartConfig: ChartConfig = {
+  fryer1: { label: "Fryer 1", color: "hsl(142, 71%, 45%)" },
+  fryer2: { label: "Fryer 2", color: "hsl(271, 91%, 65%)" },
+  fryer3: { label: "Fryer 3", color: "hsl(0, 84%, 60%)" },
 };
 
-const summaryStatsPerOutlet: Record<string, typeof _defaultSummaryStats> = {
-  "mall-abcd": _defaultSummaryStats,
-  "central-park": [
-    {
-      label: "Fresh Oil",
-      value: "2",
-      icon: CheckCircle2,
-      color: "text-green-500",
-    },
-    {
-      label: "Need Change",
-      value: "0",
-      icon: AlertTriangle,
-      color: "text-red-500",
-    },
-    { label: "Warning", value: "1", icon: Droplets, color: "text-orange-500" },
-    {
-      label: "Avg Temp",
-      value: "169°C",
-      icon: Thermometer,
-      color: "text-cyan-500",
-    },
-  ],
-  "paris-van-java": [
-    {
-      label: "Fresh Oil",
-      value: "1",
-      icon: CheckCircle2,
-      color: "text-green-500",
-    },
-    {
-      label: "Need Change",
-      value: "2",
-      icon: AlertTriangle,
-      color: "text-red-500",
-    },
-    { label: "Warning", value: "2", icon: Droplets, color: "text-orange-500" },
-    {
-      label: "Avg Temp",
-      value: "175°C",
-      icon: Thermometer,
-      color: "text-cyan-500",
-    },
-  ],
-  "tunjungan-plaza": [
-    {
-      label: "Fresh Oil",
-      value: "1",
-      icon: CheckCircle2,
-      color: "text-green-500",
-    },
-    {
-      label: "Need Change",
-      value: "0",
-      icon: AlertTriangle,
-      color: "text-red-500",
-    },
-    { label: "Warning", value: "0", icon: Droplets, color: "text-orange-500" },
-    {
-      label: "Avg Temp",
-      value: "168°C",
-      icon: Thermometer,
-      color: "text-cyan-500",
-    },
-  ],
-  "paragon-mall": [
-    {
-      label: "Fresh Oil",
-      value: "1",
-      icon: CheckCircle2,
-      color: "text-green-500",
-    },
-    {
-      label: "Need Change",
-      value: "2",
-      icon: AlertTriangle,
-      color: "text-red-500",
-    },
-    { label: "Warning", value: "1", icon: Droplets, color: "text-orange-500" },
-    {
-      label: "Avg Temp",
-      value: "172°C",
-      icon: Thermometer,
-      color: "text-cyan-500",
-    },
-  ],
+const qualityChartConfig: ChartConfig = {
+  fresh: { label: "Fresh", color: "hsl(142, 71%, 45%)" },
+  dirty: { label: "Dirty", color: "hsl(271, 91%, 65%)" },
+  needChange: { label: "Need Change", color: "hsl(0, 84%, 60%)" },
+};
+
+const changesChartConfig: ChartConfig = {
+  scheduled: { label: "Terjadwal", color: "hsl(217, 91%, 60%)" },
+  unscheduled: { label: "Tidak Terjadwal", color: "hsl(45, 93%, 47%)" },
+};
+
+const tempChartConfig: ChartConfig = {
+  fryer1: { label: "Fryer 1", color: "hsl(217, 91%, 60%)" },
+  fryer2: { label: "Fryer 2", color: "hsl(25, 95%, 53%)" },
+  fryer3: { label: "Fryer 3", color: "hsl(0, 84%, 60%)" },
+};
+
+const outletChartConfig: ChartConfig = {
+  avgTds: { label: "Avg TDS", color: "hsl(271, 91%, 65%)" },
 };
 
 export function OilMonitoring() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [selectedOutlet, setSelectedOutlet] = useState("mall-abcd");
+  const [selectedOutlet, setSelectedOutlet] = useState("all");
+  const d = oilOverviewData;
 
-  const trayData = useMemo(
-    () => trayDataPerOutlet[selectedOutlet] || _defaultTrayData,
-    [selectedOutlet],
-  );
-  const summaryStats = useMemo(
-    () => summaryStatsPerOutlet[selectedOutlet] || _defaultSummaryStats,
-    [selectedOutlet],
-  );
+  const outletData =
+    selectedOutlet === "all"
+      ? null
+      : d.outletBreakdown.find((o) => o.outletId === selectedOutlet);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+  const kpiCards = [
+    {
+      label: "Fresh Oil",
+      value: outletData
+        ? Math.max(0, Math.round(d.freshOilCount / 5))
+        : d.freshOilCount,
+      icon: CheckCircle2,
+      color: "text-green-500",
+      bg: "from-green-500/10 to-green-500/5",
+    },
+    {
+      label: "Dirty Oil",
+      value: outletData
+        ? Math.max(0, Math.round(d.dirtyOilCount / 5))
+        : d.dirtyOilCount,
+      icon: Droplets,
+      color: "text-purple-500",
+      bg: "from-purple-500/10 to-purple-500/5",
+    },
+    {
+      label: "Need Change",
+      value: outletData
+        ? Math.max(0, Math.round(d.needChangeCount / 5))
+        : d.needChangeCount,
+      icon: AlertTriangle,
+      color: "text-red-500",
+      bg: "from-red-500/10 to-red-500/5",
+    },
+    {
+      label: "Avg TDS",
+      value: outletData
+        ? outletData.avgTds
+        : Math.round(d.fryers.reduce((a, f) => a + f.tds, 0) / d.fryers.length),
+      icon: Thermometer,
+      color: "text-amber-500",
+      bg: "from-amber-500/10 to-amber-500/5",
+    },
+  ];
 
-    const tryPlay = () => {
-      video.muted = true;
-      video.play().catch(() => {});
-    };
-
-    const timer = setTimeout(() => {
-      video.load();
-      if (video.readyState >= 3) {
-        tryPlay();
-      } else {
-        video.addEventListener("canplay", tryPlay, { once: true });
-        video.addEventListener("loadeddata", tryPlay, { once: true });
-      }
-    }, 800);
-
-    return () => {
-      clearTimeout(timer);
-      video.removeEventListener("canplay", tryPlay);
-      video.removeEventListener("loadeddata", tryPlay);
-    };
-  }, []);
-
-  return (
+  const overviewContent = (
     <motion.div
-      className="grid grid-cols-[2fr_3fr] gap-1.5 h-full"
+      className="flex flex-col gap-1.5 h-full"
       variants={{
         hidden: { opacity: 0 },
         visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
@@ -485,161 +133,372 @@ export function OilMonitoring() {
       initial="hidden"
       animate="visible"
     >
-      {/* Left - Summary */}
-      <div className="space-y-1.5">
-        {/* Stats */}
-        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-1">
-          {summaryStats.map((stat, i) => {
-            const Icon = stat.icon;
-            return (
-              <Card key={i} className="border-0 shadow-sm">
-                <CardContent className="p-2">
-                  <div className="flex items-center gap-1.5">
-                    <div className="h-5 w-5 rounded bg-muted/50 flex items-center justify-center">
-                      <Icon className={`h-3 w-3 ${stat.color}`} />
-                    </div>
-                    <div>
-                      <p className="text-[8px] text-muted-foreground">
-                        {stat.label}
-                      </p>
-                      <p className="text-sm font-bold">{stat.value}</p>
-                    </div>
+      <AISummaryCards summary={oilDeviceSummary} />
+
+      {/* Outlet Selector */}
+      <motion.div variants={itemVariants} className="flex items-center gap-2">
+        <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
+          <SelectTrigger className="w-[200px] h-7 text-[9px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {outlets.map((o) => (
+              <SelectItem key={o.id} value={o.id} className="text-[9px]">
+                {o.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </motion.div>
+
+      {/* Live Video — only when specific outlet selected */}
+      {selectedOutlet !== "all" && (
+        <LiveVideoCard
+          src="/oil.mp4"
+          outletName={outlets.find((o) => o.id === selectedOutlet)?.name || ""}
+        />
+      )}
+
+      {/* KPI Cards */}
+      <motion.div variants={itemVariants} className="grid grid-cols-4 gap-1">
+        {kpiCards.map((stat, i) => {
+          const Icon = stat.icon;
+          return (
+            <Card
+              key={i}
+              className={`border-0 shadow-sm bg-gradient-to-br ${stat.bg}`}
+            >
+              <CardContent className="p-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="h-6 w-6 rounded-md bg-background/80 flex items-center justify-center">
+                    <Icon className={`h-3 w-3 ${stat.color}`} />
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  <div>
+                    <p className="text-[8px] text-muted-foreground">
+                      {stat.label}
+                    </p>
+                    <p className="text-sm font-bold">{stat.value}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </motion.div>
+
+      {/* Charts Row 1 */}
+      <div className="grid grid-cols-2 gap-1.5">
+        {/* TDS History */}
+        <motion.div variants={itemVariants}>
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="px-2 pt-1.5 pb-0">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-[10px] font-semibold">
+                  TDS History (Hari Ini)
+                </CardTitle>
+                <Badge
+                  variant="outline"
+                  className="text-[7px] px-1 py-0 h-3.5 border-red-500/30 text-red-500"
+                >
+                  Threshold: 25
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="px-1 pb-1 pt-1">
+              <ChartContainer
+                config={tdsChartConfig}
+                className="h-[130px] w-full"
+              >
+                <LineChart
+                  data={d.tdsHistory}
+                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="hour"
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[0, 40]}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line
+                    type="monotone"
+                    dataKey="fryer1"
+                    stroke="hsl(142, 71%, 45%)"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="fryer2"
+                    stroke="hsl(271, 91%, 65%)"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="fryer3"
+                    stroke="hsl(0, 84%, 60%)"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                </LineChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
         </motion.div>
 
-        {/* Tray List */}
+        {/* Temperature History */}
         <motion.div variants={itemVariants}>
           <Card className="border-0 shadow-sm">
             <CardHeader className="px-2 pt-1.5 pb-0">
               <CardTitle className="text-[10px] font-semibold">
-                Oil Condition per Tray
+                Suhu Fryer (°C)
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-2 pb-1.5 pt-1">
-              <ScrollArea className="h-[320px]">
-                <div className="space-y-1.5">
-                  {trayData.map((tray) => (
-                    <div
-                      key={tray.id}
-                      className="p-2 rounded-md border bg-card hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-[9px] font-semibold">{tray.name}</p>
-                        <Badge
-                          variant="outline"
-                          className={`text-[7px] px-1 py-0 h-3.5 ${tray.statusColor}`}
-                        >
-                          {tray.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <div
-                          className="h-4 w-8 rounded border"
-                          style={{ backgroundColor: tray.colorHex }}
-                        />
-                        <span className="text-[8px] text-muted-foreground">
-                          {tray.oilColor}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1 text-[7px] text-muted-foreground">
-                        <div className="flex items-center gap-0.5">
-                          <Clock className="h-2.5 w-2.5" />
-                          <span>Start: {tray.startTime}</span>
-                        </div>
-                        <div className="flex items-center gap-0.5">
-                          <Clock className="h-2.5 w-2.5" />
-                          <span>Duration: {tray.duration}</span>
-                        </div>
-                        <div className="flex items-center gap-0.5">
-                          <Thermometer className="h-2.5 w-2.5" />
-                          <span>{tray.temp}</span>
-                        </div>
-                      </div>
-                      <div className="mt-1 flex items-center gap-1">
-                        <span className="text-[7px] text-muted-foreground">
-                          TDS:
-                        </span>
-                        <Progress
-                          value={(tray.tds / 35) * 100}
-                          className={`h-1 flex-1 ${tray.tds > 25 ? "[&>div]:bg-red-500" : tray.tds > 18 ? "[&>div]:bg-orange-500" : "[&>div]:bg-green-500"}`}
-                        />
-                        <span className="text-[7px] text-muted-foreground">
-                          {tray.tds}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
+            <CardContent className="px-1 pb-1 pt-1">
+              <ChartContainer
+                config={tempChartConfig}
+                className="h-[130px] w-full"
+              >
+                <LineChart
+                  data={d.tempHistory}
+                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="hour"
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[160, 185]}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line
+                    type="monotone"
+                    dataKey="fryer1"
+                    stroke="hsl(217, 91%, 60%)"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="fryer2"
+                    stroke="hsl(25, 95%, 53%)"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="fryer3"
+                    stroke="hsl(0, 84%, 60%)"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                </LineChart>
+              </ChartContainer>
             </CardContent>
           </Card>
         </motion.div>
       </div>
 
-      {/* Right - Video Feed */}
-      <motion.div variants={itemVariants}>
-        <Card className="border-0 shadow-sm h-full">
-          <CardHeader className="px-2 pt-1.5 pb-0">
-            <div className="flex items-center justify-between">
+      {/* Charts Row 2 */}
+      <div className="grid grid-cols-2 gap-1.5">
+        {/* Daily Quality */}
+        <motion.div variants={itemVariants}>
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="px-2 pt-1.5 pb-0">
               <CardTitle className="text-[10px] font-semibold">
-                Oil Color Detection Feed
+                Kualitas Minyak 7 Hari
               </CardTitle>
-              <div className="flex items-center gap-1">
-                <div className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-[8px] text-muted-foreground">LIVE</span>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="px-2 pb-2 pt-1">
-            <div className="relative h-[280px] rounded-md overflow-hidden bg-black">
-              <video
-                ref={videoRef}
-                className="w-full"
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="auto"
+            </CardHeader>
+            <CardContent className="px-1 pb-1 pt-1">
+              <ChartContainer
+                config={qualityChartConfig}
+                className="h-[130px] w-full"
               >
-                ``
-                <source src="/minyak.mp4" type="video/mp4" />
-              </video>
-              {/* Bottom overlay */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                <div className="flex items-center justify-between text-white/70 text-[8px]">
-                  <span>CAM-02 | Oil Color Detection</span>
-                  <span>Last Update: 5 sec ago</span>
-                </div>
-              </div>
-            </div>
+                <BarChart
+                  data={d.dailyQuality}
+                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar
+                    dataKey="fresh"
+                    stackId="q"
+                    fill="hsl(142, 71%, 45%)"
+                    radius={[0, 0, 0, 0]}
+                    maxBarSize={20}
+                  />
+                  <Bar
+                    dataKey="dirty"
+                    stackId="q"
+                    fill="hsl(271, 91%, 65%)"
+                    radius={[0, 0, 0, 0]}
+                    maxBarSize={20}
+                  />
+                  <Bar
+                    dataKey="needChange"
+                    stackId="q"
+                    fill="hsl(0, 84%, 60%)"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={20}
+                  />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </motion.div>
 
-            {/* Outlet Selector */}
-            <div className="flex items-center gap-2 mt-1.5">
-              <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-              <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
-                <SelectTrigger size="sm" className="w-full h-7 text-[10px]">
-                  <SelectValue placeholder="Pilih Outlet" />
-                </SelectTrigger>
-                <SelectContent>
-                  {outlets.map((outlet) => (
-                    <SelectItem
-                      key={outlet.id}
-                      value={outlet.id}
-                      className="text-[10px]"
-                    >
-                      {outlet.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        {/* Oil Changes */}
+        <motion.div variants={itemVariants}>
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="px-2 pt-1.5 pb-0">
+              <CardTitle className="text-[10px] font-semibold">
+                Penggantian Minyak
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-1 pb-1 pt-1">
+              <ChartContainer
+                config={changesChartConfig}
+                className="h-[130px] w-full"
+              >
+                <BarChart
+                  data={d.oilChanges}
+                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 8 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar
+                    dataKey="scheduled"
+                    fill="hsl(217, 91%, 60%)"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={16}
+                  />
+                  <Bar
+                    dataKey="unscheduled"
+                    fill="hsl(45, 93%, 47%)"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={16}
+                  />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* Charts Row 3 — Outlet Comparison */}
+      <motion.div variants={itemVariants}>
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="px-2 pt-1.5 pb-0">
+            <CardTitle className="text-[10px] font-semibold">
+              Perbandingan Outlet — Avg TDS
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-1 pb-1 pt-1">
+            <ChartContainer
+              config={outletChartConfig}
+              className="h-[120px] w-full"
+            >
+              <BarChart
+                data={d.outletBreakdown}
+                margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
+              >
+                <defs>
+                  <linearGradient id="fillTds" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      stopColor="hsl(271, 91%, 65%)"
+                      stopOpacity={0.9}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor="hsl(271, 91%, 65%)"
+                      stopOpacity={0.3}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="outlet"
+                  tick={{ fontSize: 7 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 8 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar
+                  dataKey="avgTds"
+                  fill="url(#fillTds)"
+                  radius={[3, 3, 0, 0]}
+                  maxBarSize={28}
+                />
+              </BarChart>
+            </ChartContainer>
           </CardContent>
         </Card>
       </motion.div>
     </motion.div>
+  );
+
+  return (
+    <Tabs defaultValue="alerts" className="h-full flex flex-col">
+      <TabsList className="w-fit h-7 mb-1">
+        <TabsTrigger value="alerts" className="text-[9px] h-5 px-3">
+          Alerts
+        </TabsTrigger>
+        <TabsTrigger value="overview" className="text-[9px] h-5 px-3">
+          Overview
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="alerts" className="flex-1 mt-0">
+        <AlertsView
+          alerts={oilAlerts}
+          summary={oilDeviceSummary}
+          title="Oil / Fryer Alerts"
+        />
+      </TabsContent>
+      <TabsContent value="overview" className="flex-1 mt-0">
+        {overviewContent}
+      </TabsContent>
+    </Tabs>
   );
 }

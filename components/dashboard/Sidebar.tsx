@@ -21,6 +21,10 @@ import {
   ChefHat,
   Activity,
   Plug,
+  ScanLine,
+  Flame,
+  Package,
+  Droplets,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -33,6 +37,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSidebar } from "@/components/providers/SidebarProvider";
+import { useHeaderSelector } from "@/components/providers/HeaderSelectorProvider";
 
 interface User {
   id?: string;
@@ -68,10 +73,47 @@ const navigationItems = [
     ],
   },
   {
-    name: "Kitchen Monitor",
-    href: "/dashboard/kitchen",
+    name: "AI Monitor",
+    href: "",
     icon: ChefHat,
     roles: ["ADMIN", "OPERATOR", "VIEWER"],
+    children: [
+      {
+        name: "Cashier",
+        href: "/dashboard/kitchen",
+        icon: ScanLine,
+        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        selectorValue: "cashier-monitoring",
+      },
+      {
+        name: "Kitchen",
+        href: "/dashboard/kitchen",
+        icon: Flame,
+        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        selectorValue: "kitchen-monitoring",
+      },
+      {
+        name: "Oil",
+        href: "/dashboard/kitchen",
+        icon: Droplets,
+        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        selectorValue: "oil-monitoring",
+      },
+      {
+        name: "Jerrycan",
+        href: "/dashboard/kitchen",
+        icon: Package,
+        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        selectorValue: "jerrycan-monitoring",
+      },
+      {
+        name: "Pooling",
+        href: "/dashboard/kitchen",
+        icon: Droplets,
+        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        selectorValue: "pooling-monitoring",
+      },
+    ],
   },
   {
     name: "Fuel Monitor",
@@ -238,6 +280,8 @@ export default function Sidebar({ user }: SidebarProps) {
     collapsed?: boolean;
   }) => {
     const Icon = item.icon;
+    const { setValue: setHeaderSelector, value: headerValue } =
+      useHeaderSelector();
     const isActive =
       item.href &&
       (pathname === item.href ||
@@ -346,11 +390,15 @@ export default function Sidebar({ user }: SidebarProps) {
               <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border pl-2">
                 {item.children.map((child, childIndex) => {
                   const ChildIcon = child.icon;
-                  const isChildActive =
-                    pathname === child.href || pathname.startsWith(child.href);
+                  const sv = (child as { selectorValue?: string })
+                    .selectorValue;
+                  const isChildActive = sv
+                    ? pathname === child.href && headerValue === sv
+                    : pathname === child.href ||
+                      pathname.startsWith(child.href);
                   return (
                     <motion.div
-                      key={child.href}
+                      key={sv || child.href}
                       custom={index + childIndex + 1}
                       variants={menuItemVariants}
                       initial="initial"
@@ -360,7 +408,10 @@ export default function Sidebar({ user }: SidebarProps) {
                     >
                       <Link
                         href={child.href}
-                        onClick={() => setOpen(false)}
+                        onClick={() => {
+                          if (sv) setHeaderSelector(sv);
+                          setOpen(false);
+                        }}
                         className={cn(
                           "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
                           isChildActive

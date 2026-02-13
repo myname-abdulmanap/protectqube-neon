@@ -22,11 +22,13 @@ type SelectorConfig = {
 function getSelectorConfig(pathname: string): SelectorConfig | null {
   if (pathname === "/dashboard/kitchen") {
     return {
-      placeholder: "Kitchen Analysis",
+      placeholder: "Cashier Monitoring",
       options: [
-        { value: "kitchen-analysis", label: "Kitchen Analysis" },
+        { value: "cashier-monitoring", label: "Cashier Monitoring" },
+        { value: "kitchen-monitoring", label: "Kitchen Monitoring" },
         { value: "oil-monitoring", label: "Oil Monitoring" },
-        { value: "oil-pooling", label: "Oil Pooling" },
+        { value: "jerrycan-monitoring", label: "Jerrycan Monitoring" },
+        { value: "pooling-monitoring", label: "Pooling Monitoring" },
       ],
     };
   }
@@ -42,7 +44,7 @@ export function HeaderSelector({ value, onValueChange }: HeaderSelectorProps) {
 
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="h-6 w-[140px] text-[10px] border-border/50 bg-muted/30 px-2 gap-1">
+      <SelectTrigger className="h-6 w-[170px] text-[10px] border-border/50 bg-muted/30 px-2 gap-1">
         <SelectValue placeholder={config.placeholder} />
       </SelectTrigger>
       <SelectContent>

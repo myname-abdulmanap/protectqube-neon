@@ -2,29 +2,38 @@
 
 import { useEffect } from "react";
 import { useHeaderSelector } from "@/components/providers/HeaderSelectorProvider";
-import { KitchenAnalysis } from "@/components/kitchen/KitchenAnalysis";
+import { CashierMonitoring } from "@/components/kitchen/CashierMonitoring";
+import { KitchenMonitoring } from "@/components/kitchen/KitchenMonitoring";
 import { OilMonitoring } from "@/components/kitchen/OilMonitoring";
-import { OilPooling } from "@/components/kitchen/OilPooling";
+import { JerrycanMonitoring } from "@/components/kitchen/JerrycanMonitoring";
+import { PoolingMonitoring } from "@/components/kitchen/PoolingMonitoring";
+
+const VALID_VIEWS = [
+  "cashier-monitoring",
+  "kitchen-monitoring",
+  "oil-monitoring",
+  "jerrycan-monitoring",
+  "pooling-monitoring",
+];
 
 export default function KitchenPage() {
   const { value, setValue } = useHeaderSelector();
 
   useEffect(() => {
-    if (
-      !value ||
-      !["kitchen-analysis", "oil-monitoring", "oil-pooling"].includes(value)
-    ) {
-      setValue("kitchen-analysis");
+    if (!value || !VALID_VIEWS.includes(value)) {
+      setValue("cashier-monitoring");
     }
   }, []);
 
-  const activeView = value || "kitchen-analysis";
+  const activeView = value || "cashier-monitoring";
 
   return (
     <div className="h-full">
-      {activeView === "kitchen-analysis" && <KitchenAnalysis />}
+      {activeView === "cashier-monitoring" && <CashierMonitoring />}
+      {activeView === "kitchen-monitoring" && <KitchenMonitoring />}
       {activeView === "oil-monitoring" && <OilMonitoring />}
-      {activeView === "oil-pooling" && <OilPooling />}
+      {activeView === "jerrycan-monitoring" && <JerrycanMonitoring />}
+      {activeView === "pooling-monitoring" && <PoolingMonitoring />}
     </div>
   );
 }
