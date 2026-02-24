@@ -25,6 +25,8 @@ import {
   Flame,
   Package,
   Droplets,
+  Shield,
+  Key,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -51,24 +53,25 @@ interface SidebarProps {
 }
 
 // Define navigation items with role-based access
+// Supports both old roles (ADMIN, OPERATOR, VIEWER) and new RBAC roles (superadmin, admin, user)
 const navigationItems = [
   {
     name: "Energy Monitor",
     href: "",
     icon: LayoutDashboard,
-    roles: ["ADMIN", "OPERATOR", "VIEWER"],
+    roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
     children: [
       {
         name: "Overview",
         href: "/dashboard",
         icon: Activity,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
       },
       {
         name: "Power Outlets",
         href: "/dashboard/electricity",
         icon: Plug,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
       },
     ],
   },
@@ -76,41 +79,41 @@ const navigationItems = [
     name: "AI Monitor",
     href: "",
     icon: ChefHat,
-    roles: ["ADMIN", "OPERATOR", "VIEWER"],
+    roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
     children: [
       {
         name: "Cashier",
         href: "/dashboard/kitchen",
         icon: ScanLine,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
-        selectorValue: "cashier-monitoring",
+        roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
+        selectorValue: "cashier-monitoring  ",
       },
       {
         name: "Kitchen",
         href: "/dashboard/kitchen",
         icon: Flame,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
         selectorValue: "kitchen-monitoring",
       },
       {
         name: "Oil",
         href: "/dashboard/kitchen",
         icon: Droplets,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
         selectorValue: "oil-monitoring",
       },
       {
         name: "Jerrycan",
         href: "/dashboard/kitchen",
         icon: Package,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
         selectorValue: "jerrycan-monitoring",
       },
       {
         name: "Pooling",
         href: "/dashboard/kitchen",
         icon: Droplets,
-        roles: ["ADMIN", "OPERATOR", "VIEWER"],
+        roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
         selectorValue: "pooling-monitoring",
       },
     ],
@@ -119,37 +122,49 @@ const navigationItems = [
     name: "Fuel Monitor",
     href: "/dashboard/fuel",
     icon: Fuel,
-    roles: ["ADMIN", "OPERATOR", "VIEWER"],
+    roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
   },
   {
     name: "Perangkat",
     href: "/dashboard/devices",
     icon: Gauge,
-    roles: ["ADMIN", "OPERATOR"],
+    roles: ["ADMIN", "OPERATOR", "superadmin", "admin"],
   },
   {
     name: "Laporan",
     href: "/dashboard/reports",
     icon: FileText,
-    roles: ["ADMIN", "OPERATOR", "VIEWER"],
+    roles: ["ADMIN", "OPERATOR", "VIEWER", "superadmin", "admin", "user"],
   },
   {
     name: "Notifikasi",
     href: "/dashboard/notifications",
     icon: Bell,
-    roles: ["ADMIN", "OPERATOR"],
+    roles: ["ADMIN", "OPERATOR", "superadmin", "admin"],
   },
   {
     name: "Pengguna",
     href: "/dashboard/users",
     icon: Users,
-    roles: ["ADMIN"],
+    roles: ["ADMIN", "superadmin"],
+  },
+  {
+    name: "Roles",
+    href: "/dashboard/roles",
+    icon: Shield,
+    roles: ["ADMIN", "superadmin"],
+  },
+  {
+    name: "Permissions",
+    href: "/dashboard/permissions",
+    icon: Key,
+    roles: ["ADMIN", "superadmin"],
   },
   {
     name: "Pengaturan",
     href: "/dashboard/settings",
     icon: Settings,
-    roles: ["ADMIN"],
+    roles: ["ADMIN", "superadmin"],
   },
 ];
 

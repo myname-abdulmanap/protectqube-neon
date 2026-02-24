@@ -3,6 +3,7 @@
 import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "next-themes";
 import { ReactNode } from "react";
+import { AuthProvider } from "@/lib/auth-context";
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (
@@ -12,7 +13,9 @@ export default function Providers({ children }: { children: ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      <SessionProvider>{children}</SessionProvider>
+      <SessionProvider>
+        <AuthProvider>{children}</AuthProvider>
+      </SessionProvider>
     </ThemeProvider>
   );
 }

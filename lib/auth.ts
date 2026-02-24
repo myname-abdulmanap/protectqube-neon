@@ -1,11 +1,12 @@
 import NextAuth, { type NextAuthConfig, type User } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
+// API Base URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+
 // Role type matching the one in types/next-auth.d.ts
-type Role = "ADMIN" | "OPERATOR" | "VIEWER";
+type Role = "ADMIN" | "OPERATOR" | "VIEWER" | "superadmin" | "admin" | "user";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -29,26 +30,35 @@ export const authConfig: NextAuthConfig = {
 
         const { email, password } = parsed.data;
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-        });
+        try {
+          // Call backend API for authentication
+          const response = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, password }),
+          });
 
-        if (!user) {
+          const data = await response.json();
+
+          if (!response.ok || !data.success) {
+            console.error("Backend auth failed:", data.error);
+            return null;
+          }
+
+          const userData = data.data.user;
+
+          return {
+            id: userData.id,
+            name: userData.name,
+            email: userData.email,
+            role: userData.role?.name as Role,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
           return null;
         }
-
-        const passwordMatch = await bcrypt.compare(password, user.password);
-
-        if (!passwordMatch) {
-          return null;
-        }
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role as Role,
-        };
       },
     }),
   ],

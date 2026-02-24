@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useAuth } from "@/lib/auth-context";
 
 function LoginForm() {
   const router = useRouter();
@@ -26,14 +27,72 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
     setIsLoading(true);
 
+    // Validate input
+    if (!email || !password) {
+      setError("Email dan password harus diisi");
+      setIsLoading(false);
+      return;
+    }
+
     try {
+      console.log("Attempting login to backend API...");
+
+      // Try backend API auth first
+      const apiResult = await login(email, password);
+      console.log("Backend API result:", apiResult);
+
+      if (apiResult.success) {
+        setSuccess("Login berhasil! Mengalihkan ke dashboard...");
+
+        // Also sign in with NextAuth for session compatibility
+        await signIn("credentials", {
+          email,
+          password,
+          redirect: false,
+        });
+
+        // Use hard redirect to ensure middleware sees the new cookie
+        setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 1000);
+        return;
+      }
+
+      // Show detailed error from backend
+      if (apiResult.error) {
+        console.log("Backend auth failed:", apiResult.error);
+
+        // Map common errors to Indonesian
+        let errorMessage = apiResult.error;
+        if (apiResult.error.includes("Invalid email or password")) {
+          errorMessage = "Email atau password salah";
+        } else if (apiResult.error.includes("deactivated")) {
+          errorMessage = "Akun Anda telah dinonaktifkan";
+        } else if (
+          apiResult.error.includes("Network Error") ||
+          apiResult.error.includes("ECONNREFUSED")
+        ) {
+          errorMessage =
+            "Tidak dapat terhubung ke server. Pastikan backend berjalan di port 3001";
+        }
+
+        setError(errorMessage);
+        setIsLoading(false);
+        return;
+      }
+
+      // If backend auth fails without specific error, try NextAuth only
+      console.log("Trying NextAuth fallback...");
       const result = await signIn("credentials", {
         email,
         password,
@@ -43,11 +102,30 @@ function LoginForm() {
       if (result?.error) {
         setError("Email atau password salah");
       } else {
-        router.push("/dashboard");
-        router.refresh();
+        setSuccess("Login berhasil! Mengalihkan ke dashboard...");
+        setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 1000);
       }
-    } catch {
-      setError("Terjadi kesalahan. Silakan coba lagi.");
+    } catch (err: any) {
+      console.error("Login error:", err);
+
+      // Handle network errors
+      if (
+        err?.message?.includes("Network Error") ||
+        err?.code === "ECONNREFUSED"
+      ) {
+        setError(
+          "Tidak dapat terhubung ke server backend. Pastikan backend berjalan di http://localhost:3001",
+        );
+      } else if (err?.response?.data?.error) {
+        setError(err.response.data.error);
+      } else {
+        setError(
+          "Terjadi kesalahan. Silakan coba lagi. Detail: " +
+            (err?.message || "Unknown error"),
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -75,9 +153,18 @@ function LoginForm() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Success message */}
+          {success && (
+            <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+              <p className="font-medium">{success}</p>
+            </div>
+          )}
+
+          {/* Error message */}
           {error && (
             <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-400">
-              {error}
+              <p className="font-medium">Login Gagal</p>
+              <p className="mt-1">{error}</p>
             </div>
           )}
 
