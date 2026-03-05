@@ -90,6 +90,7 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   role?: Role;
+  menus?: Menu[];
 }
 
 export interface Role {
@@ -101,6 +102,18 @@ export interface Role {
   permissions?: Permission[];
 }
 
+export interface Menu {
+  id: string;
+  name: string;
+  path: string;
+  icon: string;
+  selectorValue: string | null;
+  order: number;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Permission {
   id: string;
   name: string;
@@ -109,6 +122,198 @@ export interface Permission {
   action: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// IoT Platform types
+export interface Tenant {
+  id: string;
+  name: string;
+  code: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Scope {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+  scopeType: string;
+  address: string | null;
+  city: string | null;
+  province: string | null;
+  region: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  metadata: unknown;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  tenant?: Tenant;
+}
+
+export interface Device {
+  id: string;
+  scopeId: string;
+  name: string;
+  serialNo: string;
+  locationName: string | null;
+  locationType: string | null;
+  firmwareVersion: string | null;
+  status: string;
+  lastSeenAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  scope?: Scope;
+  modules?: DeviceModule[];
+}
+
+export interface DeviceModule {
+  id: string;
+  deviceId: string;
+  moduleType: string;
+  config: unknown;
+  isActive: boolean;
+  createdAt: string;
+  device?: Device;
+}
+
+export interface MqttConfig {
+  id: string;
+  deviceId: string;
+  brokerUrl: string;
+  clientId: string;
+  username: string | null;
+  password: string | null;
+  topicSubscribe: string;
+  topicRole: string;
+  parserKey: string | null;
+  topicPublish: string | null;
+  qos: number;
+  isActive: boolean;
+  createdAt: string;
+  device?: Device;
+}
+
+export interface MqttMessage {
+  id: string;
+  deviceId: string;
+  topic: string;
+  payload: unknown;
+  qos: number;
+  retained: boolean;
+  timestamp: string;
+  createdAt: string;
+  device?: Device;
+}
+
+export interface DeviceMetric {
+  id: string;
+  deviceId: string;
+  scopeId: string;
+  moduleType: string;
+  metricKey: string;
+  metricValue: number;
+  unit: string | null;
+  timestamp: string;
+  createdAt: string;
+  module?: DeviceModule;
+}
+
+export interface AlertEvent {
+  id: string;
+  deviceId: string;
+  scopeId: string;
+  actionId: string | null;
+  moduleType: string;
+  alertType: string;
+  severity: string;
+  title: string;
+  description: string | null;
+  metadata: unknown;
+  timestamp: string;
+  createdAt: string;
+  action?: AlertAction | null;
+  device?: Device;
+}
+
+export interface AlertAction {
+  id: string;
+  key: string;
+  label: string;
+  color: string;
+  moduleType: string;
+  isDefault: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EnergyConfig {
+  id: string;
+  scopeId: string;
+  pricePerKwh: number;
+  maxLoadKw: number | null;
+  upperLimitKwh: number | null;
+  anomalyPct: number | null;
+  baselineDays: number | null;
+  validFrom: string;
+  createdAt: string;
+  scope?: Scope;
+}
+
+export interface EnergyOverviewData {
+  date: string;
+  globalKpi: {
+    totalEnergy: number;
+    totalCost: number;
+    activeOutlets: number;
+    alertOutlets: number;
+  };
+  regionData: Array<{
+    region: string;
+    kWh: number;
+    cost: number;
+    outlets: number;
+  }>;
+  outletLocations: Array<{
+    id: string;
+    name: string;
+    region: string;
+    city: string | null;
+    province: string | null;
+    address: string | null;
+    lat: number | null;
+    lng: number | null;
+    status: string;
+    usage: number;
+    cost: number;
+  }>;
+}
+
+export interface EnergyOutletDetail {
+  id: string;
+  name: string;
+  region: string | null;
+  city: string | null;
+  kpiData: {
+    todayUsage: number;
+    todayCost: number;
+    monthUsage: number;
+    monthCost: number;
+  };
+  hourlyData: Array<{ hour: string; usage: number }>;
+  sectionData: Array<{ name: string; value: number; kWh: number; color?: string }>;
+  comparisonData: {
+    todayVsYesterday: { current: number; previous: number; change: number };
+    monthVsLastMonth: { current: number; previous: number; change: number };
+  };
+  peakPower: number;
+  maxLoad: number | null;
+  status: string;
 }
 
 export interface LoginResponse {
@@ -240,6 +445,69 @@ export const rolesApi = {
   },
 };
 
+export const menusApi = {
+  getAll: async (): Promise<ApiResponse<Menu[]>> => {
+    const response = await apiClient.get<ApiResponse<Menu[]>>("/menus");
+    return response.data;
+  },
+
+  getById: async (id: string): Promise<ApiResponse<Menu>> => {
+    const response = await apiClient.get<ApiResponse<Menu>>(`/menus/${id}`);
+    return response.data;
+  },
+
+  create: async (data: {
+    name: string;
+    path: string;
+    icon: string;
+    selectorValue?: string;
+    order?: number;
+    parentId?: string;
+  }): Promise<ApiResponse<Menu>> => {
+    const response = await apiClient.post<ApiResponse<Menu>>("/menus", data);
+    return response.data;
+  },
+
+  update: async (
+    id: string,
+    data: {
+      name?: string;
+      path?: string;
+      icon?: string;
+      selectorValue?: string;
+      order?: number;
+      parentId?: string;
+    }
+  ): Promise<ApiResponse<Menu>> => {
+    const response = await apiClient.put<ApiResponse<Menu>>(`/menus/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/menus/${id}`);
+    return response.data;
+  },
+
+  getRoles: async (menuId: string): Promise<ApiResponse<string[]>> => {
+    const response = await apiClient.get<ApiResponse<string[]>>(`/menus/${menuId}/roles`);
+    return response.data;
+  },
+
+  assignRole: async (menuId: string, roleId: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.post<ApiResponse<void>>(`/menus/${menuId}/roles`, {
+      roleId,
+    });
+    return response.data;
+  },
+
+  revokeRole: async (menuId: string, roleId: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(
+      `/menus/${menuId}/roles/${roleId}`
+    );
+    return response.data;
+  },
+};
+
 // Permissions API
 export const permissionsApi = {
   getAll: async (): Promise<ApiResponse<Permission[]>> => {
@@ -289,6 +557,259 @@ export const adminApi = {
   checkAdminAccess: async (): Promise<ApiResponse<{ message: string; user: unknown }>> => {
     const response = await apiClient.get<ApiResponse<{ message: string; user: unknown }>>(
       "/admin-only"
+    );
+    return response.data;
+  },
+};
+
+// =====================
+// IoT Platform APIs
+// =====================
+
+// Tenants API
+export const tenantsApi = {
+  getAll: async (): Promise<ApiResponse<Tenant[]>> => {
+    const response = await apiClient.get<ApiResponse<Tenant[]>>("/tenants");
+    return response.data;
+  },
+  getById: async (id: string): Promise<ApiResponse<Tenant>> => {
+    const response = await apiClient.get<ApiResponse<Tenant>>(`/tenants/${id}`);
+    return response.data;
+  },
+  create: async (data: { name: string; code: string; isActive?: boolean }): Promise<ApiResponse<Tenant>> => {
+    const response = await apiClient.post<ApiResponse<Tenant>>("/tenants", data);
+    return response.data;
+  },
+  update: async (id: string, data: { name?: string; code?: string; isActive?: boolean }): Promise<ApiResponse<Tenant>> => {
+    const response = await apiClient.put<ApiResponse<Tenant>>(`/tenants/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/tenants/${id}`);
+    return response.data;
+  },
+};
+
+// Scopes API
+export const scopesApi = {
+  getAll: async (tenantId?: string): Promise<ApiResponse<Scope[]>> => {
+    const params = tenantId ? { tenantId } : {};
+    const response = await apiClient.get<ApiResponse<Scope[]>>("/scopes", { params });
+    return response.data;
+  },
+  getById: async (id: string): Promise<ApiResponse<Scope>> => {
+    const response = await apiClient.get<ApiResponse<Scope>>(`/scopes/${id}`);
+    return response.data;
+  },
+  create: async (data: { tenantId: string; name: string; code: string; scopeType: string; address?: string; city?: string; province?: string; region?: string; latitude?: number; longitude?: number; metadata?: unknown; isActive?: boolean }): Promise<ApiResponse<Scope>> => {
+    const response = await apiClient.post<ApiResponse<Scope>>("/scopes", data);
+    return response.data;
+  },
+  update: async (id: string, data: { tenantId?: string; name?: string; code?: string; scopeType?: string; address?: string | null; city?: string | null; province?: string | null; region?: string | null; latitude?: number | null; longitude?: number | null; metadata?: unknown; isActive?: boolean }): Promise<ApiResponse<Scope>> => {
+    const response = await apiClient.put<ApiResponse<Scope>>(`/scopes/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/scopes/${id}`);
+    return response.data;
+  },
+};
+
+// Devices API
+export const devicesApi = {
+  getAll: async (scopeId?: string): Promise<ApiResponse<Device[]>> => {
+    const params = scopeId ? { scopeId } : {};
+    const response = await apiClient.get<ApiResponse<Device[]>>("/devices", { params });
+    return response.data;
+  },
+  getById: async (id: string): Promise<ApiResponse<Device>> => {
+    const response = await apiClient.get<ApiResponse<Device>>(`/devices/${id}`);
+    return response.data;
+  },
+  create: async (data: { scopeId: string; name: string; serialNo: string; locationName?: string; locationType?: string; firmwareVersion?: string; status?: string; isActive?: boolean }): Promise<ApiResponse<Device>> => {
+    const response = await apiClient.post<ApiResponse<Device>>("/devices", data);
+    return response.data;
+  },
+  update: async (id: string, data: { scopeId?: string; name?: string; serialNo?: string; locationName?: string | null; locationType?: string | null; firmwareVersion?: string; status?: string; isActive?: boolean }): Promise<ApiResponse<Device>> => {
+    const response = await apiClient.put<ApiResponse<Device>>(`/devices/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/devices/${id}`);
+    return response.data;
+  },
+};
+
+// Device Modules API
+export const deviceModulesApi = {
+  getAll: async (deviceId?: string): Promise<ApiResponse<DeviceModule[]>> => {
+    const params = deviceId ? { deviceId } : {};
+    const response = await apiClient.get<ApiResponse<DeviceModule[]>>("/device-modules", { params });
+    return response.data;
+  },
+  getById: async (id: string): Promise<ApiResponse<DeviceModule>> => {
+    const response = await apiClient.get<ApiResponse<DeviceModule>>(`/device-modules/${id}`);
+    return response.data;
+  },
+  create: async (data: { deviceId: string; moduleType: string; config?: unknown; isActive?: boolean }): Promise<ApiResponse<DeviceModule>> => {
+    const response = await apiClient.post<ApiResponse<DeviceModule>>("/device-modules", data);
+    return response.data;
+  },
+  update: async (id: string, data: { config?: unknown; isActive?: boolean }): Promise<ApiResponse<DeviceModule>> => {
+    const response = await apiClient.put<ApiResponse<DeviceModule>>(`/device-modules/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/device-modules/${id}`);
+    return response.data;
+  },
+};
+
+// MQTT Configs API
+export const mqttConfigsApi = {
+  getAll: async (deviceId?: string): Promise<ApiResponse<MqttConfig[]>> => {
+    const params = deviceId ? { deviceId } : {};
+    const response = await apiClient.get<ApiResponse<MqttConfig[]>>("/mqtt-configs", { params });
+    return response.data;
+  },
+  getById: async (id: string): Promise<ApiResponse<MqttConfig>> => {
+    const response = await apiClient.get<ApiResponse<MqttConfig>>(`/mqtt-configs/${id}`);
+    return response.data;
+  },
+  create: async (data: { deviceId: string; brokerUrl: string; clientId: string; username?: string; password?: string; topicSubscribe: string; topicRole?: string; parserKey?: string; topicPublish?: string; qos?: number; isActive?: boolean }): Promise<ApiResponse<MqttConfig>> => {
+    const response = await apiClient.post<ApiResponse<MqttConfig>>("/mqtt-configs", data);
+    return response.data;
+  },
+  update: async (id: string, data: { brokerUrl?: string; clientId?: string; username?: string; password?: string; topicSubscribe?: string; topicRole?: string; parserKey?: string; topicPublish?: string; qos?: number; isActive?: boolean }): Promise<ApiResponse<MqttConfig>> => {
+    const response = await apiClient.put<ApiResponse<MqttConfig>>(`/mqtt-configs/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/mqtt-configs/${id}`);
+    return response.data;
+  },
+};
+
+// MQTT Messages API
+export const mqttMessagesApi = {
+  getAll: async (filters?: {
+    deviceId?: string;
+    topic?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }): Promise<ApiResponse<MqttMessage[]>> => {
+    const response = await apiClient.get<ApiResponse<MqttMessage[]>>(
+      "/mqtt-messages",
+      { params: filters },
+    );
+    return response.data;
+  },
+};
+
+// Device Metrics API
+export const deviceMetricsApi = {
+  getAll: async (filters?: { deviceId?: string; scopeId?: string; moduleType?: string; metricKey?: string; from?: string; to?: string; limit?: number }): Promise<ApiResponse<DeviceMetric[]>> => {
+    const response = await apiClient.get<ApiResponse<DeviceMetric[]>>("/device-metrics", { params: filters });
+    return response.data;
+  },
+  create: async (data: { deviceId: string; scopeId?: string; moduleType: string; metricKey: string; metricValue: number; unit?: string; timestamp: string }): Promise<ApiResponse<DeviceMetric>> => {
+    const response = await apiClient.post<ApiResponse<DeviceMetric>>("/device-metrics", data);
+    return response.data;
+  },
+  createBatch: async (data: Array<{ deviceId: string; scopeId?: string; moduleType: string; metricKey: string; metricValue: number; unit?: string; timestamp: string }>): Promise<ApiResponse<{ count: number }>> => {
+    const response = await apiClient.post<ApiResponse<{ count: number }>>("/device-metrics/batch", data);
+    return response.data;
+  },
+};
+
+// Alert Events API
+export const alertEventsApi = {
+  getAll: async (filters?: { deviceId?: string; scopeId?: string; moduleType?: string; severity?: string; from?: string; to?: string; limit?: number }): Promise<ApiResponse<AlertEvent[]>> => {
+    const response = await apiClient.get<ApiResponse<AlertEvent[]>>("/alert-events", { params: filters });
+    return response.data;
+  },
+  getById: async (id: string): Promise<ApiResponse<AlertEvent>> => {
+    const response = await apiClient.get<ApiResponse<AlertEvent>>(`/alert-events/${id}`);
+    return response.data;
+  },
+  create: async (data: { deviceId: string; scopeId?: string; moduleType: string; alertType: string; severity: string; title: string; description?: string; metadata?: unknown; timestamp: string }): Promise<ApiResponse<AlertEvent>> => {
+    const response = await apiClient.post<ApiResponse<AlertEvent>>("/alert-events", data);
+    return response.data;
+  },
+  updateAction: async (id: string, data: { actionId?: string; actionKey?: string }): Promise<ApiResponse<AlertEvent>> => {
+    const response = await apiClient.patch<ApiResponse<AlertEvent>>(`/alert-events/${id}/action`, data);
+    return response.data;
+  },
+};
+
+export const alertActionsApi = {
+  getAll: async (moduleType?: string): Promise<ApiResponse<AlertAction[]>> => {
+    const params = moduleType ? { moduleType } : {};
+    const response = await apiClient.get<ApiResponse<AlertAction[]>>("/alert-actions", { params });
+    return response.data;
+  },
+  create: async (data: { key: string; label: string; color: string; moduleType: string; isDefault?: boolean; isActive?: boolean; sortOrder?: number }): Promise<ApiResponse<AlertAction>> => {
+    const response = await apiClient.post<ApiResponse<AlertAction>>("/alert-actions", data);
+    return response.data;
+  },
+  update: async (id: string, data: { key?: string; label?: string; color?: string; moduleType?: string; isDefault?: boolean; isActive?: boolean; sortOrder?: number }): Promise<ApiResponse<AlertAction>> => {
+    const response = await apiClient.put<ApiResponse<AlertAction>>(`/alert-actions/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/alert-actions/${id}`);
+    return response.data;
+  },
+};
+
+// Energy Configs API
+export const energyConfigsApi = {
+  getAll: async (scopeId?: string): Promise<ApiResponse<EnergyConfig[]>> => {
+    const params = scopeId ? { scopeId } : {};
+    const response = await apiClient.get<ApiResponse<EnergyConfig[]>>("/energy-configs", { params });
+    return response.data;
+  },
+  getById: async (id: string): Promise<ApiResponse<EnergyConfig>> => {
+    const response = await apiClient.get<ApiResponse<EnergyConfig>>(`/energy-configs/${id}`);
+    return response.data;
+  },
+  create: async (data: { scopeId: string; pricePerKwh: number; maxLoadKw?: number; upperLimitKwh?: number; anomalyPct?: number; baselineDays?: number; validFrom: string }): Promise<ApiResponse<EnergyConfig>> => {
+    const response = await apiClient.post<ApiResponse<EnergyConfig>>("/energy-configs", data);
+    return response.data;
+  },
+  update: async (id: string, data: { pricePerKwh?: number; maxLoadKw?: number; upperLimitKwh?: number; anomalyPct?: number; baselineDays?: number; validFrom?: string }): Promise<ApiResponse<EnergyConfig>> => {
+    const response = await apiClient.put<ApiResponse<EnergyConfig>>(`/energy-configs/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string): Promise<ApiResponse<void>> => {
+    const response = await apiClient.delete<ApiResponse<void>>(`/energy-configs/${id}`);
+    return response.data;
+  },
+};
+
+export const energyDashboardApi = {
+  getOverview: async (date?: string): Promise<ApiResponse<EnergyOverviewData>> => {
+    const params = date ? { date } : {};
+    const response = await apiClient.get<ApiResponse<EnergyOverviewData>>(
+      "/energy-dashboard/overview",
+      { params }
+    );
+    return response.data;
+  },
+  getOutlets: async (date?: string): Promise<ApiResponse<Array<{ scopeId: string; status: string; scope: { name: string; region: string | null } }>>> => {
+    const params = date ? { date } : {};
+    const response = await apiClient.get<ApiResponse<Array<{ scopeId: string; status: string; scope: { name: string; region: string | null } }>>>(
+      "/energy-dashboard/outlets",
+      { params }
+    );
+    return response.data;
+  },
+  getOutletDetail: async (scopeId: string, date?: string): Promise<ApiResponse<EnergyOutletDetail>> => {
+    const params = date ? { date } : {};
+    const response = await apiClient.get<ApiResponse<EnergyOutletDetail>>(
+      `/energy-dashboard/outlets/${scopeId}`,
+      { params }
     );
     return response.data;
   },

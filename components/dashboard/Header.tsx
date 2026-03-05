@@ -105,21 +105,16 @@ export default function Header({
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+              <Button
+                variant="ghost"
+                className="relative h-6 w-6 rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
               >
-                <Button
-                  variant="ghost"
-                  className="relative h-6 w-6 rounded-full p-0"
-                >
-                  <Avatar className="h-5 w-5">
-                    <AvatarFallback className="bg-primary text-primary-foreground text-[9px] font-medium">
-                      {getInitials(user?.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </motion.div>
+                <Avatar className="h-5 w-5">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-[9px] font-medium">
+                    {getInitials(user?.name)}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-64" align="end" forceMount>
               <DropdownMenuLabel className="font-normal">

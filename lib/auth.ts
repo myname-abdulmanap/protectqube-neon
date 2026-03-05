@@ -5,8 +5,19 @@ import { z } from "zod";
 // API Base URL
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
 
-// Role type matching the one in types/next-auth.d.ts
-type Role = "ADMIN" | "OPERATOR" | "VIEWER" | "superadmin" | "admin" | "user";
+type BackendPermission = {
+  name: string;
+};
+
+type BackendMenu = {
+  id: string;
+  name: string;
+  path: string;
+  icon: string;
+  selectorValue: string | null;
+  order: number;
+  parentId: string | null;
+};
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -53,7 +64,21 @@ export const authConfig: NextAuthConfig = {
             id: userData.id,
             name: userData.name,
             email: userData.email,
-            role: userData.role?.name as Role,
+            role: userData.role?.name || "user",
+            permissions:
+              userData.role?.permissions?.map(
+                (permission: BackendPermission) => permission.name,
+              ) || [],
+            menus:
+              userData.menus?.map((menu: BackendMenu) => ({
+                id: menu.id,
+                name: menu.name,
+                path: menu.path,
+                icon: menu.icon,
+                selectorValue: menu.selectorValue,
+                order: menu.order,
+                parentId: menu.parentId,
+              })) || [],
           };
         } catch (error) {
           console.error("Auth error:", error);
@@ -67,6 +92,8 @@ export const authConfig: NextAuthConfig = {
       if (user && user.id) {
         token.id = user.id;
         token.role = user.role;
+        token.permissions = user.permissions || [];
+        token.menus = user.menus || [];
       }
       return token;
     },
@@ -74,6 +101,8 @@ export const authConfig: NextAuthConfig = {
       if (session.user) {
         session.user.id = token.id;
         session.user.role = token.role;
+        session.user.permissions = token.permissions || [];
+        session.user.menus = token.menus || [];
       }
       return session;
     },

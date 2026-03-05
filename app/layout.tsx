@@ -15,7 +15,7 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Energy Monitoring System",
+  title: "protectQube",
   description: "Sistem monitoring listrik real-time",
 };
 
