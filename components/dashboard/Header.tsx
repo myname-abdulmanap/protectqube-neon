@@ -1,7 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
-import { Menu, Bell, LogOut, User, Settings } from "lucide-react";
+import { Menu, LogOut, User, Settings } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSidebar } from "@/components/providers/SidebarProvider";
 import { HeaderSelector } from "@/components/dashboard/HeaderSelector";
 import { motion } from "framer-motion";
@@ -90,18 +89,6 @@ export default function Header({
             onValueChange={onSelectorChange}
           />
 
-          {/* Theme Toggle */}
-          <ThemeToggle />
-
-          {/* Notifications */}
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Button variant="ghost" size="icon" className="relative h-6 w-6">
-              <Bell className="h-3 w-3" />
-              <span className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span className="sr-only">Notifications</span>
-            </Button>
-          </motion.div>
-
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -110,7 +97,7 @@ export default function Header({
                 className="relative h-6 w-6 rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
               >
                 <Avatar className="h-5 w-5">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-[9px] font-medium">
+                  <AvatarFallback className="bg-primary text-primary-foreground text- [9px] font-medium">
                     {getInitials(user?.name)}
                   </AvatarFallback>
                 </Avatar>

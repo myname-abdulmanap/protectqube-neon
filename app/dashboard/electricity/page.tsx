@@ -97,6 +97,17 @@ type OutletAlert = {
   section: string;
 };
 
+type RealtimeMetricState = {
+  voltageL1: number | null;
+  currentL1: number | null;
+  energyL1: number | null;
+  energyL2: number | null;
+  energyL3: number | null;
+  totalEnergy: number | null;
+  powerKw: number | null;
+  lastUpdated: string | null;
+};
+
 const hourlyChartConfig = {
   usage: {
     label: "Penggunaan (kWh)",
@@ -110,13 +121,33 @@ export default function ElectricityPage() {
   const [currentPower, setCurrentPower] = useState(0);
   const [loadStatus, setLoadStatus] = useState<"NORMAL" | "OVERLOAD">("NORMAL");
   const [alerts, setAlerts] = useState<OutletAlert[]>([]);
+  const [realtimeMetrics, setRealtimeMetrics] =
+    useState<RealtimeMetricState>({
+      voltageL1: null,
+      currentL1: null,
+      energyL1: null,
+      energyL2: null,
+      energyL3: null,
+      totalEnergy: null,
+      powerKw: null,
+      lastUpdated: null,
+    });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadOutlets = async () => {
       try {
         setError(null);
-        const listResponse = await energyDashboardApi.getOutlets();
+        const now = new Date();
+        const startOfMonthUtc = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+        );
+        const periodFilters = {
+          from: startOfMonthUtc.toISOString(),
+          to: now.toISOString(),
+        };
+
+        const listResponse = await energyDashboardApi.getOutlets(periodFilters);
         if (!listResponse.success || !listResponse.data) {
           setError(listResponse.error || "Failed to load outlet list");
           return;
@@ -126,6 +157,7 @@ export default function ElectricityPage() {
           listResponse.data.map(async (item) => {
             const detailResponse = await energyDashboardApi.getOutletDetail(
               item.scopeId,
+              periodFilters,
             );
             return detailResponse.success ? detailResponse.data : null;
           }),
@@ -163,11 +195,37 @@ export default function ElectricityPage() {
 
     const refreshRealtimeData = async () => {
       try {
+        const safeNumber = (value: unknown) => {
+          const parsed =
+            typeof value === "number" ? value : Number(value ?? Number.NaN);
+          return Number.isFinite(parsed) ? parsed : 0;
+        };
+
+        const toDisplayValue = (value: unknown) => {
+          const parsed =
+            typeof value === "number" ? value : Number(value ?? Number.NaN);
+          return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : null;
+        };
+
+        const toPowerKw = (value: number, unit?: string | null) => {
+          if (unit === "W") {
+            return Number((value / 1000).toFixed(2));
+          }
+          return Number(value.toFixed(2));
+        };
+
+        const toEnergyKwh = (value: number, unit?: string | null) => {
+          if (unit === "Wh") {
+            return Number((value / 1000).toFixed(2));
+          }
+          return Number(value.toFixed(2));
+        };
+
         const [metricResponse, alertResponse] = await Promise.all([
           deviceMetricsApi.getAll({
             scopeId: outlet.id,
-            metricKey: "power",
-            limit: 1,
+            moduleType: "power_meter",
+            limit: 300,
           }),
           alertEventsApi.getAll({
             scopeId: outlet.id,
@@ -175,17 +233,58 @@ export default function ElectricityPage() {
           }),
         ]);
 
-        if (
-          metricResponse.success &&
-          metricResponse.data &&
-          metricResponse.data[0]
-        ) {
-          const latestPower = metricResponse.data[0];
-          const powerKw =
-            latestPower.unit === "W"
-              ? latestPower.metricValue / 1000
-              : latestPower.metricValue;
-          const safePowerKw = Number(powerKw.toFixed(2));
+        if (metricResponse.success && metricResponse.data) {
+          const latestByKey = new Map<string, (typeof metricResponse.data)[0]>();
+          for (const metric of metricResponse.data) {
+            if (!latestByKey.has(metric.metricKey)) {
+              latestByKey.set(metric.metricKey, metric);
+            }
+          }
+
+          const powerMetric = latestByKey.get("power");
+          const voltageL1Metric = latestByKey.get("voltage_l1");
+          const currentL1Metric = latestByKey.get("current_l1");
+          const energyL1Metric = latestByKey.get("energy_l1");
+          const energyL2Metric = latestByKey.get("energy_l2");
+          const energyL3Metric = latestByKey.get("energy_l3");
+
+          const powerKw = powerMetric
+            ? toPowerKw(safeNumber(powerMetric.metricValue), powerMetric.unit)
+            : null;
+
+          const energyL1 = energyL1Metric
+            ? toEnergyKwh(safeNumber(energyL1Metric.metricValue), energyL1Metric.unit)
+            : null;
+          const energyL2 = energyL2Metric
+            ? toEnergyKwh(safeNumber(energyL2Metric.metricValue), energyL2Metric.unit)
+            : null;
+          const energyL3 = energyL3Metric
+            ? toEnergyKwh(safeNumber(energyL3Metric.metricValue), energyL3Metric.unit)
+            : null;
+
+          const energyValues = [energyL1, energyL2, energyL3].filter(
+            (value): value is number => value !== null,
+          );
+          const totalEnergy =
+            energyValues.length > 0
+              ? Number(energyValues.reduce((sum, value) => sum + value, 0).toFixed(2))
+              : null;
+
+          const latestMetricTimestamp =
+            metricResponse.data[0]?.timestamp || powerMetric?.timestamp || null;
+
+          setRealtimeMetrics({
+            voltageL1: toDisplayValue(voltageL1Metric?.metricValue),
+            currentL1: toDisplayValue(currentL1Metric?.metricValue),
+            energyL1,
+            energyL2,
+            energyL3,
+            totalEnergy,
+            powerKw,
+            lastUpdated: latestMetricTimestamp,
+          });
+
+          const safePowerKw = powerKw ?? outlet.peakPower;
 
           setCurrentPower(safePowerKw);
 
@@ -196,6 +295,16 @@ export default function ElectricityPage() {
           }
         } else {
           setCurrentPower(outlet.peakPower);
+          setRealtimeMetrics({
+            voltageL1: null,
+            currentL1: null,
+            energyL1: null,
+            energyL2: null,
+            energyL3: null,
+            totalEnergy: null,
+            powerKw: outlet.peakPower,
+            lastUpdated: null,
+          });
         }
 
         if (alertResponse.success && alertResponse.data) {
@@ -221,6 +330,16 @@ export default function ElectricityPage() {
         }
       } catch {
         setCurrentPower(outlet.peakPower);
+        setRealtimeMetrics({
+          voltageL1: null,
+          currentL1: null,
+          energyL1: null,
+          energyL2: null,
+          energyL3: null,
+          totalEnergy: null,
+          powerKw: outlet.peakPower,
+          lastUpdated: null,
+        });
       }
     };
 
@@ -244,14 +363,50 @@ export default function ElectricityPage() {
     );
   }
 
+  const toSafeNumber = (value: unknown) => {
+    const parsed =
+      typeof value === "number" ? value : Number(value ?? Number.NaN);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("id-ID", {
       style: "currency",
       currency: "IDR",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(value);
+    }).format(toSafeNumber(value));
   };
+
+  const formatKwh = (value: number) => {
+    return new Intl.NumberFormat("id-ID", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(toSafeNumber(value));
+  };
+
+  const todayUsage = toSafeNumber(outlet.kpiData.latestDailyUsage);
+  const todayCost = toSafeNumber(outlet.kpiData.latestDailyCost);
+  const monthUsage = toSafeNumber(outlet.kpiData.totalUsage);
+  const monthCost = toSafeNumber(outlet.kpiData.totalCost);
+  const dailyAverageChange = toSafeNumber(
+    outlet.comparisonData.dailyAverage.change,
+  );
+  const dailyAverageCurrent = toSafeNumber(
+    outlet.comparisonData.dailyAverage.current,
+  );
+  const dailyAveragePrevious = toSafeNumber(
+    outlet.comparisonData.dailyAverage.previous,
+  );
+  const currentPeriodChange = toSafeNumber(
+    outlet.comparisonData.currentPeriod.change,
+  );
+  const currentPeriodCurrent = toSafeNumber(
+    outlet.comparisonData.currentPeriod.current,
+  );
+  const currentPeriodPrevious = toSafeNumber(
+    outlet.comparisonData.currentPeriod.previous,
+  );
 
   const getAlertBadgeColor = (severity: string) => {
     switch (severity.toLowerCase()) {
@@ -353,7 +508,7 @@ export default function ElectricityPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white/80">Penggunaan Hari Ini</p>
                   <p className="text-2xl font-bold truncate">
-                    {outlet.kpiData.todayUsage} kWh
+                    {formatKwh(todayUsage)} kWh
                   </p>
                 </div>
                 <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
@@ -371,7 +526,7 @@ export default function ElectricityPage() {
                     Estimasi Biaya Hari Ini
                   </p>
                   <p className="text-2xl font-bold truncate">
-                    {formatCurrency(outlet.kpiData.todayCost)}
+                    {formatCurrency(todayCost)}
                   </p>
                 </div>
                 <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
@@ -387,7 +542,7 @@ export default function ElectricityPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white/80">Penggunaan Bulan Ini</p>
                   <p className="text-2xl font-bold truncate">
-                    {outlet.kpiData.monthUsage} kWh
+                    {formatKwh(monthUsage)} kWh
                   </p>
                 </div>
                 <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
@@ -405,7 +560,7 @@ export default function ElectricityPage() {
                     Estimasi Biaya Bulanan
                   </p>
                   <p className="text-2xl font-bold truncate">
-                    {formatCurrency(outlet.kpiData.monthCost)}
+                    {formatCurrency(monthCost)}
                   </p>
                 </div>
                 <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
@@ -508,6 +663,70 @@ export default function ElectricityPage() {
                     {outlet.maxLoad !== null
                       ? `${loadPercentage.toFixed(1)}% dari kapasitas`
                       : "Atur maxLoadKw di Energy Config untuk batas daya"}
+                  </p>
+
+                  <Separator />
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-md border bg-muted/30 p-2">
+                      <p className="text-xs text-muted-foreground">Voltage L1</p>
+                      <p className="font-semibold">
+                        {realtimeMetrics.voltageL1 !== null
+                          ? `${formatKwh(realtimeMetrics.voltageL1)} V`
+                          : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-2">
+                      <p className="text-xs text-muted-foreground">Current L1</p>
+                      <p className="font-semibold">
+                        {realtimeMetrics.currentL1 !== null
+                          ? `${formatKwh(realtimeMetrics.currentL1)} A`
+                          : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-2">
+                      <p className="text-xs text-muted-foreground">Energy L1</p>
+                      <p className="font-semibold">
+                        {realtimeMetrics.energyL1 !== null
+                          ? `${formatKwh(realtimeMetrics.energyL1)} kWh`
+                          : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-2">
+                      <p className="text-xs text-muted-foreground">Energy L2</p>
+                      <p className="font-semibold">
+                        {realtimeMetrics.energyL2 !== null
+                          ? `${formatKwh(realtimeMetrics.energyL2)} kWh`
+                          : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-2">
+                      <p className="text-xs text-muted-foreground">Energy L3</p>
+                      <p className="font-semibold">
+                        {realtimeMetrics.energyL3 !== null
+                          ? `${formatKwh(realtimeMetrics.energyL3)} kWh`
+                          : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-2">
+                      <p className="text-xs text-muted-foreground">Total Energy 3-Phase</p>
+                      <p className="font-semibold">
+                        {realtimeMetrics.totalEnergy !== null
+                          ? `${formatKwh(realtimeMetrics.totalEnergy)} kWh`
+                          : "-"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-center text-muted-foreground">
+                    Parser `generic_metrics` | Phase `three-phase` | Interval 60 detik
+                    {realtimeMetrics.lastUpdated
+                      ? ` | Update: ${new Date(realtimeMetrics.lastUpdated).toLocaleTimeString("id-ID", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}`
+                      : ""}
                   </p>
                 </div>
               </CardContent>
@@ -653,30 +872,30 @@ export default function ElectricityPage() {
                     <Badge
                       variant="outline"
                       className={cn(
-                        outlet.comparisonData.todayVsYesterday.change > 0
+                        dailyAverageChange > 0
                           ? "bg-red-500/20 text-red-500 border-red-500/30"
                           : "bg-green-500/20 text-green-500 border-green-500/30",
                       )}
                     >
-                      {outlet.comparisonData.todayVsYesterday.change > 0 ? (
+                      {dailyAverageChange > 0 ? (
                         <ArrowUp className="h-3 w-3 mr-1" />
                       ) : (
                         <ArrowDown className="h-3 w-3 mr-1" />
                       )}
-                      {Math.abs(outlet.comparisonData.todayVsYesterday.change)}%
+                      {Math.abs(dailyAverageChange)}%
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3 rounded-lg bg-muted/50">
                       <p className="text-xs text-muted-foreground">Hari Ini</p>
                       <p className="text-lg font-bold">
-                        {outlet.comparisonData.todayVsYesterday.current} kWh
+                        {formatKwh(dailyAverageCurrent)} kWh
                       </p>
                     </div>
                     <div className="p-3 rounded-lg bg-muted/50">
                       <p className="text-xs text-muted-foreground">Kemarin</p>
                       <p className="text-lg font-bold">
-                        {outlet.comparisonData.todayVsYesterday.previous} kWh
+                        {formatKwh(dailyAveragePrevious)} kWh
                       </p>
                     </div>
                   </div>
@@ -693,24 +912,24 @@ export default function ElectricityPage() {
                     <Badge
                       variant="outline"
                       className={cn(
-                        outlet.comparisonData.monthVsLastMonth.change > 0
+                        currentPeriodChange > 0
                           ? "bg-red-500/20 text-red-500 border-red-500/30"
                           : "bg-green-500/20 text-green-500 border-green-500/30",
                       )}
                     >
-                      {outlet.comparisonData.monthVsLastMonth.change > 0 ? (
+                      {currentPeriodChange > 0 ? (
                         <ArrowUp className="h-3 w-3 mr-1" />
                       ) : (
                         <ArrowDown className="h-3 w-3 mr-1" />
                       )}
-                      {Math.abs(outlet.comparisonData.monthVsLastMonth.change)}%
+                      {Math.abs(currentPeriodChange)}%
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3 rounded-lg bg-muted/50">
                       <p className="text-xs text-muted-foreground">Bulan Ini</p>
                       <p className="text-lg font-bold">
-                        {outlet.comparisonData.monthVsLastMonth.current} kWh
+                        {formatKwh(currentPeriodCurrent)} kWh
                       </p>
                     </div>
                     <div className="p-3 rounded-lg bg-muted/50">
@@ -718,7 +937,7 @@ export default function ElectricityPage() {
                         Bulan Lalu
                       </p>
                       <p className="text-lg font-bold">
-                        {outlet.comparisonData.monthVsLastMonth.previous} kWh
+                        {formatKwh(currentPeriodPrevious)} kWh
                       </p>
                     </div>
                   </div>

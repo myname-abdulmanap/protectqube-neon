@@ -1,0 +1,781 @@
+import { AlertsDashboard } from "@/components/dashboard/AlertsDashboard";
+
+// Animation variants
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.05,
+    },
+  },
+};
+const itemVariants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.3,
+      ease: "easeOut" as const,
+    },
+  },
+};
+const monthlyTrendData = [
+  {
+    month: "Mar 2025",
+    consumption: 121200,
+    estimatedCost: 181800000,
+    actualCost: 179500000,
+  },
+  {
+    month: "Apr 2025",
+    consumption: 115800,
+    estimatedCost: 173700000,
+    actualCost: 171200000,
+  },
+  {
+    month: "May 2025",
+    consumption: 119400,
+    estimatedCost: 179100000,
+    actualCost: 176800000,
+  },
+  {
+    month: "Jun 2025",
+    consumption: 123600,
+    estimatedCost: 185400000,
+    actualCost: 182900000,
+  },
+  {
+    month: "Jul 2025",
+    consumption: 117200,
+    estimatedCost: 175800000,
+    actualCost: 173500000,
+  },
+  {
+    month: "Aug 2025",
+    consumption: 120800,
+    estimatedCost: 181200000,
+    actualCost: 178600000,
+  },
+  {
+    month: "Sep 2025",
+    consumption: 116500,
+    estimatedCost: 174750000,
+    actualCost: 172100000,
+  },
+  {
+    month: "Oct 2025",
+    consumption: 122400,
+    estimatedCost: 183600000,
+    actualCost: 181000000,
+  },
+  {
+    month: "Nov 2025",
+    consumption: 118900,
+    estimatedCost: 178350000,
+    actualCost: 175900000,
+  },
+  {
+    month: "Dec 2025",
+    consumption: 127300,
+    estimatedCost: 190950000,
+    actualCost: 188200000,
+  },
+  {
+    month: "Jan 2026",
+    consumption: 124100,
+    estimatedCost: 186150000,
+    actualCost: 183700000,
+  },
+  {
+    month: "Feb 2026",
+    consumption: 125847,
+    estimatedCost: 188770500,
+    actualCost: 186200000,
+  },
+];
+
+const regionChartConfig = {
+  kWh: {
+    label: "Consumption (kWh)",
+    color: "#6366f1",
+  },
+} satisfies ChartConfig;
+
+const trendChartConfig = {
+  consumption: {
+    label: "Consumption (kWh)",
+    color: "#06b6d4",
+  },
+  estimatedCost: {
+    label: "Estimated Cost",
+    color: "#f59e0b",
+  },
+  actualCost: {
+    label: "Actual Cost",
+    color: "#10b981",
+  },
+} satisfies ChartConfig;
+
+export default function RegionalPage() {
+  const realtime = useRealtimeContext();
+  const [overviewData, setOverviewData] = useState<EnergyOverviewData | null>(
+    null,
+  );
+  const [overviewAlerts, setOverviewAlerts] = useState<
+    Array<{
+      id: string;
+      outlet: string;
+      region: string;
+      type: string;
+      severity: string;
+      time: string;
+      message: string;
+    }>
+  >([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setError(null);
+        const [overviewResponse, alertResponse] = await Promise.all([
+          energyDashboardApi.getOverview(),
+          alertEventsApi.getAll({ moduleType: "power_meter", limit: 20 }),
+        ]);
+
+        if (overviewResponse.success && overviewResponse.data) {
+          setOverviewData(overviewResponse.data);
+        } else {
+          setError(overviewResponse.error || "Failed to load overview data");
+        }
+
+        if (alertResponse.success && alertResponse.data) {
+          setOverviewAlerts(
+            alertResponse.data.map((alert) => {
+              const outletName =
+                alert.device?.scope?.name ||
+                alert.device?.name ||
+                "Unknown Outlet";
+              const region = alert.device?.scope?.region || "Unknown";
+              const eventDate = new Date(alert.timestamp);
+
+              return {
+                id: alert.id,
+                outlet: outletName,
+                region,
+                type: alert.alertType,
+                severity: alert.severity,
+                time: Number.isNaN(eventDate.getTime())
+                  ? "-"
+                  : eventDate.toLocaleTimeString("id-ID", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
+                message:
+                  alert.description || alert.title || "Alert event detected",
+              };
+            }),
+          );
+        }
+      } catch {
+        setError("Failed to load overview data");
+      }
+    };
+
+    load();
+  }, []);
+
+  // Subscribe to real-time alerts
+  useEffect(() => {
+    const unsubscribe = realtime.subscribe("alert", (message) => {
+      if (message.type === "alert") {
+        const alertData = message.data as {
+          id: string;
+          deviceId: string;
+          scopeId: string;
+          moduleType: string;
+          alertType: string;
+          severity: string;
+          title: string;
+          description?: string;
+          timestamp: string;
+          device?: { name: string; scope?: { name: string; region?: string } };
+        };
+
+        // Only add power_meter alerts to energy dashboard
+        if (alertData.moduleType !== "power_meter") {
+          return;
+        }
+
+        const eventDate = new Date(alertData.timestamp);
+        const newAlert = {
+          id: alertData.id,
+          outlet:
+            alertData.device?.name ||
+            alertData.device?.scope?.name ||
+            "Unknown Outlet",
+          region: alertData.device?.scope?.region || "Unknown",
+          type: alertData.alertType,
+          severity: alertData.severity,
+          time: Number.isNaN(eventDate.getTime())
+            ? "-"
+            : eventDate.toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+          message:
+            alertData.description || alertData.title || "Alert event detected",
+        };
+
+        // Add new alert to the top of the list
+        setOverviewAlerts((prev) => [newAlert, ...prev.slice(0, 19)]);
+      }
+    });
+
+    return unsubscribe;
+  }, [realtime]);
+
+  const globalKPI = useMemo(
+    () =>
+      overviewData?.globalKpi || {
+        totalEnergy: 0,
+        totalCost: 0,
+        activeOutlets: 0,
+        alertOutlets: 0,
+      },
+    [overviewData],
+  );
+
+  const regionData = useMemo(
+    () => overviewData?.regionData || [],
+    [overviewData],
+  );
+
+  const outletLocations = useMemo(
+    () =>
+      (overviewData?.outletLocations || [])
+        .filter((outlet) => outlet.lat !== null && outlet.lng !== null)
+        .map((outlet) => ({
+          id: outlet.id,
+          name: outlet.name,
+          region: outlet.region,
+          lat: outlet.lat as number,
+          lng: outlet.lng as number,
+          status: (outlet.status === "alert" || outlet.status === "high"
+            ? outlet.status
+            : "normal") as "normal" | "high" | "alert",
+          usage: outlet.usage,
+          cost: outlet.cost,
+        })),
+    [overviewData],
+  );
+
+  const topOutlets = useMemo(
+    () =>
+      [...outletLocations]
+        .sort((a, b) => b.usage - a.usage)
+        .slice(0, 10)
+        .map((outlet) => ({
+          region: outlet.region,
+          name: outlet.name,
+          usage: outlet.usage,
+          cost: outlet.cost,
+        })),
+    [outletLocations],
+  );
+
+  const lowOutlets = useMemo(
+    () =>
+      [...outletLocations]
+        .sort((a, b) => a.usage - b.usage)
+        .slice(0, 10)
+        .map((outlet) => ({
+          region: outlet.region,
+          name: outlet.name,
+          usage: outlet.usage,
+          cost: outlet.cost,
+        })),
+    [outletLocations],
+  );
+
+  const formatNumber = (value: number) => {
+    return new Intl.NumberFormat("id-ID").format(value);
+  };
+
+  const getAlertBadgeColor = (type: string) => {
+    switch (type.toUpperCase()) {
+      case "OVERLOAD_POWER":
+        return "bg-red-500/20 text-red-500 border-red-500/30";
+      case "OVER_CONSUMPTION":
+        return "bg-orange-500/20 text-orange-500 border-orange-500/30";
+      case "ANOMALY_USAGE":
+        return "bg-yellow-500/20 text-yellow-500 border-yellow-500/30";
+      case "DEVICE_OFFLINE":
+        return "bg-gray-500/20 text-gray-500 border-gray-500/30";
+      default:
+        return "bg-blue-500/20 text-blue-500 border-blue-500/30";
+    }
+  };
+
+  return (
+    <PageTransition>
+      <motion.div
+        className="space-y-1 p-0"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        {error && (
+          <div className="rounded bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        {/* Global KPI Cards - Ultra Compact */}
+        <motion.div variants={itemVariants} className="grid grid-cols-4 gap-2">
+          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-blue-500 to-cyan-500 text-white">
+            <CardContent className="p-2.5">
+              <div className="flex items-start gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <Zap className="h-3.5 w-3.5 text-white" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[8px] text-white/80 leading-tight">
+                    Total Energy
+                  </p>
+                  <p className="text-sm font-bold truncate">
+                    {formatNumber(globalKPI.totalEnergy)}
+                  </p>
+                  <p className="text-[9px] text-white/90">kWh</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
+            <CardContent className="p-2.5">
+              <div className="flex items-start gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <DollarSign className="h-3.5 w-3.5 text-white" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[8px] text-white/80 leading-tight">
+                    Est. Cost
+                  </p>
+                  <p className="text-sm font-bold truncate">
+                    Rp {(globalKPI.totalCost / 1000000).toFixed(1)}
+                  </p>
+                  <p className="text-[9px] text-white/90">Million</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-orange-500 to-amber-600 text-white">
+            <CardContent className="p-2.5">
+              <div className="flex items-start gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <Store className="h-3.5 w-3.5 text-white" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[8px] text-white/80 leading-tight">
+                    Active Outlets
+                  </p>
+                  <p className="text-xl font-bold truncate">
+                    {globalKPI.activeOutlets}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-rose-500 to-red-600 text-white">
+            <CardContent className="p-2.5">
+              <div className="flex items-start gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <AlertTriangle className="h-3.5 w-3.5 text-white" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[8px] text-white/80 leading-tight">
+                    Alerts
+                  </p>
+                  <p className="text-xl font-bold truncate">
+                    {globalKPI.alertOutlets}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-[2fr_3fr] gap-1">
+          {/* Left Column - Region Comparison & Map */}
+          <div className="space-y-1">
+            {/* Region Comparison Chart */}
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="px-1.5 pt-1 pb-0">
+                  <CardTitle className="text-[10px] font-semibold">
+                    Region Comparison
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-0 pb-0 pt-0">
+                  <ChartContainer
+                    config={regionChartConfig}
+                    className="h-[140px] w-full"
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={regionData}
+                        margin={{ left: 0, right: 0, top: 5, bottom: 35 }}
+                      >
+                        <XAxis
+                          dataKey="region"
+                          tick={(props: {
+                            x: number;
+                            y: number;
+                            payload: { value: string };
+                          }) => {
+                            const { x, y, payload } = props;
+                            const cost = regionData.find(
+                              (r) => r.region === payload.value,
+                            )?.cost;
+                            return (
+                              <g transform={`translate(${x},${y})`}>
+                                <text
+                                  x={0}
+                                  y={0}
+                                  dy={10}
+                                  textAnchor="middle"
+                                  fontSize={8}
+                                  fill="currentColor"
+                                >
+                                  {payload.value}
+                                </text>
+                                <text
+                                  x={0}
+                                  y={0}
+                                  dy={20}
+                                  textAnchor="middle"
+                                  fontSize={7}
+                                  fill="currentColor"
+                                  opacity={0.6}
+                                >
+                                  {cost
+                                    ? `Rp ${(cost / 1000000).toFixed(1)}jt`
+                                    : ""}
+                                </text>
+                              </g>
+                            );
+                          }}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis hide />
+                        <ChartTooltip
+                          content={<ChartTooltipContent />}
+                          cursor={{ fill: "hsl(var(--muted))", opacity: 0.2 }}
+                        />
+                        <defs>
+                          <linearGradient
+                            id="barGradient"
+                            x1="0"
+                            y1="0"
+                            x2="0"
+                            y2="1"
+                          >
+                            <stop offset="0%" stopColor="#818cf8" />
+                            <stop offset="100%" stopColor="#6366f1" />
+                          </linearGradient>
+                        </defs>
+                        <Bar
+                          dataKey="kWh"
+                          fill="url(#barGradient)"
+                          radius={[3, 3, 0, 0]}
+                          label={{
+                            position: "top",
+                            fontSize: 8,
+                            formatter: (v: number) =>
+                              `${(v / 1000).toFixed(1)}k`,
+                          }}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Top & Low Outlets Tables */}
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="px-1 pt-0.5 pb-0">
+                  <CardTitle className="text-[9px] font-semibold">
+                    Top Usage Outlets
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-1 pb-0.5 pt-0">
+                  <ScrollArea className="h-[120px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-b">
+                          <TableHead className="text-[7px] h-4 px-0.5 py-0">
+                            Region
+                          </TableHead>
+                          <TableHead className="text-[7px] h-4 px-0.5 py-0">
+                            Outlet
+                          </TableHead>
+                          <TableHead className="text-right text-[7px] h-4 px-0.5 py-0">
+                            kWh
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {topOutlets.map((outlet, idx) => (
+                          <TableRow key={idx} className="border-b">
+                            <TableCell className="py-px px-0.5 text-[7px]">
+                              {idx + 1}. {outlet.region}
+                            </TableCell>
+                            <TableCell className="py-px px-0.5 text-[7px] font-medium">
+                              {outlet.name}
+                            </TableCell>
+                            <TableCell className="text-right py-px px-0.5 text-[7px]">
+                              {formatNumber(outlet.usage)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Low Usage Outlets */}
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="px-1 pt-0.5 pb-0">
+                  <CardTitle className="text-[9px] font-semibold">
+                    Low Usage Outlets
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-1 pb-0.5 pt-0">
+                  <ScrollArea className="h-[120px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-b">
+                          <TableHead className="text-[7px] h-4 px-0.5 py-0">
+                            Region
+                          </TableHead>
+                          <TableHead className="text-[7px] h-4 px-0.5 py-0">
+                            Outlet
+                          </TableHead>
+                          <TableHead className="text-right text-[7px] h-4 px-0.5 py-0">
+                            kWh
+                          </TableHead>
+                          <TableHead className="text-right text-[7px] h-4 px-0.5 py-0">
+                            Cost
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {lowOutlets.map((outlet, idx) => (
+                          <TableRow key={idx} className="border-b">
+                            <TableCell className="py-px px-0.5 text-[7px]">
+                              {idx + 1}. {outlet.region}
+                            </TableCell>
+                            <TableCell className="py-px px-0.5 text-[7px] font-medium">
+                              {outlet.name}
+                            </TableCell>
+                            <TableCell className="text-right py-px px-0.5 text-[7px]">
+                              {formatNumber(outlet.usage)}
+                            </TableCell>
+                            <TableCell className="text-right py-px px-0.5 text-[7px]">
+                              {formatNumber(outlet.cost)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </div>
+
+          {/* Right Column - Map & Trend & Alerts */}
+          <div className="space-y-1">
+            {/* Outlet Status Map */}
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="px-1.5 pt-1 pb-0">
+                  <CardTitle className="text-[10px] font-semibold">
+                    Outlet Status Map
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-1.5 pb-1 pt-0.5">
+                  <div className="h-[240px] rounded overflow-hidden bg-muted/30">
+                    <LeafletMap outlets={outletLocations} className="h-full" />
+                  </div>
+                  {/* Legend */}
+                  <div className="mt-1 flex items-center justify-end gap-2 text-[8px]">
+                    <span className="flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                      Normal
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                      High
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      Alert
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Monthly Trend & Alerts Side by Side */}
+            <div className="grid grid-cols-2 gap-1">
+              {/* Monthly Energy Usage */}
+              <motion.div variants={itemVariants}>
+                <Card className="border-0 shadow-sm h-full">
+                  <CardHeader className="px-1.5 pt-1 pb-0">
+                    <CardTitle className="text-[10px] font-semibold">
+                      Monthly Energy Usage
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-1.5 pb-1 pt-0">
+                    <ChartContainer
+                      config={trendChartConfig}
+                      className="h-[155px]"
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={monthlyTrendData}
+                          margin={{ left: 0, right: 0, top: 5, bottom: 0 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            vertical={false}
+                            stroke="hsl(var(--border))"
+                            opacity={0.3}
+                          />
+                          <XAxis
+                            dataKey="month"
+                            tick={{ fontSize: 7 }}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            yAxisId="left"
+                            tick={{ fontSize: 7 }}
+                            tickFormatter={(v) => `${(v / 1000).toFixed(0)}`}
+                            width={20}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            yAxisId="right"
+                            orientation="right"
+                            tick={{ fontSize: 7 }}
+                            tickFormatter={(v) => `${(v / 1000000).toFixed(0)}`}
+                            width={20}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Legend wrapperStyle={{ fontSize: "7px" }} />
+                          <Line
+                            yAxisId="left"
+                            type="monotone"
+                            dataKey="consumption"
+                            name="Consumption"
+                            stroke="#06b6d4"
+                            strokeWidth={2}
+                            dot={{ r: 2, fill: "#06b6d4" }}
+                            activeDot={{ r: 3, fill: "#06b6d4" }}
+                          />
+                          <Line
+                            yAxisId="right"
+                            type="monotone"
+                            dataKey="estimatedCost"
+                            name="Estimated"
+                            stroke="#f59e0b"
+                            strokeWidth={2}
+                            dot={{ r: 2, fill: "#f59e0b" }}
+                          />
+                          <Line
+                            yAxisId="right"
+                            type="monotone"
+                            dataKey="actualCost"
+                            name="Actual Cost"
+                            stroke="#10b981"
+                            strokeWidth={2}
+                            dot={{ r: 2, fill: "#10b981" }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              {/* Alerts */}
+              <motion.div variants={itemVariants}>
+                <Card className="border-0 shadow-sm h-full">
+                  <CardHeader className="px-1.5 pt-1 pb-0">
+                    <CardTitle className="text-[10px] font-semibold">
+                      Alerts
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-1.5 pb-1 pt-0">
+                    <ScrollArea className="h-[155px]">
+                      <div className="space-y-1">
+                        {overviewAlerts.map((alert) => (
+                          <div
+                            key={alert.id}
+                            className="p-1 rounded border bg-card text-[8px] leading-tight"
+                          >
+                            <div className="flex items-start justify-between gap-1 mb-0.5">
+                              <div className="flex items-center gap-1">
+                                <span className="font-medium text-[8px]">
+                                  {alert.time}
+                                </span>
+                                <span className="text-muted-foreground text-[7px]">
+                                  {alert.region}
+                                </span>
+                              </div>
+                              <span
+                                className={cn(
+                                  "font-medium text-[7px] px-1 py-0.5 rounded border",
+                                  getAlertBadgeColor(alert.type),
+                                )}
+                              >
+                                {alert.severity.toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="font-medium mb-0.5 text-[8px]">
+                              {alert.outlet}
+                            </div>
+                            <div className="text-muted-foreground text-[7px]">
+                              {alert.message}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </PageTransition>
+  );
+}

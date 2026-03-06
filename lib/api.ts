@@ -267,6 +267,13 @@ export interface EnergyConfig {
 
 export interface EnergyOverviewData {
   date: string;
+  range: {
+    from: string;
+    to: string;
+    days: number;
+    isSingleDay: boolean;
+    label: string;
+  };
   globalKpi: {
     totalEnergy: number;
     totalCost: number;
@@ -294,26 +301,83 @@ export interface EnergyOverviewData {
   }>;
 }
 
+export interface EnergyOutletSummary {
+  scopeId: string;
+  status: string;
+  totalUsage: number;
+  totalCost: number;
+  scope: {
+    name: string;
+    region: string | null;
+  };
+}
+
 export interface EnergyOutletDetail {
   id: string;
   name: string;
   region: string | null;
   city: string | null;
+  address: string | null;
+  period: {
+    from: string;
+    to: string;
+    days: number;
+    isSingleDay: boolean;
+    label: string;
+  };
   kpiData: {
-    todayUsage: number;
-    todayCost: number;
-    monthUsage: number;
-    monthCost: number;
+    totalUsage: number;
+    totalCost: number;
+    averageDailyUsage: number;
+    averageDailyCost: number;
+    latestDailyUsage: number;
+    latestDailyCost: number;
+    activeDevices: number;
+    totalAlerts: number;
   };
   hourlyData: Array<{ hour: string; usage: number }>;
   sectionData: Array<{ name: string; value: number; kWh: number; color?: string }>;
   comparisonData: {
-    todayVsYesterday: { current: number; previous: number; change: number };
-    monthVsLastMonth: { current: number; previous: number; change: number };
+    currentPeriod: { current: number; previous: number; change: number };
+    dailyAverage: { current: number; previous: number; change: number };
   };
   peakPower: number;
   maxLoad: number | null;
   status: string;
+  devices: Array<{
+    id: string;
+    name: string;
+    serialNo: string;
+    locationName: string | null;
+    locationType: string | null;
+    status: string;
+    lastSeenAt: string | null;
+    moduleTypes: string[];
+    latestPowerKw: number;
+    metricCount: number;
+    alertCount: number;
+  }>;
+  alertHistory: Array<{
+    id: string;
+    type: string;
+    severity: string;
+    message: string;
+    timestamp: string;
+    deviceName: string;
+    locationName: string | null;
+  }>;
+  powerSeries: Array<{
+    timestamp: string;
+    deviceId: string;
+    deviceName: string;
+    powerKw: number;
+  }>;
+}
+
+export interface EnergyDashboardFilters {
+  date?: string;
+  from?: string;
+  to?: string;
 }
 
 export interface LoginResponse {
@@ -725,7 +789,7 @@ export const deviceMetricsApi = {
 
 // Alert Events API
 export const alertEventsApi = {
-  getAll: async (filters?: { deviceId?: string; scopeId?: string; moduleType?: string; severity?: string; from?: string; to?: string; limit?: number }): Promise<ApiResponse<AlertEvent[]>> => {
+  getAll: async (filters?: { deviceId?: string; scopeId?: string; moduleType?: string; severity?: string; actionKey?: string; excludeActionKey?: string; from?: string; to?: string; limit?: number }): Promise<ApiResponse<AlertEvent[]>> => {
     const response = await apiClient.get<ApiResponse<AlertEvent[]>>("/alert-events", { params: filters });
     return response.data;
   },
@@ -789,24 +853,24 @@ export const energyConfigsApi = {
 };
 
 export const energyDashboardApi = {
-  getOverview: async (date?: string): Promise<ApiResponse<EnergyOverviewData>> => {
-    const params = date ? { date } : {};
+  getOverview: async (filters?: EnergyDashboardFilters): Promise<ApiResponse<EnergyOverviewData>> => {
+    const params = filters || {};
     const response = await apiClient.get<ApiResponse<EnergyOverviewData>>(
       "/energy-dashboard/overview",
       { params }
     );
     return response.data;
   },
-  getOutlets: async (date?: string): Promise<ApiResponse<Array<{ scopeId: string; status: string; scope: { name: string; region: string | null } }>>> => {
-    const params = date ? { date } : {};
-    const response = await apiClient.get<ApiResponse<Array<{ scopeId: string; status: string; scope: { name: string; region: string | null } }>>>(
+  getOutlets: async (filters?: EnergyDashboardFilters): Promise<ApiResponse<EnergyOutletSummary[]>> => {
+    const params = filters || {};
+    const response = await apiClient.get<ApiResponse<EnergyOutletSummary[]>>(
       "/energy-dashboard/outlets",
       { params }
     );
     return response.data;
   },
-  getOutletDetail: async (scopeId: string, date?: string): Promise<ApiResponse<EnergyOutletDetail>> => {
-    const params = date ? { date } : {};
+  getOutletDetail: async (scopeId: string, filters?: EnergyDashboardFilters): Promise<ApiResponse<EnergyOutletDetail>> => {
+    const params = filters || {};
     const response = await apiClient.get<ApiResponse<EnergyOutletDetail>>(
       `/energy-dashboard/outlets/${scopeId}`,
       { params }

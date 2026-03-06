@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Users,
@@ -39,12 +39,8 @@ import {
 import { AISummaryCards } from "./AISummaryCards";
 import { LiveVideoCard } from "./LiveVideoCard";
 import { AlertsView } from "./AlertsView";
-import {
-  cashierDeviceSummary,
-  cashierAlerts,
-  cashierOverviewData,
-  outlets,
-} from "@/lib/ai-alerts";
+import { alertEventsApi, energyDashboardApi, type AlertEvent } from "@/lib/api";
+import { useRealtimeContext } from "@/components/providers/RealtimeProvider";
 
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
@@ -70,51 +66,242 @@ const outletChartConfig: ChartConfig = {
 };
 
 export function CashierMonitoring() {
+  const realtime = useRealtimeContext();
   const [selectedOutlet, setSelectedOutlet] = useState("all");
-  const d = cashierOverviewData;
+  const [alertOutlets, setAlertOutlets] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [alerts, setAlerts] = useState<AlertEvent[]>([]);
+  const [alertError, setAlertError] = useState<string | null>(null);
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
 
-  const outletData =
-    selectedOutlet === "all"
-      ? null
-      : d.outletBreakdown.find((o) => o.outletId === selectedOutlet);
+  useEffect(() => {
+    const loadOutlets = async () => {
+      try {
+        const res = await energyDashboardApi.getOutlets();
+        if (res.success && res.data) {
+          setAlertOutlets(
+            res.data.map((o) => ({ id: o.scopeId, name: o.scope.name })),
+          );
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    void loadOutlets();
+  }, []);
+
+  useEffect(() => {
+    const loadAlerts = async () => {
+      setAlertError(null);
+      setLoadingAlerts(true);
+      try {
+        const res = await alertEventsApi.getAll({
+          moduleType: "ai",
+          limit: 100,
+          ...(selectedOutlet !== "all" ? { scopeId: selectedOutlet } : {}),
+        });
+        if (res.success && res.data) {
+          // Keep only AI-related modules (e.g., ai_camera, ai, etc)
+          setAlerts(
+            res.data.filter((a) =>
+              String(a.moduleType).toLowerCase().includes("ai"),
+            ),
+          );
+        } else {
+          setAlerts([]);
+          setAlertError(res.error || "Failed to load alerts");
+        }
+      } catch {
+        setAlerts([]);
+        setAlertError("Failed to load alerts");
+      } finally {
+        setLoadingAlerts(false);
+      }
+    };
+
+    void loadAlerts();
+  }, [selectedOutlet]);
+
+  // Subscribe to real-time AI alerts
+  useEffect(() => {
+    const unsubscribe = realtime.subscribe("alert", (message) => {
+      if (message.type === "alert") {
+        const alertData = message.data as {
+          id: string;
+          deviceId: string;
+          scopeId: string;
+          moduleType: string;
+          alertType: string;
+          severity: string;
+          title: string;
+          description?: string;
+          timestamp: string;
+          device?: { name: string; scope?: { name: string; region?: string } };
+        };
+
+        // Only include AI-related alerts
+        if (
+          alertData.moduleType !== "ai" &&
+          !String(alertData.moduleType).toLowerCase().includes("ai")
+        ) {
+          return;
+        }
+
+        // Filter by selected outlet if not "all"
+        if (selectedOutlet !== "all" && alertData.scopeId !== selectedOutlet) {
+          return;
+        }
+
+        // Map to AlertEvent format
+        const newAlert: AlertEvent = {
+          id: alertData.id,
+          deviceId: alertData.deviceId,
+          scopeId: alertData.scopeId,
+          actionId: null,
+          moduleType: alertData.moduleType,
+          alertType: alertData.alertType,
+          severity: alertData.severity,
+          title: alertData.title,
+          description: alertData.description ?? null,
+          metadata: null,
+          timestamp: alertData.timestamp,
+          createdAt: new Date().toISOString(),
+          device: undefined,
+        };
+
+        // Add new alert to the top of the list, keep only last 100
+        setAlerts((prev) => [newAlert, ...prev.slice(0, 99)]);
+      }
+    });
+
+    return unsubscribe;
+  }, [realtime, selectedOutlet]);
+
+  const aiAlerts = useMemo(() => {
+    const outletName =
+      selectedOutlet === "all"
+        ? "All Outlets"
+        : alertOutlets.find((o) => o.id === selectedOutlet)?.name || "";
+
+    return alerts.map((a) => ({
+      id: a.id,
+      module: "Cashier",
+      outlet: a.device?.scope?.name || outletName || "",
+      deviceName: a.device?.name || a.deviceId,
+      deviceId: a.deviceId,
+      area: a.device?.locationName || "",
+      alertType: a.alertType,
+      severity: a.severity,
+      timestamp: a.timestamp,
+      description: a.description || a.title || "",
+      aiInsight: [],
+      timeline: [],
+      images: [],
+      location: {
+        name: a.device?.locationName || outletName || "",
+        lat: 0,
+        lng: 0,
+        area: a.device?.locationName || "",
+      },
+    }));
+  }, [alerts, selectedOutlet, alertOutlets]);
+
+  const summary = useMemo(() => {
+    const today = new Date().toDateString();
+    const filtered = aiAlerts;
+    const totalDevices = new Set(filtered.map((a) => a.deviceId)).size;
+    const totalAlertsToday = filtered.filter(
+      (a) => new Date(a.timestamp).toDateString() === today,
+    ).length;
+    const criticalAlerts = filtered.filter(
+      (a) => a.severity.toLowerCase() === "critical",
+    ).length;
+    const suspiciousAlerts = filtered.filter(
+      (a) => a.severity.toLowerCase() === "suspicious",
+    ).length;
+    const healthAlerts = filtered.filter(
+      (a) => a.severity.toLowerCase() === "health",
+    ).length;
+
+    return {
+      totalDevices,
+      activeDevices: totalDevices,
+      totalAlertsToday,
+      criticalAlerts,
+      suspiciousAlerts,
+      healthAlerts,
+    };
+  }, [aiAlerts]);
 
   const kpiCards = [
     {
-      label: "Total Pelanggan",
-      value: outletData ? outletData.customers : d.totalCustomers,
+      label: "Total Devices",
+      value: summary.totalDevices,
       icon: Users,
       color: "text-violet-500",
       bg: "from-violet-500/10 to-violet-500/5",
     },
     {
-      label: "Driver OJOL",
-      value: outletData ? Math.round(d.ojolDrivers / 5) : d.ojolDrivers,
-      icon: Bike,
-      color: "text-green-500",
-      bg: "from-green-500/10 to-green-500/5",
+      label: "Total Alerts",
+      value: alerts.length,
+      icon: ShieldAlert,
+      color: "text-orange-500",
+      bg: "from-orange-500/10 to-orange-500/5",
     },
     {
-      label: "Pelayan Aktif",
-      value: outletData
-        ? Math.max(1, Math.round(d.totalServers / 2))
-        : d.totalServers,
-      icon: UserCheck,
-      color: "text-blue-500",
-      bg: "from-blue-500/10 to-blue-500/5",
-    },
-    {
-      label: "Suspected Fraud",
-      value: outletData ? outletData.fraud : d.suspectedFraud,
+      label: "Critical",
+      value: summary.criticalAlerts,
       icon: ShieldAlert,
       color: "text-red-500",
       bg: "from-red-500/10 to-red-500/5",
     },
+    {
+      label: "Suspicious",
+      value: summary.suspiciousAlerts,
+      icon: ShieldAlert,
+      color: "text-yellow-500",
+      bg: "from-yellow-500/10 to-yellow-500/5",
+    },
   ];
 
-  const hourlyData = d.hourlyVisitors.slice(6, 22).map((v, i) => ({
-    hour: String(i + 6).padStart(2, "0"),
-    visitors: selectedOutlet === "all" ? v : Math.round(v / 5),
-  }));
+  const hourlyData = useMemo(() => {
+    // Generate hourly distribution from alert timestamps
+    const hourCounts: Record<string, number> = {};
+    for (let i = 0; i < 24; i++) {
+      hourCounts[String(i).padStart(2, "0")] = 0;
+    }
+
+    // Filter alerts by selected outlet
+    const filteredAlerts =
+      selectedOutlet === "all"
+        ? aiAlerts
+        : aiAlerts.filter(
+            (a) =>
+              a.deviceId.includes(selectedOutlet) ||
+              a.outlet.includes(
+                alertOutlets.find((o) => o.id === selectedOutlet)?.name || "",
+              ),
+          );
+
+    // Count alerts by hour
+    filteredAlerts.forEach((alert) => {
+      const hour = new Date(alert.timestamp).getHours();
+      const hourStr = String(hour).padStart(2, "0");
+      hourCounts[hourStr]++;
+    });
+
+    // Return only business hours (6-22)
+    return Array.from({ length: 16 }, (_, i) => {
+      const hour = i + 6;
+      const hourStr = String(hour).padStart(2, "0");
+      return {
+        hour: hourStr,
+        alerts: hourCounts[hourStr],
+      };
+    });
+  }, [aiAlerts, selectedOutlet, alertOutlets]);
 
   const overviewContent = (
     <motion.div
@@ -126,7 +313,7 @@ export function CashierMonitoring() {
       initial="hidden"
       animate="visible"
     >
-      <AISummaryCards summary={cashierDeviceSummary} />
+      <AISummaryCards summary={summary} />
 
       {/* Outlet Selector */}
       <motion.div variants={itemVariants} className="flex items-center gap-2">
@@ -135,7 +322,10 @@ export function CashierMonitoring() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {outlets.map((o) => (
+            <SelectItem value="all" className="text-[9px]">
+              All Outlets
+            </SelectItem>
+            {alertOutlets.map((o) => (
               <SelectItem key={o.id} value={o.id} className="text-[9px]">
                 {o.name}
               </SelectItem>
@@ -148,7 +338,9 @@ export function CashierMonitoring() {
       {selectedOutlet !== "all" && (
         <LiveVideoCard
           src="/cashir.mp4"
-          outletName={outlets.find((o) => o.id === selectedOutlet)?.name || ""}
+          outletName={
+            alertOutlets.find((o) => o.id === selectedOutlet)?.name || ""
+          }
         />
       )}
 
@@ -186,7 +378,7 @@ export function CashierMonitoring() {
           <Card className="border-0 shadow-sm">
             <CardHeader className="px-2 pt-1.5 pb-0">
               <CardTitle className="text-[10px] font-semibold">
-                Pengunjung per Jam
+                Alerts per Hour
               </CardTitle>
             </CardHeader>
             <CardContent className="px-1 pb-1 pt-1">
@@ -232,7 +424,7 @@ export function CashierMonitoring() {
                   />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar
-                    dataKey="visitors"
+                    dataKey="alerts"
                     fill="url(#fillVisitors)"
                     radius={[3, 3, 0, 0]}
                     maxBarSize={20}
@@ -242,169 +434,10 @@ export function CashierMonitoring() {
             </CardContent>
           </Card>
         </motion.div>
-
-        {/* Weather vs Customer Insight */}
-        <motion.div variants={itemVariants}>
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="px-2 pt-1.5 pb-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <CloudSun className="h-3 w-3 text-blue-500" />
-                  <CardTitle className="text-[10px] font-semibold">
-                    Cuaca vs Pelanggan
-                  </CardTitle>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="px-1 pb-1 pt-1">
-              <ChartContainer
-                config={weatherChartConfig}
-                className="h-[130px] w-full"
-              >
-                <BarChart
-                  data={d.weatherCustomers}
-                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
-                >
-                  <defs>
-                    <linearGradient
-                      id="fillWeather"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="0%"
-                        stopColor="hsl(217, 91%, 60%)"
-                        stopOpacity={0.9}
-                      />
-                      <stop
-                        offset="100%"
-                        stopColor="hsl(217, 91%, 60%)"
-                        stopOpacity={0.3}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="weather"
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="customers"
-                    fill="url(#fillWeather)"
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={28}
-                  />
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
       </div>
 
-      {/* Charts Row 2 — 2 columns */}
-      <div className="grid grid-cols-2 gap-1.5">
-        {/* Daily Trend */}
-        <motion.div variants={itemVariants}>
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="px-2 pt-1.5 pb-0">
-              <CardTitle className="text-[10px] font-semibold">
-                Tren Harian (7 Hari)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-1 pb-1 pt-1">
-              <ChartContainer
-                config={trendChartConfig}
-                className="h-[130px] w-full"
-              >
-                <LineChart
-                  data={d.dailyTrend}
-                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="day"
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line
-                    type="monotone"
-                    dataKey="visitors"
-                    stroke="hsl(258, 90%, 66%)"
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="ojol"
-                    stroke="hsl(142, 71%, 45%)"
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                  />
-                </LineChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Outlet Comparison */}
-        <motion.div variants={itemVariants}>
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="px-2 pt-1.5 pb-0">
-              <CardTitle className="text-[10px] font-semibold">
-                Perbandingan Outlet
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-1 pb-1 pt-1">
-              <ChartContainer
-                config={outletChartConfig}
-                className="h-[130px] w-full"
-              >
-                <BarChart
-                  data={d.outletBreakdown}
-                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="outlet"
-                    tick={{ fontSize: 7 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 8 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="customers"
-                    fill="hsl(258, 90%, 66%)"
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={20}
-                  />
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
-
+      {/* Fraud Timeline Section */}
+      <div className="grid grid-cols-1 gap-1.5">
         {/* Fraud Timeline */}
         <motion.div variants={itemVariants}>
           <Card className="border-0 shadow-sm">
@@ -420,28 +453,37 @@ export function CashierMonitoring() {
                   variant="outline"
                   className="text-[7px] px-1 py-0 h-3.5 border-red-500/30 text-red-500"
                 >
-                  {d.fraudTimeline.length} events
+                  {aiAlerts.length} events
                 </Badge>
               </div>
             </CardHeader>
             <CardContent className="px-2 pb-1.5 pt-1">
               <ScrollArea className="h-[110px]">
                 <div className="space-y-0.5">
-                  {d.fraudTimeline.map((e, i) => (
+                  {aiAlerts.map((alert, i) => (
                     <div
                       key={i}
                       className="flex items-center gap-1.5 text-[8px] p-1 rounded border bg-red-500/5 border-red-500/20"
                     >
                       <ShieldAlert className="h-2.5 w-2.5 text-red-500 flex-shrink-0" />
-                      <span className="text-muted-foreground w-8">
-                        {e.time}
+                      <span className="text-muted-foreground w-12">
+                        {new Date(alert.timestamp).toLocaleTimeString("id-ID", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </span>
-                      <span className="flex-1 truncate">{e.description}</span>
+                      <span className="flex-1 truncate">{alert.alertType}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[6px] px-0.5 py-0 h-3 ${e.severity === "Critical" ? "border-red-500/30 text-red-500" : e.severity === "Health" ? "border-amber-500/30 text-amber-500" : "border-blue-500/30 text-blue-500"}`}
+                        className={`text-[6px] px-0.5 py-0 h-3 ${
+                          alert.severity === "Critical"
+                            ? "border-red-500/30 text-red-500"
+                            : alert.severity === "Warning"
+                              ? "border-amber-500/30 text-amber-500"
+                              : "border-blue-500/30 text-blue-500"
+                        }`}
                       >
-                        {e.severity}
+                        {alert.severity}
                       </Badge>
                     </div>
                   ))}
@@ -466,10 +508,18 @@ export function CashierMonitoring() {
       </TabsList>
       <TabsContent value="alerts" className="flex-1 mt-0">
         <AlertsView
-          alerts={cashierAlerts}
-          summary={cashierDeviceSummary}
+          alerts={aiAlerts}
+          summary={summary}
           title="Cashier Alerts"
         />
+        {loadingAlerts && (
+          <div className="p-4 text-xs text-muted-foreground">
+            Loading alerts...
+          </div>
+        )}
+        {alertError && (
+          <div className="p-4 text-xs text-destructive">{alertError}</div>
+        )}
       </TabsContent>
       <TabsContent value="overview" className="flex-1 mt-0">
         {overviewContent}
