@@ -121,17 +121,16 @@ export default function ElectricityPage() {
   const [currentPower, setCurrentPower] = useState(0);
   const [loadStatus, setLoadStatus] = useState<"NORMAL" | "OVERLOAD">("NORMAL");
   const [alerts, setAlerts] = useState<OutletAlert[]>([]);
-  const [realtimeMetrics, setRealtimeMetrics] =
-    useState<RealtimeMetricState>({
-      voltageL1: null,
-      currentL1: null,
-      energyL1: null,
-      energyL2: null,
-      energyL3: null,
-      totalEnergy: null,
-      powerKw: null,
-      lastUpdated: null,
-    });
+  const [realtimeMetrics, setRealtimeMetrics] = useState<RealtimeMetricState>({
+    voltageL1: null,
+    currentL1: null,
+    energyL1: null,
+    energyL2: null,
+    energyL3: null,
+    totalEnergy: null,
+    powerKw: null,
+    lastUpdated: null,
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -234,7 +233,10 @@ export default function ElectricityPage() {
         ]);
 
         if (metricResponse.success && metricResponse.data) {
-          const latestByKey = new Map<string, (typeof metricResponse.data)[0]>();
+          const latestByKey = new Map<
+            string,
+            (typeof metricResponse.data)[0]
+          >();
           for (const metric of metricResponse.data) {
             if (!latestByKey.has(metric.metricKey)) {
               latestByKey.set(metric.metricKey, metric);
@@ -253,13 +255,22 @@ export default function ElectricityPage() {
             : null;
 
           const energyL1 = energyL1Metric
-            ? toEnergyKwh(safeNumber(energyL1Metric.metricValue), energyL1Metric.unit)
+            ? toEnergyKwh(
+                safeNumber(energyL1Metric.metricValue),
+                energyL1Metric.unit,
+              )
             : null;
           const energyL2 = energyL2Metric
-            ? toEnergyKwh(safeNumber(energyL2Metric.metricValue), energyL2Metric.unit)
+            ? toEnergyKwh(
+                safeNumber(energyL2Metric.metricValue),
+                energyL2Metric.unit,
+              )
             : null;
           const energyL3 = energyL3Metric
-            ? toEnergyKwh(safeNumber(energyL3Metric.metricValue), energyL3Metric.unit)
+            ? toEnergyKwh(
+                safeNumber(energyL3Metric.metricValue),
+                energyL3Metric.unit,
+              )
             : null;
 
           const energyValues = [energyL1, energyL2, energyL3].filter(
@@ -267,7 +278,11 @@ export default function ElectricityPage() {
           );
           const totalEnergy =
             energyValues.length > 0
-              ? Number(energyValues.reduce((sum, value) => sum + value, 0).toFixed(2))
+              ? Number(
+                  energyValues
+                    .reduce((sum, value) => sum + value, 0)
+                    .toFixed(2),
+                )
               : null;
 
           const latestMetricTimestamp =
@@ -669,7 +684,9 @@ export default function ElectricityPage() {
 
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="rounded-md border bg-muted/30 p-2">
-                      <p className="text-xs text-muted-foreground">Voltage L1</p>
+                      <p className="text-xs text-muted-foreground">
+                        Voltage L1
+                      </p>
                       <p className="font-semibold">
                         {realtimeMetrics.voltageL1 !== null
                           ? `${formatKwh(realtimeMetrics.voltageL1)} V`
@@ -677,7 +694,9 @@ export default function ElectricityPage() {
                       </p>
                     </div>
                     <div className="rounded-md border bg-muted/30 p-2">
-                      <p className="text-xs text-muted-foreground">Current L1</p>
+                      <p className="text-xs text-muted-foreground">
+                        Current L1
+                      </p>
                       <p className="font-semibold">
                         {realtimeMetrics.currentL1 !== null
                           ? `${formatKwh(realtimeMetrics.currentL1)} A`
@@ -709,7 +728,9 @@ export default function ElectricityPage() {
                       </p>
                     </div>
                     <div className="rounded-md border bg-muted/30 p-2">
-                      <p className="text-xs text-muted-foreground">Total Energy 3-Phase</p>
+                      <p className="text-xs text-muted-foreground">
+                        Total Energy 3-Phase
+                      </p>
                       <p className="font-semibold">
                         {realtimeMetrics.totalEnergy !== null
                           ? `${formatKwh(realtimeMetrics.totalEnergy)} kWh`
@@ -719,9 +740,12 @@ export default function ElectricityPage() {
                   </div>
 
                   <p className="text-[11px] text-center text-muted-foreground">
-                    Parser `generic_metrics` | Phase `three-phase` | Interval 60 detik
+                    Parser `generic_metrics` | Phase `three-phase` | Interval 60
+                    detik
                     {realtimeMetrics.lastUpdated
-                      ? ` | Update: ${new Date(realtimeMetrics.lastUpdated).toLocaleTimeString("id-ID", {
+                      ? ` | Update: ${new Date(
+                          realtimeMetrics.lastUpdated,
+                        ).toLocaleTimeString("id-ID", {
                           hour: "2-digit",
                           minute: "2-digit",
                           second: "2-digit",
