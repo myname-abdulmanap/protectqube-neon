@@ -30,10 +30,12 @@ export const useRealtime = () => {
         return;
       }
 
-      // Determine WebSocket URL based on current origin
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/api/realtime?token=${encodeURIComponent(token)}`;
+      // Build WebSocket URL from NEXT_PUBLIC_API_URL (points to backend VPS)
+      // Vercel does not support WebSocket, so we must connect directly to the backend
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+      const url = new URL(apiUrl);
+      const protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${url.host}/api/realtime?token=${encodeURIComponent(token)}`;
 
       try {
         const ws = new WebSocket(wsUrl);
