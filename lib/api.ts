@@ -89,6 +89,7 @@ export interface User {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  scopeIds?: string[];
   role?: Role;
   menus?: Menu[];
 }
@@ -162,6 +163,19 @@ export interface Device {
   locationType: string | null;
   firmwareVersion: string | null;
   status: string;
+  deviceStatus: string | null;
+  cpuTemp: number | null;
+  cpuUsage: number | null;
+  memoryUsedMb: number | null;
+  memoryTotalMb: number | null;
+  memoryUsagePercent: number | null;
+  diskUsedGb: number | null;
+  diskTotalGb: number | null;
+  diskUsagePercent: number | null;
+  uptime: string | null;
+  loadAverage: number | null;
+  internetStatus: string | null;
+  powerStatus: string | null;
   lastSeenAt: string | null;
   isActive: boolean;
   createdAt: string;
@@ -257,9 +271,8 @@ export interface EnergyConfig {
   scopeId: string;
   pricePerKwh: number;
   maxLoadKw: number | null;
+  capacityVa: number | null;
   upperLimitKwh: number | null;
-  anomalyPct: number | null;
-  baselineDays: number | null;
   validFrom: string;
   createdAt: string;
   scope?: Scope;
@@ -429,6 +442,7 @@ export const usersApi = {
     password: string;
     name: string;
     roleId: string;
+    scopeIds: string[];
   }): Promise<ApiResponse<User>> => {
     const response = await apiClient.post<ApiResponse<User>>("/users", data);
     return response.data;
@@ -442,6 +456,7 @@ export const usersApi = {
       name?: string;
       roleId?: string;
       isActive?: boolean;
+      scopeIds?: string[];
     }
   ): Promise<ApiResponse<User>> => {
     const response = await apiClient.put<ApiResponse<User>>(`/users/${id}`, data);
@@ -694,7 +709,7 @@ export const devicesApi = {
     const response = await apiClient.post<ApiResponse<Device>>("/devices", data);
     return response.data;
   },
-  update: async (id: string, data: { scopeId?: string; name?: string; serialNo?: string; locationName?: string | null; locationType?: string | null; firmwareVersion?: string; status?: string; isActive?: boolean }): Promise<ApiResponse<Device>> => {
+  update: async (id: string, data: { scopeId?: string; name?: string; serialNo?: string; locationName?: string | null; locationType?: string | null; firmwareVersion?: string; status?: string; deviceStatus?: string | null; cpuTemp?: number | null; cpuUsage?: number | null; memoryUsedMb?: number | null; memoryTotalMb?: number | null; memoryUsagePercent?: number | null; diskUsedGb?: number | null; diskTotalGb?: number | null; diskUsagePercent?: number | null; uptime?: string | null; loadAverage?: number | null; internetStatus?: string | null; powerStatus?: string | null; isActive?: boolean }): Promise<ApiResponse<Device>> => {
     const response = await apiClient.put<ApiResponse<Device>>(`/devices/${id}`, data);
     return response.data;
   },
@@ -838,11 +853,11 @@ export const energyConfigsApi = {
     const response = await apiClient.get<ApiResponse<EnergyConfig>>(`/energy-configs/${id}`);
     return response.data;
   },
-  create: async (data: { scopeId: string; pricePerKwh: number; maxLoadKw?: number; upperLimitKwh?: number; anomalyPct?: number; baselineDays?: number; validFrom: string }): Promise<ApiResponse<EnergyConfig>> => {
+  create: async (data: { scopeId: string; pricePerKwh: number; maxLoadKw?: number; capacityVa?: number; upperLimitKwh?: number; validFrom: string }): Promise<ApiResponse<EnergyConfig>> => {
     const response = await apiClient.post<ApiResponse<EnergyConfig>>("/energy-configs", data);
     return response.data;
   },
-  update: async (id: string, data: { pricePerKwh?: number; maxLoadKw?: number; upperLimitKwh?: number; anomalyPct?: number; baselineDays?: number; validFrom?: string }): Promise<ApiResponse<EnergyConfig>> => {
+  update: async (id: string, data: { pricePerKwh?: number; maxLoadKw?: number; capacityVa?: number; upperLimitKwh?: number; validFrom?: string }): Promise<ApiResponse<EnergyConfig>> => {
     const response = await apiClient.put<ApiResponse<EnergyConfig>>(`/energy-configs/${id}`, data);
     return response.data;
   },

@@ -1,0 +1,1183 @@
+"use client";
+
+import { useState, useEffect, useMemo, startTransition } from "react";
+import { motion } from "framer-motion";
+import {
+  FileText,
+  Store,
+  Activity,
+  Zap,
+  Gauge,
+  TrendingUp,
+  AlertTriangle,
+  Search,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { PageTransition } from "@/components/ui/page-transition";
+import {
+  alertEventsApi,
+  deviceMetricsApi,
+  energyConfigsApi,
+  energyDashboardApi,
+  scopesApi,
+  type EnergyOutletDetail,
+  type Scope,
+} from "@/lib/api";
+import { exportToExcel, exportToPdf } from "@/lib/report-export";
+import { EnergyExportActions } from "@/components/dashboard/EnergyExportActions";
+import { EnergyPeriodFilter } from "@/components/dashboard/EnergyPeriodFilter";
+import {
+  buildEnergyFilters,
+  createEnergyPeriod,
+  formatPeriodLabel,
+  normalizeEnergyPeriod,
+  type EnergyPeriodState,
+  type EnergyPreset,
+} from "@/lib/energy-monitoring";
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: "easeOut" as const },
+  },
+};
+
+type OutletView = {
+  id: string;
+  name: string;
+  region: string;
+  city: string | null;
+  address: string | null;
+  devices: EnergyOutletDetail["devices"];
+  kpiData: EnergyOutletDetail["kpiData"];
+  hourlyData: EnergyOutletDetail["hourlyData"];
+  sectionData: EnergyOutletDetail["sectionData"];
+  comparisonData: EnergyOutletDetail["comparisonData"];
+  peakPower: number;
+  maxLoad: number | null;
+};
+
+type OutletAlert = {
+  id: string;
+  type: string;
+  severity: string;
+  message: string;
+  time: string;
+  section: string;
+};
+
+type HistoricalRow = {
+  timestampIso: string;
+  waktu: string;
+  voltageL1: number | null;
+  voltageL2: number | null;
+  voltageL3: number | null;
+  currentL1: number | null;
+  currentL2: number | null;
+  currentL3: number | null;
+  currentTotal: number | null;
+  powerL1: number | null;
+  powerL2: number | null;
+  powerL3: number | null;
+  powerTotal: number | null;
+  reactiveL1: number | null;
+  reactiveL2: number | null;
+  reactiveL3: number | null;
+  frequency: number | null;
+  energyTotal: number | null;
+};
+
+type RawScopeMetric = {
+  timestamp: string;
+  deviceId: string;
+  metricKey: string;
+  metricValue: number;
+};
+
+type MetricGroup = "voltage" | "current" | "power" | "reactive" | "energy";
+
+const METRIC_GROUP_OPTIONS: { key: MetricGroup; label: string }[] = [
+  { key: "voltage", label: "Tegangan (V)" },
+  { key: "current", label: "Arus (A)" },
+  { key: "power", label: "Daya Aktif (W)" },
+  { key: "reactive", label: "Daya Reaktif (VAr)" },
+  { key: "energy", label: "Energi & Frekuensi" },
+];
+
+const METRIC_COLUMNS: Record<MetricGroup | "all", { key: keyof HistoricalRow; label: string }[]> = {
+  all: [
+    { key: "voltageL1", label: "V L1" }, { key: "voltageL2", label: "V L2" }, { key: "voltageL3", label: "V L3" },
+    { key: "currentL1", label: "I L1" }, { key: "currentL2", label: "I L2" }, { key: "currentL3", label: "I L3" }, { key: "currentTotal", label: "I Tot" },
+    { key: "powerL1", label: "P L1" }, { key: "powerL2", label: "P L2" }, { key: "powerL3", label: "P L3" }, { key: "powerTotal", label: "P Tot" },
+    { key: "reactiveL1", label: "Q L1" }, { key: "reactiveL2", label: "Q L2" }, { key: "reactiveL3", label: "Q L3" },
+    { key: "frequency", label: "Hz" }, { key: "energyTotal", label: "kWh" },
+  ],
+  voltage: [{ key: "voltageL1", label: "V L1" }, { key: "voltageL2", label: "V L2" }, { key: "voltageL3", label: "V L3" }],
+  current: [{ key: "currentL1", label: "I L1" }, { key: "currentL2", label: "I L2" }, { key: "currentL3", label: "I L3" }, { key: "currentTotal", label: "I Tot" }],
+  power: [{ key: "powerL1", label: "P L1" }, { key: "powerL2", label: "P L2" }, { key: "powerL3", label: "P L3" }, { key: "powerTotal", label: "P Tot" }],
+  reactive: [{ key: "reactiveL1", label: "Q L1" }, { key: "reactiveL2", label: "Q L2" }, { key: "reactiveL3", label: "Q L3" }],
+  energy: [{ key: "frequency", label: "Hz" }, { key: "energyTotal", label: "kWh" }],
+};
+
+const SECTION_DOT_CLASSES = [
+  "bg-blue-500",
+  "bg-emerald-500",
+  "bg-amber-500",
+  "bg-violet-500",
+  "bg-cyan-500",
+  "bg-rose-500",
+];
+
+export default function ReportsPage() {
+  const [period, setPeriod] = useState<EnergyPeriodState>(() =>
+    createEnergyPeriod("today"),
+  );
+  const [appliedPeriod, setAppliedPeriod] = useState<EnergyPeriodState>(() =>
+    createEnergyPeriod("today"),
+  );
+  const filters = useMemo(
+    () => buildEnergyFilters(appliedPeriod),
+    [appliedPeriod],
+  );
+  const periodLabel = formatPeriodLabel(appliedPeriod);
+
+  const [outlets, setOutlets] = useState<OutletView[]>([]);
+  const [selectedOutlet, setSelectedOutlet] = useState<string>("");
+  const [alerts, setAlerts] = useState<OutletAlert[]>([]);
+  const [historicalReadings, setHistoricalReadings] = useState<HistoricalRow[]>(
+    [],
+  );
+  const [rawScopeMetrics, setRawScopeMetrics] = useState<RawScopeMetric[]>([]);
+  const [selectedScopeDetail, setSelectedScopeDetail] = useState<Scope | null>(null);
+  const [selectedEnergyConfig, setSelectedEnergyConfig] = useState<{ maxLoadKw: number | null; capacityVa: number | null } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tableSearch, setTableSearch] = useState("");
+  const [tableMetricFilter, setTableMetricFilter] = useState<MetricGroup | "all">("all");
+  const [tablePage, setTablePage] = useState(0);
+  const TABLE_PAGE_SIZE = 20;
+
+  const handlePresetChange = (preset: EnergyPreset) => {
+    setPeriod(createEnergyPeriod(preset));
+  };
+
+  const handleApply = () => {
+    startTransition(() => {
+      setAppliedPeriod(normalizeEnergyPeriod(period));
+    });
+  };
+
+  const handleReset = () => {
+    const next = createEnergyPeriod("today");
+    setPeriod(next);
+    startTransition(() => {
+      setAppliedPeriod(next);
+    });
+  };
+
+  useEffect(() => {
+    const loadOutlets = async () => {
+      try {
+        setError(null);
+        setLoading(true);
+
+        const listResponse = await energyDashboardApi.getOutlets(filters);
+        if (!listResponse.success || !listResponse.data) {
+          setError(listResponse.error || "Failed to load outlet list");
+          return;
+        }
+
+        const details = await Promise.all(
+          listResponse.data.map(async (item) => {
+            const detailResponse = await energyDashboardApi.getOutletDetail(
+              item.scopeId,
+              filters,
+            );
+            return detailResponse.success ? detailResponse.data : null;
+          }),
+        );
+
+        const mapped: OutletView[] = details
+          .filter((d): d is EnergyOutletDetail => Boolean(d))
+          .map((d) => ({
+            id: d.id,
+            name: d.name,
+            region: d.region || "Unknown",
+            city: d.city,
+            address: d.address,
+            devices: d.devices,
+            kpiData: d.kpiData,
+            hourlyData: d.hourlyData,
+            sectionData: d.sectionData,
+            comparisonData: d.comparisonData,
+            peakPower: d.peakPower,
+            maxLoad: d.maxLoad,
+          }));
+
+        setOutlets(mapped);
+        if (mapped[0] && !selectedOutlet) {
+          setSelectedOutlet(mapped[0].id);
+        }
+      } catch {
+        setError("Gagal memuat data outlet");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadOutlets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  const outlet = outlets.find((o) => o.id === selectedOutlet) || outlets[0];
+
+  useEffect(() => {
+    if (!outlet) return;
+
+    const loadData = async () => {
+      const [metricResponse, alertResponse, scopeResponse, configResponse] = await Promise.all([
+        deviceMetricsApi.getAll({
+          scopeId: outlet.id,
+          moduleType: "power_meter",
+          from: filters.from,
+          to: filters.to,
+          limit: 50000,
+        }),
+        alertEventsApi.getAll({
+          scopeId: outlet.id,
+          moduleType: "power_meter",
+          limit: 50,
+        }),
+        scopesApi.getById(outlet.id),
+        energyConfigsApi.getAll(outlet.id),
+      ]);
+
+      if (scopeResponse.success && scopeResponse.data) {
+        setSelectedScopeDetail(scopeResponse.data);
+      } else {
+        setSelectedScopeDetail(null);
+      }
+
+      if (configResponse.success && configResponse.data && configResponse.data.length > 0) {
+        const sortedConfigs = [...configResponse.data].sort(
+          (a, b) => new Date(b.validFrom).getTime() - new Date(a.validFrom).getTime(),
+        );
+        const latestConfig = sortedConfigs[0];
+        setSelectedEnergyConfig({
+          maxLoadKw: latestConfig.maxLoadKw ?? null,
+          capacityVa: latestConfig.capacityVa ?? null,
+        });
+      } else {
+        setSelectedEnergyConfig(null);
+      }
+
+      if (metricResponse.success && metricResponse.data) {
+        setRawScopeMetrics(
+          metricResponse.data.map((item) => ({
+            timestamp: item.timestamp,
+            deviceId: item.deviceId,
+            metricKey: item.metricKey,
+            metricValue: Number(item.metricValue ?? 0),
+          })),
+        );
+
+        const latestByHourDeviceMetric = new Map<string, (typeof metricResponse.data)[number]>();
+        for (const metric of metricResponse.data) {
+          const ts = new Date(metric.timestamp);
+          if (Number.isNaN(ts.getTime())) continue;
+
+          const hourStart = new Date(ts);
+          hourStart.setMinutes(0, 0, 0);
+          const key = `${hourStart.toISOString()}|${metric.deviceId}|${metric.metricKey}`;
+
+          const current = latestByHourDeviceMetric.get(key);
+          if (!current || new Date(metric.timestamp).getTime() > new Date(current.timestamp).getTime()) {
+            latestByHourDeviceMetric.set(key, metric);
+          }
+        }
+
+        const fmtTs = (tsIso: string) => {
+          const d = new Date(tsIso);
+          return Number.isNaN(d.getTime())
+            ? tsIso
+            : `${d.toLocaleDateString("id-ID")} ${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} WIB`;
+        };
+
+        const avgKeys = new Set(["voltage_l1", "voltage_l2", "voltage_l3", "frequency"]);
+        const hourlyAgg = new Map<string, Map<string, { sum: number; count: number }>>();
+
+        for (const metric of latestByHourDeviceMetric.values()) {
+          const ts = new Date(metric.timestamp);
+          if (Number.isNaN(ts.getTime())) continue;
+          const hourStart = new Date(ts);
+          hourStart.setMinutes(0, 0, 0);
+          const hourIso = hourStart.toISOString();
+
+          if (!hourlyAgg.has(hourIso)) {
+            hourlyAgg.set(hourIso, new Map());
+          }
+
+          const value = Number(metric.metricValue ?? 0);
+          if (!Number.isFinite(value)) continue;
+
+          const metricAgg = hourlyAgg.get(hourIso)!;
+          const current = metricAgg.get(metric.metricKey) ?? { sum: 0, count: 0 };
+          current.sum += value;
+          current.count += 1;
+          metricAgg.set(metric.metricKey, current);
+        }
+
+        const toMetricValue = (
+          metricMap: Map<string, { sum: number; count: number }>,
+          metricKey: string,
+        ): number | null => {
+          const agg = metricMap.get(metricKey);
+          if (!agg || agg.count === 0) return null;
+          if (avgKeys.has(metricKey)) {
+            return Number((agg.sum / agg.count).toFixed(2));
+          }
+          return Number(agg.sum.toFixed(2));
+        };
+
+        setHistoricalReadings(
+          Array.from(hourlyAgg.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([hourIso, values]) => ({
+              timestampIso: hourIso,
+              waktu: fmtTs(hourIso),
+              voltageL1: toMetricValue(values, "voltage_l1"),
+              voltageL2: toMetricValue(values, "voltage_l2"),
+              voltageL3: toMetricValue(values, "voltage_l3"),
+              currentL1: toMetricValue(values, "current_l1"),
+              currentL2: toMetricValue(values, "current_l2"),
+              currentL3: toMetricValue(values, "current_l3"),
+              currentTotal: toMetricValue(values, "current_total"),
+              powerL1: toMetricValue(values, "power_l1"),
+              powerL2: toMetricValue(values, "power_l2"),
+              powerL3: toMetricValue(values, "power_l3"),
+              powerTotal: toMetricValue(values, "power_total") ?? toMetricValue(values, "power"),
+              reactiveL1: toMetricValue(values, "reactive_l1"),
+              reactiveL2: toMetricValue(values, "reactive_l2"),
+              reactiveL3: toMetricValue(values, "reactive_l3"),
+              frequency: toMetricValue(values, "frequency"),
+              energyTotal: toMetricValue(values, "energy_total"),
+            })),
+        );
+      } else {
+        setRawScopeMetrics([]);
+        setHistoricalReadings([]);
+      }
+
+      if (alertResponse.success && alertResponse.data) {
+        setAlerts(
+          alertResponse.data.map((alert) => {
+            const eventDate = new Date(alert.timestamp);
+            return {
+              id: alert.id,
+              type: alert.alertType,
+              severity: alert.severity,
+              message:
+                alert.description || alert.title || "Alert event detected",
+              time: Number.isNaN(eventDate.getTime())
+                ? "-"
+                : `${eventDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })} WIB`,
+              section: alert.device?.locationName || "Outlet",
+            };
+          }),
+        );
+      }
+    };
+
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outlet?.id, filters]);
+
+  const toSafeNumber = (value: unknown) => {
+    const parsed =
+      typeof value === "number" ? value : Number(value ?? Number.NaN);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const formatKwh = (value: number) =>
+    new Intl.NumberFormat("id-ID", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(toSafeNumber(value));
+
+  const formatReportDate = () =>
+    `${new Date().toLocaleDateString("id-ID", { year: "numeric", month: "long", day: "numeric" })} ${new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })} WIB`;
+
+  const latestHistoricalEnergyTotal = useMemo(() => {
+    for (let i = historicalReadings.length - 1; i >= 0; i -= 1) {
+      const value = historicalReadings[i]?.energyTotal;
+      if (value !== null && value !== undefined) {
+        return toSafeNumber(value);
+      }
+    }
+    return 0;
+  }, [historicalReadings]);
+
+  const hourlyUsageFromHistorical = useMemo(() => {
+    return historicalReadings.map((row) => ({
+      hour: row.waktu,
+      usage: toSafeNumber(row.energyTotal),
+    }));
+  }, [historicalReadings]);
+
+  const sectionConsumptionFromHistorical = useMemo(() => {
+    if (!outlet) return [] as Array<{ name: string; kWh: number; value: number }>;
+
+    const latestEnergyByDevice = new Map<string, { timestamp: number; value: number }>();
+    for (const metric of rawScopeMetrics) {
+      if (metric.metricKey !== "energy_total") continue;
+      const ts = new Date(metric.timestamp).getTime();
+      if (!Number.isFinite(ts)) continue;
+      const current = latestEnergyByDevice.get(metric.deviceId);
+      if (!current || ts > current.timestamp) {
+        latestEnergyByDevice.set(metric.deviceId, {
+          timestamp: ts,
+          value: toSafeNumber(metric.metricValue),
+        });
+      }
+    }
+
+    const sectionMap = new Map<string, number>();
+    for (const device of outlet.devices) {
+      const locationName = device.locationName || device.locationType || "Uncategorized";
+      const latestEnergy = latestEnergyByDevice.get(device.id)?.value || 0;
+      sectionMap.set(locationName, toSafeNumber((sectionMap.get(locationName) || 0) + latestEnergy));
+    }
+
+    const total = Array.from(sectionMap.values()).reduce((sum, v) => sum + v, 0);
+    return Array.from(sectionMap.entries())
+      .map(([name, kWh]) => ({
+        name,
+        kWh: Number(kWh.toFixed(2)),
+        value: total > 0 ? Number(((kWh / total) * 100).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => b.kWh - a.kWh);
+  }, [outlet, rawScopeMetrics]);
+
+  const peakPowerFromHistorical = useMemo(() => {
+    let peak = 0;
+    for (const row of historicalReadings) {
+      peak = Math.max(peak, toSafeNumber(row.powerTotal));
+    }
+    return Number(peak.toFixed(2));
+  }, [historicalReadings]);
+
+  const handleExportExcel = async () => {
+    if (!outlet) return;
+    const fmtNum = (v: number | null) =>
+      v !== null ? Number(v.toFixed(2)) : "-";
+
+    await exportToExcel(
+      `laporan-listrik-${outlet.name}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      [
+        {
+          name: "Info Outlet",
+          rows: [
+            {
+              "Scope / Outlet": outlet.name,
+              Tenant: selectedScopeDetail?.tenant?.name || "-",
+              Region: outlet.region,
+              Kota: outlet.city || "-",
+              Alamat: outlet.address || "-",
+              "Scope Type": selectedScopeDetail?.scopeType || "-",
+              Periode: periodLabel,
+              "Tanggal Cetak": formatReportDate(),
+              "Energy Total kWh (historical terakhir)": latestHistoricalEnergyTotal,
+              "Peak Power (historical, kW)": peakPowerFromHistorical,
+              "Kapasitas Maks (kW)": selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "-",
+              "Kapasitas (VA)": selectedEnergyConfig?.capacityVa ?? "-",
+              "Jumlah Device": outlet.devices.length,
+            },
+          ],
+        },
+        {
+          name: "Info Device",
+          rows: outlet.devices.map((device) => ({
+            "Device ID": device.id,
+            "Device Name": device.name,
+            "Serial No": device.serialNo,
+            Lokasi: device.locationName || "-",
+            "Tipe Lokasi": device.locationType || "-",
+            Status: device.status,
+            "Last Seen": device.lastSeenAt || "-",
+            "Module Types": device.moduleTypes.join(", "),
+          })),
+        },
+        {
+          name: "Riwayat Pengukuran",
+          rows: historicalReadings.map((r) => ({
+            Waktu: r.waktu,
+            "Voltage L1 (V)": fmtNum(r.voltageL1),
+            "Voltage L2 (V)": fmtNum(r.voltageL2),
+            "Voltage L3 (V)": fmtNum(r.voltageL3),
+            "Current L1 (A)": fmtNum(r.currentL1),
+            "Current L2 (A)": fmtNum(r.currentL2),
+            "Current L3 (A)": fmtNum(r.currentL3),
+            "Current Total (A)": fmtNum(r.currentTotal),
+            "Power L1 (W)": fmtNum(r.powerL1),
+            "Power L2 (W)": fmtNum(r.powerL2),
+            "Power L3 (W)": fmtNum(r.powerL3),
+            "Power Total (W)": fmtNum(r.powerTotal),
+            "Reactive L1 (VAr)": fmtNum(r.reactiveL1),
+            "Reactive L2 (VAr)": fmtNum(r.reactiveL2),
+            "Reactive L3 (VAr)": fmtNum(r.reactiveL3),
+            "Frequency (Hz)": fmtNum(r.frequency),
+            "Energy Total (kWh)": fmtNum(r.energyTotal),
+          })),
+        },
+        {
+          name: "Penggunaan per Jam",
+          rows: hourlyUsageFromHistorical.map((h) => ({
+            Jam: h.hour,
+            "Energy Total (kWh)": h.usage,
+          })),
+        },
+        {
+          name: "Konsumsi per Bagian",
+          rows: sectionConsumptionFromHistorical.map((s) => ({
+            Bagian: s.name,
+            "Persentase (%)": s.value,
+            kWh: s.kWh,
+          })),
+        },
+        {
+          name: "Perbandingan",
+          rows: [
+            {
+              Metrik: "Rata-rata Harian - Periode Ini",
+              kWh: toSafeNumber(outlet.comparisonData.dailyAverage.current),
+            },
+            {
+              Metrik: "Rata-rata Harian - Periode Sebelumnya",
+              kWh: toSafeNumber(outlet.comparisonData.dailyAverage.previous),
+            },
+            {
+              Metrik: "Perubahan Rata-rata Harian (%)",
+              kWh: toSafeNumber(outlet.comparisonData.dailyAverage.change),
+            },
+            {
+              Metrik: "Total Periode Ini",
+              kWh: toSafeNumber(outlet.comparisonData.currentPeriod.current),
+            },
+            {
+              Metrik: "Total Periode Sebelumnya",
+              kWh: toSafeNumber(outlet.comparisonData.currentPeriod.previous),
+            },
+            {
+              Metrik: "Perubahan Total Periode (%)",
+              kWh: toSafeNumber(outlet.comparisonData.currentPeriod.change),
+            },
+          ],
+        },
+        {
+          name: "Alerts",
+          rows: alerts.map((a) => ({
+            Waktu: a.time,
+            Tipe: a.type,
+            Severity: a.severity,
+            Bagian: a.section,
+            Pesan: a.message,
+          })),
+        },
+      ],
+    );
+  };
+
+  const handleExportPdf = async () => {
+    if (!outlet) return;
+    const fmtNum = (v: number | null) => (v !== null ? v.toFixed(2) : "-");
+
+    await exportToPdf({
+      fileName: `laporan-listrik-${outlet.name}-${new Date().toISOString().slice(0, 10)}.pdf`,
+      title: "Laporan Monitoring Listrik",
+      scopeName: outlet.name,
+      tenantName: selectedScopeDetail?.tenant?.name || outlet.region,
+      period: periodLabel,
+      generatedAt: formatReportDate(),
+      summary: [
+        `Energy Total (historical terakhir): ${formatKwh(latestHistoricalEnergyTotal)} kWh`,
+        `Peak (historical): ${formatKwh(peakPowerFromHistorical)} kW | Kapasitas Maks: ${selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "N/A"} kW`,
+        `Kapasitas VA: ${selectedEnergyConfig?.capacityVa ?? "N/A"} | Tenant: ${selectedScopeDetail?.tenant?.name || "-"}`,
+        `Total Data Pengukuran: ${historicalReadings.length} pembacaan`,
+      ],
+      tables: [
+        {
+          title: "Riwayat Pengukuran",
+          columns: [
+            "Waktu",
+            "V L1",
+            "V L2",
+            "V L3",
+            "I L1",
+            "I L2",
+            "I L3",
+            "I Tot",
+            "P L1",
+            "P L2",
+            "P L3",
+            "P Tot",
+            "Q L1",
+            "Q L2",
+            "Q L3",
+            "Hz",
+            "kWh",
+          ],
+          rows: historicalReadings.map((r) => [
+            r.waktu,
+            fmtNum(r.voltageL1),
+            fmtNum(r.voltageL2),
+            fmtNum(r.voltageL3),
+            fmtNum(r.currentL1),
+            fmtNum(r.currentL2),
+            fmtNum(r.currentL3),
+            fmtNum(r.currentTotal),
+            fmtNum(r.powerL1),
+            fmtNum(r.powerL2),
+            fmtNum(r.powerL3),
+            fmtNum(r.powerTotal),
+            fmtNum(r.reactiveL1),
+            fmtNum(r.reactiveL2),
+            fmtNum(r.reactiveL3),
+            fmtNum(r.frequency),
+            fmtNum(r.energyTotal),
+          ]),
+        },
+        {
+          title: "Penggunaan Listrik per Jam",
+          columns: ["Jam", "Energy Total (kWh)"],
+          rows: hourlyUsageFromHistorical.map((h) => [h.hour, h.usage]),
+        },
+        {
+          title: "Konsumsi per Bagian",
+          columns: ["Bagian", "Persentase (%)", "kWh"],
+          rows: sectionConsumptionFromHistorical.map((s) => [s.name, s.value, s.kWh]),
+        },
+        {
+          title: "Info Device",
+          columns: ["Device ID", "Nama", "Serial", "Lokasi", "Tipe Lokasi", "Status", "Last Seen", "Modules"],
+          rows: outlet.devices.map((device) => [
+            device.id,
+            device.name,
+            device.serialNo,
+            device.locationName || "-",
+            device.locationType || "-",
+            device.status,
+            device.lastSeenAt || "-",
+            device.moduleTypes.join(", "),
+          ]),
+        },
+        {
+          title: "Perbandingan Penggunaan",
+          columns: ["Metrik", "Nilai (kWh)", "Perubahan (%)"],
+          rows: [
+            [
+              "Rata-rata Harian - Periode Ini",
+              toSafeNumber(outlet.comparisonData.dailyAverage.current),
+              toSafeNumber(outlet.comparisonData.dailyAverage.change),
+            ],
+            [
+              "Rata-rata Harian - Periode Sebelumnya",
+              toSafeNumber(outlet.comparisonData.dailyAverage.previous),
+              "-",
+            ],
+            [
+              "Total Periode Ini",
+              toSafeNumber(outlet.comparisonData.currentPeriod.current),
+              toSafeNumber(outlet.comparisonData.currentPeriod.change),
+            ],
+            [
+              "Total Periode Sebelumnya",
+              toSafeNumber(outlet.comparisonData.currentPeriod.previous),
+              "-",
+            ],
+          ],
+        },
+        ...(alerts.length > 0
+          ? [
+              {
+                title: "Alert & Notifikasi",
+                columns: ["Waktu", "Tipe", "Severity", "Bagian", "Pesan"],
+                rows: alerts.map((a) => [
+                  a.time,
+                  a.type,
+                  a.severity,
+                  a.section,
+                  a.message,
+                ]),
+              },
+            ]
+          : []),
+      ],
+    });
+  };
+
+  const fmtNum = (v: number | null) => (v !== null ? v.toFixed(2) : "-");
+
+  return (
+    <PageTransition>
+      <motion.div
+        className="space-y-6"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        {error && (
+          <div className="rounded bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        {/* Header */}
+        <motion.div
+          variants={itemVariants}
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        >
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Laporan &amp; Export
+            </h1>
+            <p className="text-muted-foreground">
+              Export data monitoring listrik dalam format PDF atau Excel
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <EnergyExportActions
+              onExportPdf={handleExportPdf}
+              onExportExcel={handleExportExcel}
+              disabled={!outlet || loading}
+            />
+            <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
+              <SelectTrigger className="w-[280px]">
+                <SelectValue placeholder="Pilih Outlet" />
+              </SelectTrigger>
+              <SelectContent>
+                {outlets.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    <div className="flex items-center gap-2">
+                      <Store className="h-4 w-4" />
+                      <span>{o.name}</span>
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        {o.region}
+                      </Badge>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </motion.div>
+
+        {/* Period Filter */}
+        <motion.div variants={itemVariants}>
+          <EnergyPeriodFilter
+            period={period}
+            onPresetChange={handlePresetChange}
+            onFromChange={(value) =>
+              setPeriod((current) => ({
+                ...current,
+                preset: "custom",
+                from: value,
+              }))
+            }
+            onToChange={(value) =>
+              setPeriod((current) => ({
+                ...current,
+                preset: "custom",
+                to: value,
+              }))
+            }
+            onApply={handleApply}
+            onReset={handleReset}
+          />
+        </motion.div>
+
+        {!outlet ? (
+          <div className="p-4 text-sm text-muted-foreground">
+            {loading ? "Memuat data..." : "Tidak ada data outlet"}
+          </div>
+        ) : (
+          <>
+            {/* Summary Cards */}
+            <motion.div
+              variants={itemVariants}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+            >
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                      <Zap className="h-5 w-5 text-blue-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Energy Total (Historical)
+                      </p>
+                      <p className="text-lg font-bold">
+                        {formatKwh(latestHistoricalEnergyTotal)} kWh
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                      <TrendingUp className="h-5 w-5 text-emerald-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Tenant / Lokasi
+                      </p>
+                      <p className="text-lg font-bold">
+                        {selectedScopeDetail?.tenant?.name || "-"}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">{outlet.city || outlet.region || "-"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                      <Gauge className="h-5 w-5 text-amber-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Peak Power (Historical)
+                      </p>
+                      <p className="text-lg font-bold">{formatKwh(peakPowerFromHistorical)} kW</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                      <Activity className="h-5 w-5 text-violet-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Device / Kapasitas
+                      </p>
+                      <p className="text-lg font-bold">
+                        {outlet.devices.length} device
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {selectedEnergyConfig?.capacityVa
+                          ? `Capacity ${formatKwh(selectedEnergyConfig.capacityVa)} VA`
+                          : "Capacity -"}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Data Preview: Historical Readings */}
+            <motion.div variants={itemVariants}>
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <FileText className="h-4 w-4" />
+                        Tabel Riwayat Pengukuran
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Periode: {periodLabel} &middot; {historicalReadings.length} data per jam
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value={tableMetricFilter}
+                        onValueChange={(v) => {
+                          setTableMetricFilter(v as MetricGroup | "all");
+                          setTablePage(0);
+                        }}
+                      >
+                        <SelectTrigger className="w-[180px] h-8 text-xs">
+                          <SelectValue placeholder="Semua Metrik" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Semua Metrik</SelectItem>
+                          {METRIC_GROUP_OPTIONS.map((g) => (
+                            <SelectItem key={g.key} value={g.key}>{g.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input
+                          placeholder="Cari waktu..."
+                          className="pl-8 h-8 text-xs w-[180px]"
+                          value={tableSearch}
+                          onChange={(e) => {
+                            setTableSearch(e.target.value);
+                            setTablePage(0);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const cols = METRIC_COLUMNS[tableMetricFilter];
+                    const searchLower = tableSearch.toLowerCase();
+                    const filtered = [...historicalReadings]
+                      .reverse()
+                      .filter((r) => !tableSearch || r.waktu.toLowerCase().includes(searchLower));
+                    const totalPages = Math.max(1, Math.ceil(filtered.length / TABLE_PAGE_SIZE));
+                    const pageData = filtered.slice(tablePage * TABLE_PAGE_SIZE, (tablePage + 1) * TABLE_PAGE_SIZE);
+
+                    if (historicalReadings.length === 0) {
+                      return (
+                        <div className="h-[120px] flex items-center justify-center text-sm text-muted-foreground">
+                          Tidak ada data untuk periode ini
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <>
+                        <div className="rounded-md border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs">Waktu</TableHead>
+                                {cols.map((c) => (
+                                  <TableHead key={c.key} className="text-xs text-right">{c.label}</TableHead>
+                                ))}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {pageData.map((row, idx) => (
+                                <TableRow key={`${row.waktu}-${idx}`}>
+                                  <TableCell className="text-xs font-medium">{row.waktu}</TableCell>
+                                  {cols.map((c) => (
+                                    <TableCell key={c.key} className="text-xs text-right tabular-nums">
+                                      {fmtNum(row[c.key] as number | null)}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                        <div className="flex items-center justify-between mt-3">
+                          <p className="text-xs text-muted-foreground">
+                            {filtered.length} data{tableSearch ? " (difilter)" : ""} — Halaman {tablePage + 1} dari {totalPages}
+                          </p>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => setTablePage((p) => Math.max(0, p - 1))}
+                              disabled={tablePage === 0}
+                              className="px-3 py-1 text-xs rounded border disabled:opacity-50 hover:bg-muted transition-colors"
+                            >
+                              Sebelumnya
+                            </button>
+                            <button
+                              onClick={() => setTablePage((p) => Math.min(totalPages - 1, p + 1))}
+                              disabled={tablePage >= totalPages - 1}
+                              className="px-3 py-1 text-xs rounded border disabled:opacity-50 hover:bg-muted transition-colors"
+                            >
+                              Berikutnya
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Data Preview: Hourly + Section + Comparison */}
+            <motion.div
+              variants={itemVariants}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-4"
+            >
+              {/* Hourly Usage */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Activity className="h-4 w-4 text-blue-500" />
+                    Penggunaan per Jam
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border max-h-[250px] overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Jam</TableHead>
+                          <TableHead className="text-xs text-right">
+                            Energy Total (kWh)
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {hourlyUsageFromHistorical.map((h, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-xs">{h.hour}</TableCell>
+                            <TableCell className="text-xs text-right tabular-nums">
+                              {h.usage}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Section Consumption */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Store className="h-4 w-4 text-emerald-500" />
+                    Konsumsi per Bagian
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border max-h-[250px] overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Bagian</TableHead>
+                          <TableHead className="text-xs text-right">
+                            %
+                          </TableHead>
+                          <TableHead className="text-xs text-right">
+                            kWh
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sectionConsumptionFromHistorical.map((s, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-xs">
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className={cn(
+                                    "w-2 h-2 rounded-full",
+                                    SECTION_DOT_CLASSES[
+                                      i % SECTION_DOT_CLASSES.length
+                                    ],
+                                  )}
+                                />
+                                {s.name}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs text-right tabular-nums">
+                              {s.value}%
+                            </TableCell>
+                            <TableCell className="text-xs text-right tabular-nums">
+                              {s.kWh}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Alerts */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    Alerts ({alerts.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {alerts.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-4 text-center">
+                      Tidak ada alert
+                    </p>
+                  ) : (
+                    <div className="rounded-md border max-h-[250px] overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Waktu</TableHead>
+                            <TableHead className="text-xs">Tipe</TableHead>
+                            <TableHead className="text-xs">Severity</TableHead>
+                            <TableHead className="text-xs">Pesan</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {alerts.map((a) => (
+                            <TableRow key={a.id}>
+                              <TableCell className="text-xs">
+                                {a.time}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {a.type}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-[10px]",
+                                    a.severity === "critical"
+                                      ? "bg-red-500/20 text-red-500 border-red-500/30"
+                                      : a.severity === "suspicious"
+                                        ? "bg-yellow-500/20 text-yellow-500 border-yellow-500/30"
+                                        : "bg-blue-500/20 text-blue-500 border-blue-500/30",
+                                  )}
+                                >
+                                  {a.severity}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-xs max-w-[200px] truncate">
+                                {a.message}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          </>
+        )}
+      </motion.div>
+    </PageTransition>
+  );
+}

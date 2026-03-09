@@ -1,7 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
-import { Menu, LogOut, User, Settings } from "lucide-react";
+import { Menu, LogOut, User } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useSidebar } from "@/components/providers/SidebarProvider";
 import { HeaderSelector } from "@/components/dashboard/HeaderSelector";
 import { motion } from "framer-motion";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface UserData {
   id?: string;
@@ -89,6 +90,8 @@ export default function Header({
             onValueChange={onSelectorChange}
           />
 
+          <ThemeToggle />
+
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -126,12 +129,6 @@ export default function Header({
                 <Link href="/dashboard/profile" className="cursor-pointer">
                   <User className="mr-2 h-4 w-4" />
                   Profil
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings" className="cursor-pointer">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Pengaturan
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

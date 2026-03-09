@@ -51,9 +51,8 @@ export default function EnergyConfigsPage() {
     scopeId: "",
     pricePerKwh: "",
     maxLoadKw: "",
+    capacityVa: "",
     upperLimitKwh: "",
-    anomalyPct: "",
-    baselineDays: "",
     validFrom: "",
   });
 
@@ -85,9 +84,8 @@ export default function EnergyConfigsPage() {
       scopeId: "",
       pricePerKwh: "",
       maxLoadKw: "",
+      capacityVa: "",
       upperLimitKwh: "",
-      anomalyPct: "",
-      baselineDays: "",
       validFrom: "",
     });
     setEditingId(null);
@@ -103,9 +101,8 @@ export default function EnergyConfigsPage() {
       scopeId: c.scopeId,
       pricePerKwh: String(c.pricePerKwh),
       maxLoadKw: c.maxLoadKw ? String(c.maxLoadKw) : "",
+      capacityVa: c.capacityVa ? String(c.capacityVa) : "",
       upperLimitKwh: c.upperLimitKwh ? String(c.upperLimitKwh) : "",
-      anomalyPct: c.anomalyPct ? String(c.anomalyPct) : "",
-      baselineDays: c.baselineDays ? String(c.baselineDays) : "",
       validFrom: c.validFrom
         ? new Date(c.validFrom).toISOString().slice(0, 16)
         : "",
@@ -120,12 +117,9 @@ export default function EnergyConfigsPage() {
         scopeId: form.scopeId,
         pricePerKwh: parseFloat(form.pricePerKwh),
         maxLoadKw: form.maxLoadKw ? parseFloat(form.maxLoadKw) : undefined,
+        capacityVa: form.capacityVa ? parseFloat(form.capacityVa) : undefined,
         upperLimitKwh: form.upperLimitKwh
           ? parseFloat(form.upperLimitKwh)
-          : undefined,
-        anomalyPct: form.anomalyPct ? parseFloat(form.anomalyPct) : undefined,
-        baselineDays: form.baselineDays
-          ? parseInt(form.baselineDays, 10)
           : undefined,
         validFrom: form.validFrom
           ? new Date(form.validFrom).toISOString()
@@ -210,10 +204,9 @@ export default function EnergyConfigsPage() {
               <TableRow>
                 <TableHead className="text-xs">Scope</TableHead>
                 <TableHead className="text-xs">Price/kWh</TableHead>
-                <TableHead className="text-xs">Max Load (kW)</TableHead>
-                <TableHead className="text-xs">Upper Limit</TableHead>
-                <TableHead className="text-xs">Deviasi %</TableHead>
-                <TableHead className="text-xs">Baseline (hari)</TableHead>
+                <TableHead className="text-xs">Kapasitas kW</TableHead>
+                <TableHead className="text-xs">Kapasitas VA</TableHead>
+                <TableHead className="text-xs">Kapasitas kWh</TableHead>
                 <TableHead className="text-xs">Valid From</TableHead>
                 <TableHead className="text-xs">Created</TableHead>
                 <TableHead className="text-xs w-[80px]">Actions</TableHead>
@@ -223,7 +216,7 @@ export default function EnergyConfigsPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={8}
                     className="text-center text-xs text-muted-foreground"
                   >
                     Loading...
@@ -232,7 +225,7 @@ export default function EnergyConfigsPage() {
               ) : configs.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={8}
                     className="text-center text-xs text-muted-foreground"
                   >
                     No configs
@@ -251,13 +244,10 @@ export default function EnergyConfigsPage() {
                       {c.maxLoadKw ?? "-"}
                     </TableCell>
                     <TableCell className="text-xs">
+                      {c.capacityVa ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-xs">
                       {c.upperLimitKwh ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {c.anomalyPct ? c.anomalyPct + "%" : "-"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {c.baselineDays ?? 7}
                     </TableCell>
                     <TableCell className="text-xs">
                       {c.validFrom
@@ -334,7 +324,7 @@ export default function EnergyConfigsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <div>
                 <Label className="text-xs">Price per kWh *</Label>
                 <Input
@@ -362,7 +352,20 @@ export default function EnergyConfigsPage() {
                 />
               </div>
               <div>
-                <Label className="text-xs">Upper Limit (kWh)</Label>
+                <Label className="text-xs">Capacity (VA)</Label>
+                <Input
+                  type="number"
+                  step="1"
+                  value={form.capacityVa}
+                  onChange={(e) =>
+                    setForm({ ...form, capacityVa: e.target.value })
+                  }
+                  placeholder="22000"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Capacity (kWh)</Label>
                 <Input
                   type="number"
                   value={form.upperLimitKwh}
@@ -370,34 +373,6 @@ export default function EnergyConfigsPage() {
                     setForm({ ...form, upperLimitKwh: e.target.value })
                   }
                   placeholder="10000"
-                  className="h-8 text-xs"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Deviasi %</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={form.anomalyPct}
-                  onChange={(e) =>
-                    setForm({ ...form, anomalyPct: e.target.value })
-                  }
-                  placeholder="15"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Baseline Days</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={form.baselineDays}
-                  onChange={(e) =>
-                    setForm({ ...form, baselineDays: e.target.value })
-                  }
-                  placeholder="7"
                   className="h-8 text-xs"
                 />
               </div>

@@ -370,6 +370,15 @@ export function AlertsDashboard() {
 
   const minioBucketUrl = process.env.NEXT_PUBLIC_MINIO_BUCKET_URL || "";
 
+  const getApiErrorMessage = (err: unknown, fallback: string): string => {
+    if (typeof err === "object" && err !== null) {
+      const maybeResponse = (err as { response?: { data?: { error?: string; message?: string } } }).response;
+      const apiError = maybeResponse?.data?.error || maybeResponse?.data?.message;
+      if (apiError) return apiError;
+    }
+    return fallback;
+  };
+
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
@@ -424,21 +433,69 @@ export function AlertsDashboard() {
     };
   }, [realtime]);
 
-  const handleActionChange = async (alertId: string, actionKey: string) => {
+  const handleActionUpdate = async (
+    alertId: string,
+    actionKey: string,
+  ): Promise<boolean> => {
     try {
       const result = await alertEventsApi.updateAction(alertId, { actionKey });
       if (result.success) {
         // Remove from active alerts list since it's no longer "open"
         setAlerts((prev) => prev.filter((a) => a.id !== alertId));
         setSelectedAlert(null);
+        return true;
       }
+      setError(result.error || "Failed to update alert action");
+      return false;
     } catch (err) {
       console.error("Failed to update alert action:", err);
+      setError(getApiErrorMessage(err, "Failed to update alert action"));
+      return false;
     }
   };
 
+  const handleActionUpdateAll = async (actionKey: string): Promise<boolean> => {
+    if (alerts.length === 0) return true;
+
+    const results = await Promise.allSettled(
+      alerts.map((target) =>
+        alertEventsApi.updateAction(target.id, { actionKey }),
+      ),
+    );
+
+    const successIds: string[] = [];
+    let failedCount = 0;
+
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled" && result.value.success) {
+        successIds.push(alerts[index].id);
+      } else {
+        failedCount += 1;
+      }
+    });
+
+    if (successIds.length > 0) {
+      setAlerts((prev) => prev.filter((a) => !successIds.includes(a.id)));
+      if (selectedAlert && successIds.includes(selectedAlert.id)) {
+        setSelectedAlert(null);
+      }
+    }
+
+    if (failedCount > 0) {
+      setError(`Failed to update ${failedCount} alert(s). Please retry.`);
+      return false;
+    }
+
+    setError(null);
+    return true;
+  };
+
   const nonDefaultActions = useMemo(() => {
-    return actions.filter((a) => a.key !== "open" && a.isActive);
+    const activeActions = actions.filter((a) => a.isActive !== false);
+    const preferred = activeActions.filter(
+      (a) => String(a.key).toLowerCase() !== "open",
+    );
+    return preferred.length > 0 ? preferred : activeActions;
   }, [actions]);
 
   const outletNameByScopeId = useMemo(() => {
@@ -835,7 +892,8 @@ export function AlertsDashboard() {
         onClose={() => setSelectedAlert(null)}
         getAlertCategory={getAlertCategory}
         actions={nonDefaultActions}
-        onActionChange={handleActionChange}
+        onActionUpdate={handleActionUpdate}
+        onActionUpdateAll={handleActionUpdateAll}
       />
     </motion.div>
   );

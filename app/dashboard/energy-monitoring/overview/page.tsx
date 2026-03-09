@@ -355,7 +355,9 @@ export default function EnergyOverviewPage() {
     await exportToPdf({
       fileName: `energy-overview-${overviewData.date}.pdf`,
       title: "Energy Monitoring Overview",
-      subtitle: `Periode: ${periodLabel}`,
+      scopeName: "All Outlets",
+      period: periodLabel,
+      generatedAt: new Date().toLocaleString("id-ID"),
       summary: [
         `Total energi: ${formatCompactNumber(overviewData.globalKpi.totalEnergy)} kWh`,
         `Estimasi biaya: ${formatCurrency(overviewData.globalKpi.totalCost)}`,

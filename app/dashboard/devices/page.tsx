@@ -1,19 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Cpu, Eye, Plus, Pencil, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -31,126 +29,136 @@ import {
 } from "@/components/ui/table";
 import { devicesApi, scopesApi, type Device, type Scope } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Pencil, Trash2, Plus, Cpu } from "lucide-react";
+
+const ONLINE_WINDOW_MS = 5 * 60 * 1000;
 
 export default function DevicesPage() {
   const { hasPermission } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [scopes, setScopes] = useState<Scope[]>([]);
+  const [filterScope, setFilterScope] = useState<string>("");
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [editDevice, setEditDevice] = useState<Device | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filterScope, setFilterScope] = useState<string>("");
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const canRead =
+    hasPermission("devices:read") || hasPermission("manage_roles");
+  const canCreate = hasPermission("devices:create") || hasPermission("manage_roles");
+  const canUpdate = hasPermission("devices:update") || hasPermission("manage_roles");
+  const canDelete = hasPermission("devices:delete") || hasPermission("manage_roles");
 
-  const [form, setForm] = useState({
-    scopeId: "",
-    name: "",
-    serialNo: "",
-    locationName: "",
-    locationType: "",
-    firmwareVersion: "",
-    status: "offline",
-    isActive: true,
-  });
-
-  const canManage =
-    hasPermission("manage_roles") || hasPermission("devices:read");
-
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [dRes, scRes] = await Promise.all([
+      setError(null);
+
+      const [devicesRes, scopesRes] = await Promise.all([
         devicesApi.getAll(filterScope || undefined),
         scopesApi.getAll(),
       ]);
-      if (dRes.success && dRes.data) setDevices(dRes.data);
-      if (scRes.success && scRes.data) setScopes(scRes.data);
+
+      if (devicesRes.success && devicesRes.data) {
+        setDevices(devicesRes.data);
+      }
+      if (scopesRes.success && scopesRes.data) {
+        setScopes(scopesRes.data);
+      }
     } catch {
-      setError("Failed to load data");
+      setError("Failed to load device data");
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    load();
   }, [filterScope]);
 
-  const resetForm = () => {
-    setForm({
-      scopeId: "",
-      name: "",
-      serialNo: "",
-      locationName: "",
-      locationType: "",
-      firmwareVersion: "",
-      status: "offline",
-      isActive: true,
-    });
-    setEditingId(null);
-  };
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const openCreate = () => {
-    resetForm();
-    setModalOpen(true);
-  };
-  const openEdit = (d: Device) => {
-    setEditingId(d.id);
-    setForm({
-      scopeId: d.scopeId,
-      name: d.name,
-      serialNo: d.serialNo,
-      locationName: d.locationName || "",
-      locationType: d.locationType || "",
-      firmwareVersion: d.firmwareVersion || "",
-      status: d.status || "offline",
-      isActive: d.isActive,
-    });
-    setModalOpen(true);
-  };
+  const rows = useMemo(() => {
+    const now = Date.now();
+    return devices.map((device) => {
+      const lastSeenMs = device.lastSeenAt
+        ? new Date(device.lastSeenAt).getTime()
+        : Number.NaN;
+      const onlineByLastSeen =
+        Number.isFinite(lastSeenMs) && now - lastSeenMs <= ONLINE_WINDOW_MS;
+      const normalizedStored = (
+        device.deviceStatus ||
+        device.status ||
+        ""
+      ).toLowerCase();
+      const isOnline = onlineByLastSeen || normalizedStored === "online";
 
-  const handleSubmit = async () => {
-    if (!form.scopeId || !form.name || !form.serialNo) return;
-    try {
-      const payload = {
-        scopeId: form.scopeId,
-        name: form.name,
-        serialNo: form.serialNo,
-        locationName: form.locationName || undefined,
-        locationType: form.locationType || undefined,
-        firmwareVersion: form.firmwareVersion || undefined,
-        status: form.status || undefined,
-        isActive: form.isActive,
+      return {
+        ...device,
+        uiStatus: isOnline ? "online" : "offline",
       };
-      if (editingId) {
-        await devicesApi.update(editingId, payload);
+    });
+  }, [devices]);
+
+  const showValue = (
+    value: string | number | null | undefined,
+    unit?: string,
+  ) => {
+    if (value === null || value === undefined || value === "") return "-";
+    return unit ? `${value} ${unit}` : String(value);
+  };
+
+  const handleOpenForm = (device?: Device) => {
+    setEditDevice(device || null);
+    setIsFormOpen(true);
+  };
+
+  const handleCloseForm = () => {
+    setEditDevice(null);
+    setIsFormOpen(false);
+  };
+
+  const handleSubmitForm = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const payload = {
+      scopeId: formData.get("scopeId") as string,
+      name: formData.get("name") as string,
+      serialNo: formData.get("serialNo") as string,
+      locationName: formData.get("locationName") as string,
+      locationType: formData.get("locationType") as string,
+      firmwareVersion: formData.get("firmwareVersion") as string,
+      isActive: formData.get("isActive") === "true",
+    };
+
+    // Status is managed automatically by system (default: offline, online when MQTT received)
+
+    try {
+      if (editDevice) {
+        await devicesApi.update(editDevice.id, payload);
       } else {
         await devicesApi.create(payload);
       }
-      setModalOpen(false);
-      resetForm();
-      load();
+      handleCloseForm();
+      void load();
     } catch {
       setError("Failed to save device");
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this device?")) return;
+  const handleDelete = async (deviceId: string) => {
+    if (!confirm("Are you sure you want to delete this device?")) return;
     try {
-      await devicesApi.delete(id);
-      load();
+      await devicesApi.delete(deviceId);
+      void load();
     } catch {
-      setError("Failed to delete");
+      setError("Failed to delete device");
     }
   };
 
-  if (!canManage)
+  if (!canRead) {
     return (
       <div className="p-4 text-sm text-muted-foreground">No permission</div>
     );
+  }
 
   return (
     <div className="space-y-4 p-4">
@@ -159,34 +167,40 @@ export default function DevicesPage() {
           <Cpu className="h-5 w-5" />
           <h1 className="text-lg font-semibold">Devices</h1>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Label className="text-xs">Scope:</Label>
-            <Select
-              value={filterScope || "all"}
-              onValueChange={(value) =>
-                setFilterScope(value === "all" ? "" : value)
-              }
-            >
-              <SelectTrigger className="h-8 w-44 text-xs">
-                <SelectValue placeholder="All scopes" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  All scopes
+
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">Scope:</Label>
+          <Select
+            value={filterScope || "all"}
+            onValueChange={(value) =>
+              setFilterScope(value === "all" ? "" : value)
+            }
+          >
+            <SelectTrigger className="h-8 w-44 text-xs">
+              <SelectValue placeholder="All scopes" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">
+                All scopes
+              </SelectItem>
+              {scopes.map((scope) => (
+                <SelectItem key={scope.id} value={scope.id} className="text-xs">
+                  {scope.name}
                 </SelectItem>
-                {scopes.map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-xs">
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button size="sm" onClick={openCreate} className="h-8 text-xs">
-            <Plus className="mr-1 h-3 w-3" />
-            Add Device
-          </Button>
+              ))}
+            </SelectContent>
+          </Select>
+          
+          {canCreate && (
+            <Button
+              size="sm"
+              onClick={() => handleOpenForm()}
+              className="h-8 gap-1 text-xs"
+            >
+              <Plus className="h-3 w-3" />
+              Add Device
+            </Button>
+          )}
         </div>
       </div>
 
@@ -201,105 +215,92 @@ export default function DevicesPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="text-xs">Device Name</TableHead>
                 <TableHead className="text-xs">Device ID</TableHead>
-                <TableHead className="text-xs">Name</TableHead>
-                <TableHead className="text-xs">Serial No</TableHead>
-                <TableHead className="text-xs">Scope</TableHead>
-                <TableHead className="text-xs">Location</TableHead>
-                <TableHead className="text-xs">Loc Type</TableHead>
-                <TableHead className="text-xs">Firmware</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
                 <TableHead className="text-xs">Last Seen</TableHead>
-                <TableHead className="text-xs">Active</TableHead>
-                <TableHead className="text-xs w-[80px]">Actions</TableHead>
+                <TableHead className="text-xs w-[120px]">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={5}
                     className="text-center text-xs text-muted-foreground"
                   >
                     Loading...
                   </TableCell>
                 </TableRow>
-              ) : devices.length === 0 ? (
+              ) : rows.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={5}
                     className="text-center text-xs text-muted-foreground"
                   >
                     No devices
                   </TableCell>
                 </TableRow>
               ) : (
-                devices.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell className="text-xs font-mono text-slate-500">
-                      {d.id}
-                    </TableCell>
+                rows.map((device) => (
+                  <TableRow key={device.id}>
                     <TableCell className="text-xs font-medium">
-                      {d.name}
+                      {device.name}
                     </TableCell>
-                    <TableCell className="text-xs font-mono">
-                      {d.serialNo}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {d.scope?.name || "-"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {d.locationName || "-"}
-                    </TableCell>
-                    <TableCell>
-                      {d.locationType ? (
-                        <span className="inline-flex rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-400">
-                          {d.locationType}
-                        </span>
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {d.firmwareVersion || "-"}
+                    <TableCell className="text-xs font-mono text-slate-500">
+                      {device.id}
                     </TableCell>
                     <TableCell>
                       <span
-                        className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${d.status === "online" ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400" : "bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"}`}
+                        className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          device.uiStatus === "online"
+                            ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400"
+                            : "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
+                        }`}
                       >
-                        {d.status || "offline"}
+                        {device.uiStatus === "online"
+                          ? "🟢 Online"
+                          : "🔴 Offline"}
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {d.lastSeenAt
-                        ? new Date(d.lastSeenAt).toLocaleString()
-                        : "Never"}
+                      {device.lastSeenAt
+                        ? new Date(device.lastSeenAt).toLocaleString()
+                        : "-"}
                     </TableCell>
                     <TableCell>
-                      <span
-                        className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${d.isActive ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"}`}
-                      >
-                        {d.isActive ? "Active" : "Inactive"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
+                      <div className="flex items-center gap-1">
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-6 w-6"
-                          onClick={() => openEdit(d)}
+                          className="h-7 w-7"
+                          onClick={() => setSelectedDevice(device)}
+                          title="View Detail"
                         >
-                          <Pencil className="h-3 w-3" />
+                          <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6 text-destructive"
-                          onClick={() => handleDelete(d.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        {canUpdate && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={() => handleOpenForm(device)}
+                            title="Edit Device"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDelete(device.id)}
+                            title="Delete Device"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -310,147 +311,222 @@ export default function DevicesPage() {
         </CardContent>
       </Card>
 
+      {/* Detail Dialog */}
       <Dialog
-        open={modalOpen}
-        onOpenChange={(v) => {
-          if (!v) {
-            setModalOpen(false);
-            resetForm();
-          }
-        }}
+        open={Boolean(selectedDevice)}
+        onOpenChange={() => setSelectedDevice(null)}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Device Detail</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm">
+            {/* Basic Info Section */}
+            <div className="rounded border p-3 bg-muted/30">
+              <p className="mb-2 font-semibold text-xs">Basic Information</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <p className="text-muted-foreground">Device Name</p>
+                  <p className="font-medium">{selectedDevice?.name || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Device ID</p>
+                  <p className="font-mono">{selectedDevice?.id || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Serial Number</p>
+                  <p>{selectedDevice?.serialNo || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Scope</p>
+                  <p>{scopes.find(s => s.id === selectedDevice?.scopeId)?.name || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Location</p>
+                  <p>{selectedDevice?.locationName || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Location Type</p>
+                  <p>{selectedDevice?.locationType || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Firmware</p>
+                  <p>{selectedDevice?.firmwareVersion || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Status</p>
+                  <p>{selectedDevice?.status || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Active</p>
+                  <p>{selectedDevice?.isActive ? "Yes" : "No"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Last Seen</p>
+                  <p>{selectedDevice?.lastSeenAt ? new Date(selectedDevice.lastSeenAt).toLocaleString() : "-"}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* System Health Section */}
+            <div className="rounded border p-3">
+              <p className="mb-2 font-semibold text-xs">System Health</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <p>CPU Temp: {showValue(selectedDevice?.cpuTemp, "°C")}</p>
+                <p>CPU Usage: {showValue(selectedDevice?.cpuUsage, "%")}</p>
+                <p>
+                  Memory: {showValue(selectedDevice?.memoryUsedMb)} /{" "}
+                  {showValue(selectedDevice?.memoryTotalMb)} MB
+                </p>
+                <p>
+                  Memory Usage:{" "}
+                  {showValue(selectedDevice?.memoryUsagePercent, "%")}
+                </p>
+                <p>
+                  Disk: {showValue(selectedDevice?.diskUsedGb)} /{" "}
+                  {showValue(selectedDevice?.diskTotalGb)} GB
+                </p>
+                <p>
+                  Disk Usage: {showValue(selectedDevice?.diskUsagePercent, "%")}
+                </p>
+                <p>Load Avg: {showValue(selectedDevice?.loadAverage)}</p>
+                <p>Uptime: {showValue(selectedDevice?.uptime)}</p>
+              </div>
+            </div>
+
+            {/* Network Section */}
+            <div className="rounded border p-3">
+              <p className="mb-2 font-semibold text-xs">Network</p>
+              <div className="text-xs">
+                <p>Internet Status: {showValue(selectedDevice?.internetStatus)}</p>
+              </div>
+            </div>
+
+            {/* Power Section */}
+            <div className="rounded border p-3">
+              <p className="mb-2 font-semibold text-xs">Power</p>
+              <div className="text-xs">
+                <p>Power Status: {showValue(selectedDevice?.powerStatus)}</p>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create/Edit Form Dialog */}
+      <Dialog open={isFormOpen} onOpenChange={handleCloseForm}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm">
-              {editingId ? "Edit" : "New"} Device
+              {editDevice ? "Edit Device" : "Add Device"}
             </DialogTitle>
-            <DialogDescription className="text-xs">
-              {editingId ? "Update device details" : "Create a new device"}
-            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <div>
-              <Label className="text-xs">Scope *</Label>
+          <form onSubmit={handleSubmitForm} className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="scopeId" className="text-xs">Scope *</Label>
               <Select
-                value={form.scopeId}
-                onValueChange={(v) => setForm({ ...form, scopeId: v })}
+                name="scopeId"
+                defaultValue={editDevice?.scopeId || ""}
+                required
               >
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger className="text-xs">
                   <SelectValue placeholder="Select scope" />
                 </SelectTrigger>
                 <SelectContent>
-                  {scopes.map((s) => (
-                    <SelectItem key={s.id} value={s.id} className="text-xs">
-                      {s.name}
+                  {scopes.map((scope) => (
+                    <SelectItem key={scope.id} value={scope.id} className="text-xs">
+                      {scope.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Name *</Label>
+
+            <div className="space-y-2">
+              <Label htmlFor="name" className="text-xs">Device Name *</Label>
+              <Input
+                id="name"
+                name="name"
+                defaultValue={editDevice?.name || ""}
+                required
+                className="text-xs"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="serialNo" className="text-xs">Serial Number *</Label>
+              <Input
+                id="serialNo"
+                name="serialNo"
+                defaultValue={editDevice?.serialNo || ""}
+                required
+                className="text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label htmlFor="locationName" className="text-xs">Location</Label>
                 <Input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="Device name"
-                  className="h-8 text-xs"
+                  id="locationName"
+                  name="locationName"
+                  defaultValue={editDevice?.locationName || ""}
+                  className="text-xs"
                 />
               </div>
-              <div>
-                <Label className="text-xs">Serial No *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="locationType" className="text-xs">Location Type</Label>
                 <Input
-                  value={form.serialNo}
-                  onChange={(e) =>
-                    setForm({ ...form, serialNo: e.target.value })
-                  }
-                  placeholder="SN-00001"
-                  className="h-8 text-xs"
+                  id="locationType"
+                  name="locationType"
+                  defaultValue={editDevice?.locationType || ""}
+                  className="text-xs"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Location Name</Label>
-                <Input
-                  value={form.locationName}
-                  onChange={(e) =>
-                    setForm({ ...form, locationName: e.target.value })
-                  }
-                  placeholder="e.g. Building A, Room 101"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Location Type</Label>
-                <Input
-                  value={form.locationType}
-                  onChange={(e) =>
-                    setForm({ ...form, locationType: e.target.value })
-                  }
-                  placeholder="e.g. area, zone, room..."
-                  className="h-8 text-xs"
-                />
-              </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="firmwareVersion" className="text-xs">Firmware</Label>
+              <Input
+                id="firmwareVersion"
+                name="firmwareVersion"
+                defaultValue={editDevice?.firmwareVersion || ""}
+                className="text-xs"
+              />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Firmware</Label>
-                <Input
-                  value={form.firmwareVersion}
-                  onChange={(e) =>
-                    setForm({ ...form, firmwareVersion: e.target.value })
-                  }
-                  placeholder="v1.0.0"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Status</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(v) => setForm({ ...form, status: v })}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="offline" className="text-xs">
-                      Offline
-                    </SelectItem>
-                    <SelectItem value="online" className="text-xs">
-                      Online
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="isActive" className="text-xs">Active</Label>
+              <Select
+                name="isActive"
+                defaultValue={editDevice?.isActive ? "true" : "false"}
+              >
+                <SelectTrigger className="text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true" className="text-xs">Yes</SelectItem>
+                  <SelectItem value="false" className="text-xs">No</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex items-end gap-2 pb-1">
-                <Switch
-                  checked={form.isActive}
-                  onCheckedChange={(v) => setForm({ ...form, isActive: v })}
-                />
-                <Label className="text-xs">Active</Label>
-              </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCloseForm}
+                className="text-xs"
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" className="text-xs">
+                {editDevice ? "Update" : "Create"}
+              </Button>
             </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setModalOpen(false);
-                resetForm();
-              }}
-              className="text-xs"
-            >
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleSubmit} className="text-xs">
-              {editingId ? "Update" : "Create"}
-            </Button>
-          </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

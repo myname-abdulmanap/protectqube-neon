@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { scopesApi, type Scope } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -45,6 +46,7 @@ interface User {
   email: string;
   name: string;
   roleId: string;
+  scopeIds?: string[];
   role?: {
     id: string;
     name: string;
@@ -62,6 +64,7 @@ export default function UsersPage() {
   const { token } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [scopes, setScopes] = useState<Scope[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -72,6 +75,7 @@ export default function UsersPage() {
     name: "",
     password: "",
     roleId: "",
+    scopeIds: [] as string[],
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -110,21 +114,47 @@ export default function UsersPage() {
     }
   }, [token]);
 
+  const fetchScopes = useCallback(async () => {
+    try {
+      const response = await scopesApi.getAll();
+      if (response.success && response.data) {
+        setScopes(response.data);
+      }
+    } catch (error) {
+      console.error("Error fetching scopes:", error);
+    }
+  }, []);
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchUsers(), fetchRoles()]);
+      await Promise.all([fetchUsers(), fetchRoles(), fetchScopes()]);
       setLoading(false);
     };
     if (token) {
       loadData();
     }
-  }, [token, fetchUsers, fetchRoles]);
+  }, [token, fetchUsers, fetchRoles, fetchScopes]);
+
+  const toggleScopeSelection = (scopeId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      scopeIds: prev.scopeIds.includes(scopeId)
+        ? prev.scopeIds.filter((id) => id !== scopeId)
+        : [...prev.scopeIds, scopeId],
+    }));
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     try {
+      if (formData.scopeIds.length === 0) {
+        toast.error("Pilih minimal 1 scope");
+        setSubmitting(false);
+        return;
+      }
+
       const response = await fetch("/api/users", {
         method: "POST",
         headers: {
@@ -137,7 +167,7 @@ export default function UsersPage() {
       if (data.success) {
         toast.success("User created successfully");
         setIsCreateOpen(false);
-        setFormData({ email: "", name: "", password: "", roleId: "" });
+        setFormData({ email: "", name: "", password: "", roleId: "", scopeIds: [] });
         await fetchUsers();
       } else {
         toast.error(data.error || "Failed to create user");
@@ -154,10 +184,17 @@ export default function UsersPage() {
     if (!selectedUser) return;
     setSubmitting(true);
     try {
+      if (formData.scopeIds.length === 0) {
+        toast.error("Pilih minimal 1 scope");
+        setSubmitting(false);
+        return;
+      }
+
       const updateData: Partial<typeof formData> = {
         email: formData.email,
         name: formData.name,
         roleId: formData.roleId,
+        scopeIds: formData.scopeIds,
       };
       if (formData.password) {
         updateData.password = formData.password;
@@ -176,7 +213,7 @@ export default function UsersPage() {
         toast.success("User updated successfully");
         setIsEditOpen(false);
         setSelectedUser(null);
-        setFormData({ email: "", name: "", password: "", roleId: "" });
+        setFormData({ email: "", name: "", password: "", roleId: "", scopeIds: [] });
         await fetchUsers();
       } else {
         toast.error(data.error || "Failed to update user");
@@ -221,6 +258,7 @@ export default function UsersPage() {
       name: user.name,
       password: "",
       roleId: user.roleId,
+      scopeIds: user.scopeIds || [],
     });
     setIsEditOpen(true);
   };
@@ -345,6 +383,30 @@ export default function UsersPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>Scopes (minimal 1)</Label>
+                <div className="max-h-36 overflow-y-auto rounded-md border p-2 space-y-1">
+                  {scopes.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Tidak ada scope yang bisa dipilih. Pastikan akun ini punya akses scope atau login sebagai superadmin.
+                    </p>
+                  ) : (
+                    scopes.map((scope) => (
+                      <label
+                        key={scope.id}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.scopeIds.includes(scope.id)}
+                          onChange={() => toggleScopeSelection(scope.id)}
+                        />
+                        <span>{scope.name}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
               <DialogFooter>
                 <Button
                   type="button"
@@ -412,6 +474,9 @@ export default function UsersPage() {
                   <TableHead className="h-7 px-2 text-[10px]">Name</TableHead>
                   <TableHead className="h-7 px-2 text-[10px]">Email</TableHead>
                   <TableHead className="h-7 px-2 text-[10px]">Role</TableHead>
+                  <TableHead className="h-7 px-2 text-[10px] hidden lg:table-cell">
+                    Scopes
+                  </TableHead>
                   <TableHead className="h-7 px-2 text-[10px] hidden md:table-cell">
                     Created
                   </TableHead>
@@ -435,6 +500,13 @@ export default function UsersPage() {
                       >
                         {user.role?.name || "No Role"}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="py-1.5 px-2 hidden lg:table-cell text-[10px] text-gray-600 dark:text-gray-400">
+                      {(user.scopeIds || []).length > 0
+                        ? (user.scopeIds || [])
+                            .map((scopeId) => scopes.find((scope) => scope.id === scopeId)?.name || scopeId)
+                            .join(", ")
+                        : "-"}
                     </TableCell>
                     <TableCell className="py-1.5 px-2 hidden md:table-cell text-gray-500 text-[10px]">
                       {new Date(user.createdAt).toLocaleDateString()}
@@ -464,7 +536,7 @@ export default function UsersPage() {
                 {users.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={5}
+                      colSpan={6}
                       className="text-center py-4 text-gray-500 text-xs"
                     >
                       No users found
@@ -541,6 +613,30 @@ export default function UsersPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Scopes</Label>
+              <div className="max-h-36 overflow-y-auto rounded-md border p-2 space-y-1">
+                {scopes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Tidak ada scope yang bisa dipilih.
+                  </p>
+                ) : (
+                  scopes.map((scope) => (
+                    <label
+                      key={scope.id}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={formData.scopeIds.includes(scope.id)}
+                        onChange={() => toggleScopeSelection(scope.id)}
+                      />
+                      <span>{scope.name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
             <DialogFooter>
               <Button

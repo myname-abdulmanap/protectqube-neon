@@ -59,10 +59,11 @@ export function EnergyPeriodFilter({
         <div className="grid flex-[2] gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Dari
+              Dari (WIB)
             </label>
             <Input
               type="datetime-local"
+              lang="id"
               value={period.from}
               onChange={(event) => onFromChange(event.target.value)}
             />
@@ -70,10 +71,11 @@ export function EnergyPeriodFilter({
 
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Sampai
+              Sampai (WIB)
             </label>
             <Input
               type="datetime-local"
+              lang="id"
               value={period.to}
               onChange={(event) => onToChange(event.target.value)}
             />

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ShieldAlert,
@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AlertEvent, AlertAction } from "@/lib/api";
 import { formatDistance } from "date-fns";
@@ -73,7 +74,8 @@ interface AlertDetailDialogProps {
   onClose: () => void;
   getAlertCategory: (alert: AlertEvent) => "critical" | "suspicious" | "health";
   actions?: AlertAction[];
-  onActionChange?: (alertId: string, actionKey: string) => void;
+  onActionUpdate?: (alertId: string, actionKey: string) => Promise<boolean>;
+  onActionUpdateAll?: (actionKey: string) => Promise<boolean>;
 }
 
 function AlertLocationMap({ detail }: { detail: AlertDetailData }) {
@@ -170,8 +172,64 @@ export function AlertDetailDialog({
   onClose,
   getAlertCategory,
   actions,
-  onActionChange,
+  onActionUpdate,
+  onActionUpdateAll,
 }: AlertDetailDialogProps) {
+  const [selectedActionKey, setSelectedActionKey] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const normalizeModuleType = (value: string | null | undefined): string => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized.includes("ai")) return "ai";
+    return "power_meter";
+  };
+
+  const availableActions = useMemo(() => {
+    const list = actions ?? [];
+    if (!alert) return list;
+
+    const alertModuleType = normalizeModuleType(alert.moduleType);
+    const byModule = list.filter(
+      (action) => normalizeModuleType(action.moduleType) === alertModuleType,
+    );
+    return byModule.length > 0 ? byModule : list;
+  }, [actions, alert]);
+
+  useEffect(() => {
+    if (!alert) {
+      setSelectedActionKey("");
+      setIsSubmitting(false);
+    }
+  }, [alert]);
+
+  useEffect(() => {
+    if (!selectedActionKey) return;
+    const stillValid = availableActions.some((a) => a.key === selectedActionKey);
+    if (!stillValid) {
+      setSelectedActionKey("");
+    }
+  }, [availableActions, selectedActionKey]);
+
+  const handleUpdate = async () => {
+    if (!alert || !selectedActionKey || !onActionUpdate) return;
+    setIsSubmitting(true);
+    try {
+      await onActionUpdate(alert.id, selectedActionKey);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateAll = async () => {
+    if (!selectedActionKey || !onActionUpdateAll) return;
+    setIsSubmitting(true);
+    try {
+      await onActionUpdateAll(selectedActionKey);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <Dialog open={!!alert} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
@@ -353,30 +411,56 @@ export function AlertDetailDialog({
                 </TabsContent>
               </ScrollArea>
 
-              {actions && actions.length > 0 && onActionChange && (
+              {onActionUpdate && (
                 <div className="border-t px-4 py-3 flex items-center gap-2">
                   <span className="text-[10px] text-muted-foreground font-medium whitespace-nowrap">
                     Action:
                   </span>
                   <Select
-                    onValueChange={(value) => onActionChange(alert.id, value)}
+                    value={selectedActionKey}
+                    onValueChange={setSelectedActionKey}
+                    disabled={availableActions.length === 0 || isSubmitting}
                   >
                     <SelectTrigger className="h-7 text-xs flex-1">
-                      <SelectValue placeholder="Pilih action..." />
+                      <SelectValue
+                        placeholder={
+                          availableActions.length > 0
+                            ? "Pilih action..."
+                            : "Action tidak tersedia"
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
-                      {actions.map((action) => (
+                      {availableActions.map((action) => (
                         <SelectItem
                           key={action.id}
                           value={action.key}
                           className="text-xs"
                         >
-                          <span style={{ color: action.color }}>●</span>{" "}
                           {action.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 px-2 text-[10px]"
+                    onClick={() => void handleUpdate()}
+                    disabled={availableActions.length === 0 || !selectedActionKey || isSubmitting}
+                  >
+                    {isSubmitting ? "Saving..." : "Update"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[10px]"
+                    onClick={() => void handleUpdateAll()}
+                    disabled={availableActions.length === 0 || !selectedActionKey || isSubmitting || !onActionUpdateAll}
+                  >
+                    Update All
+                  </Button>
                 </div>
               )}
             </Tabs>

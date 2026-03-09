@@ -40,6 +40,7 @@ import { AISummaryCards } from "./AISummaryCards";
 import { LiveVideoCard } from "./LiveVideoCard";
 import { AlertsView } from "./AlertsView";
 import { alertEventsApi, energyDashboardApi, type AlertEvent } from "@/lib/api";
+import type { AIAlert } from "@/lib/ai-alerts";
 import { useRealtimeContext } from "@/components/providers/RealtimeProvider";
 
 const itemVariants = {
@@ -187,13 +188,13 @@ export function CashierMonitoring() {
 
     return alerts.map((a) => ({
       id: a.id,
-      module: "Cashier",
+      module: "Cashier" as const,
       outlet: a.device?.scope?.name || outletName || "",
       deviceName: a.device?.name || a.deviceId,
       deviceId: a.deviceId,
       area: a.device?.locationName || "",
       alertType: a.alertType,
-      severity: a.severity,
+      severity: a.severity as AIAlert["severity"],
       timestamp: a.timestamp,
       description: a.description || a.title || "",
       aiInsight: [],
@@ -478,7 +479,7 @@ export function CashierMonitoring() {
                         className={`text-[6px] px-0.5 py-0 h-3 ${
                           alert.severity === "Critical"
                             ? "border-red-500/30 text-red-500"
-                            : alert.severity === "Warning"
+                            : alert.severity === "Suspicious"
                               ? "border-amber-500/30 text-amber-500"
                               : "border-blue-500/30 text-blue-500"
                         }`}
