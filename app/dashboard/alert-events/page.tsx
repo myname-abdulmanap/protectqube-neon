@@ -114,7 +114,7 @@ export default function AlertEventsPage() {
       const res = await alertEventsApi.getAll(params);
       if (res.success && res.data) setEvents(res.data);
     } catch {
-      setError("Failed to load alert events");
+      setError("Failed to load alert event");
     } finally {
       setIsLoading(false);
     }
