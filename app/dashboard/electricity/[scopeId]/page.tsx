@@ -1113,15 +1113,18 @@ export default function ElectricityOutletDetailPage() {
                       </motion.div>
                     </div>
 
-                    {/* Capacity */}
+                    {/* Capacity Device */}
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] text-muted-foreground">
                         Capacity
                       </span>
                       <span className="text-[10px] font-semibold">
-                        {capacityAmpere
+                        {/* {capacityAmpere
                           ? `${fmtVal(capacityAmpere, 1)} A`
-                          : "-"}
+                          : "-"} */}
+                          {capacityVa ? `${formatCompactNumber(capacityVa)} VA` : "-"}
+
+
                       </span>
                     </div>
 

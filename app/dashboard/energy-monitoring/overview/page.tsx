@@ -263,10 +263,10 @@ export function EnergyOverviewPage({
     [filteredDevices, devicesOnline],
   );
 
-  // Map outlets
+  // Map outlets with region + address (all outlets with coordinates)
   const mapOutlets: MapOutlet[] = useMemo(() => {
+    // Show all outlets or just those with coords - try to include all but prioritize those with coords
     return filteredOutlets
-      .filter((o) => o.lat != null && o.lng != null)
       .map((outlet) => {
         const outletDevices = filteredDevices.filter(
           (d) => d.scopeId === outlet.id,
@@ -277,10 +277,10 @@ export function EnergyOverviewPage({
         return {
           id: outlet.id,
           name: outlet.name,
-          address: outlet.address || outlet.city || outlet.region,
+          address: `${outlet.address ? outlet.address + ", " : ""}${outlet.region || "Unknown"}`,
           totalEnergy: outlet.usage,
-          lat: outlet.lat!,
-          lng: outlet.lng!,
+          lat: outlet.lat || -7.25,
+          lng: outlet.lng || 110.0,
           online: hasOnlineDevice,
           devices: outletDevices.map((d) => ({
             id: d.id,
@@ -288,7 +288,8 @@ export function EnergyOverviewPage({
             online: (d.deviceStatus || d.status || "").toLowerCase() === "online",
           })),
         };
-      });
+      })
+      .sort((a, b) => b.totalEnergy - a.totalEnergy);
   }, [filteredOutlets, filteredDevices]);
 
   // Region energy for bar chart
@@ -427,7 +428,7 @@ export function EnergyOverviewPage({
 
           {/* ── RIGHT COLUMN ── */}
           <div className="space-y-1.5">
-            {/* Outlet Map */}
+            {/* Outlet Map with Region and Address Info */}
             <motion.div variants={itemVariants}>
               <Card className="border-0 shadow-sm overflow-hidden">
                 <CardHeader className="px-2 pt-1.5 pb-0">
