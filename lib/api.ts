@@ -423,6 +423,17 @@ export const authApi = {
       window.location.href = "/login";
     }
   },
+
+  changePassword: async (
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<ApiResponse<void>> => {
+    const response = await apiClient.post<ApiResponse<void>>(
+      "/auth/change-password",
+      { oldPassword, newPassword },
+    );
+    return response.data;
+  },
 };
 
 // Users API

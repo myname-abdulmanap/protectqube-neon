@@ -1,43 +1,41 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  Activity,
   ArrowLeft,
-  Bell,
   Building2,
+  Circle,
   Gauge,
-  MapPin,
-  Package,
+  Activity,
   Search,
-  TrendingUp,
-  Zap,
+  Calendar,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Cpu,
+  MapPin,
 } from "lucide-react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
-  Cell,
   CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
+  Cell,
   Pie,
   PieChart,
-  ResponsiveContainer,
-  Tooltip,
   XAxis,
   YAxis,
+  ResponsiveContainer,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { PageTransition } from "@/components/ui/page-transition";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { PageTransition } from "@/components/ui/page-transition";
 import {
   Select,
   SelectContent,
@@ -45,6 +43,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -54,185 +59,210 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  alertEventsApi,
-  devicesApi,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
   deviceMetricsApi,
   energyConfigsApi,
   energyDashboardApi,
-  scopesApi,
   type EnergyOutletDetail,
 } from "@/lib/api";
-import {
-  buildEnergyFilters,
-  createEnergyPeriod,
-  formatCompactNumber,
-  formatDateTime,
-  normalizeEnergyPeriod,
-  type EnergyPeriodState,
-  type EnergyPreset,
-} from "@/lib/energy-monitoring";
+import { formatCompactNumber, formatDateTime } from "@/lib/energy-monitoring";
 import { exportToExcel, exportToPdf } from "@/lib/report-export";
-import { EnergyExportActions } from "@/components/dashboard/EnergyExportActions";
-import { EnergyPeriodFilter } from "@/components/dashboard/EnergyPeriodFilter";
+import {
+  ExportModal,
+  type ExportFormat,
+  type ExportPeriod,
+} from "@/components/dashboard/ExportModal";
 import { cn } from "@/lib/utils";
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.06,
-    },
-  },
-};
+// Types
+type DatePreset = "all" | "today" | "7d" | "30d" | "90d" | "custom";
 
-const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
-  visible: { opacity: 1, y: 0 },
-};
+interface DateRange {
+  preset: DatePreset;
+  from: string;
+  to: string;
+  label: string;
+}
 
+type TrendMetric = "energy" | "power" | "voltage" | "current";
+
+// Extended historical reading with all payload fields
 type HistoricalReading = {
   timestamp: string;
   label: string;
+  // Voltage
   voltageL1: number | null;
   voltageL2: number | null;
   voltageL3: number | null;
+  voltageAB: number | null;
+  voltageBC: number | null;
+  voltageCA: number | null;
+  // Current
   currentL1: number | null;
   currentL2: number | null;
   currentL3: number | null;
   currentTotal: number | null;
+  // Power
   powerL1: number | null;
   powerL2: number | null;
   powerL3: number | null;
   powerTotal: number | null;
+  // Reactive
   reactiveL1: number | null;
   reactiveL2: number | null;
   reactiveL3: number | null;
-  frequency: number | null;
+  reactiveSigma: number | null;
+  // VA (Apparent Power)
+  vaA: number | null;
+  vaB: number | null;
+  vaC: number | null;
+  vaSigma: number | null;
+  // Power Factor
+  pfA: number | null;
+  pfB: number | null;
+  pfC: number | null;
+  pfSigma: number | null;
+  // Energy
   energyTotal: number | null;
+  kvarh: number | null;
+  // Frequency
+  frequency: number | null;
 };
 
-type MetricGroup =
-  | "all"
-  | "voltage"
-  | "current"
-  | "power"
-  | "reactive"
-  | "energy";
+// Extended realtime metrics
+interface RealtimeMetrics {
+  voltageL1: number;
+  voltageL2: number;
+  voltageL3: number;
+  voltageAB: number;
+  voltageBC: number;
+  voltageCA: number;
+  currentL1: number;
+  currentL2: number;
+  currentL3: number;
+  currentTotal: number;
+  powerL1: number;
+  powerL2: number;
+  powerL3: number;
+  powerTotal: number;
+  reactiveL1: number;
+  reactiveL2: number;
+  reactiveL3: number;
+  reactiveSigma: number;
+  vaA: number;
+  vaB: number;
+  vaC: number;
+  vaSigma: number;
+  pfA: number;
+  pfB: number;
+  pfC: number;
+  pfSigma: number;
+  energyTotal: number;
+  kvarh: number;
+  frequency: number;
+}
 
-const METRIC_GROUPS: {
-  key: Exclude<MetricGroup, "all">;
-  label: string;
-  lines: { dataKey: keyof HistoricalReading; name: string; color: string }[];
-}[] = [
-  {
-    key: "voltage",
-    label: "Tegangan",
-    lines: [
-      { dataKey: "voltageL1", name: "V L1", color: "#3b82f6" },
-      { dataKey: "voltageL2", name: "V L2", color: "#10b981" },
-      { dataKey: "voltageL3", name: "V L3", color: "#f59e0b" },
-    ],
-  },
-  {
-    key: "current",
-    label: "Arus",
-    lines: [
-      { dataKey: "currentL1", name: "I L1", color: "#3b82f6" },
-      { dataKey: "currentL2", name: "I L2", color: "#10b981" },
-      { dataKey: "currentL3", name: "I L3", color: "#f59e0b" },
-      { dataKey: "currentTotal", name: "I Total", color: "#8b5cf6" },
-    ],
-  },
-  {
-    key: "power",
-    label: "Daya",
-    lines: [
-      { dataKey: "powerL1", name: "P L1", color: "#3b82f6" },
-      { dataKey: "powerL2", name: "P L2", color: "#10b981" },
-      { dataKey: "powerL3", name: "P L3", color: "#f59e0b" },
-      { dataKey: "powerTotal", name: "P Total", color: "#8b5cf6" },
-    ],
-  },
-  {
-    key: "reactive",
-    label: "Reaktif",
-    lines: [
-      { dataKey: "reactiveL1", name: "Q L1", color: "#3b82f6" },
-      { dataKey: "reactiveL2", name: "Q L2", color: "#10b981" },
-      { dataKey: "reactiveL3", name: "Q L3", color: "#f59e0b" },
-    ],
-  },
-  {
-    key: "energy",
-    label: "Energi",
-    lines: [
-      { dataKey: "frequency", name: "Hz", color: "#3b82f6" },
-      { dataKey: "energyTotal", name: "Energy (kWh)", color: "#f97316" },
-    ],
-  },
-];
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
+};
 
-const getPresetFromSearchParams = (
-  from: string | null,
-  to: string | null,
-): EnergyPeriodState => {
-  if (!from || !to) {
-    return createEnergyPeriod("today");
+const itemVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { type: "spring" as const, stiffness: 300, damping: 24 },
+  },
+};
+
+const pulseVariants = {
+  pulse: {
+    scale: [1, 1.02, 1],
+    transition: { duration: 2, repeat: Infinity, ease: "easeInOut" as const },
+  },
+};
+
+const glowAnimation = {
+  boxShadow: [
+    "0 0 0px rgba(34, 197, 94, 0)",
+    "0 0 20px rgba(34, 197, 94, 0.3)",
+    "0 0 0px rgba(34, 197, 94, 0)",
+  ],
+  transition: { duration: 2, repeat: Infinity, ease: "easeInOut" as const },
+};
+
+// Helper functions
+const buildRange = (preset: Exclude<DatePreset, "custom">): DateRange => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  switch (preset) {
+    case "all":
+      return { preset, from: "", to: "", label: "All" };
+    case "today":
+      return {
+        preset,
+        from: today.toISOString(),
+        to: now.toISOString(),
+        label: "Today",
+      };
+    case "7d":
+      return {
+        preset,
+        from: new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        to: now.toISOString(),
+        label: "7 Days",
+      };
+    case "30d":
+      return {
+        preset,
+        from: new Date(
+          today.getTime() - 30 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        to: now.toISOString(),
+        label: "30 Days",
+      };
+    case "90d":
+      return {
+        preset,
+        from: new Date(
+          today.getTime() - 90 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        to: now.toISOString(),
+        label: "90 Days",
+      };
   }
-
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-    return createEnergyPeriod("today");
-  }
-
-  const pad = (value: number) => value.toString().padStart(2, "0");
-  const toInputValue = (value: Date) =>
-    `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
-
-  return {
-    preset: "custom",
-    from: toInputValue(fromDate),
-    to: toInputValue(toDate),
-  };
 };
 
-type RawMetric = {
-  timestamp: string;
-  metricKey: string;
-  metricValue: number;
-};
-
-type RawScopedMetric = {
-  timestamp: string;
-  deviceId: string;
-  metricKey: string;
-  metricValue: number;
-};
-
-const mapMetricsToReadings = (metrics: RawMetric[]): HistoricalReading[] => {
+const mapMetricsToReadings = (
+  metrics: { timestamp: string; metricKey: string; metricValue: number }[],
+): HistoricalReading[] => {
   const grouped = new Map<string, Map<string, number>>();
-
-  for (const metric of metrics) {
-    if (!grouped.has(metric.timestamp)) {
-      grouped.set(metric.timestamp, new Map());
-    }
-    grouped.get(metric.timestamp)!.set(metric.metricKey, metric.metricValue);
+  for (const m of metrics) {
+    if (!grouped.has(m.timestamp)) grouped.set(m.timestamp, new Map());
+    grouped.get(m.timestamp)!.set(m.metricKey, m.metricValue);
   }
 
   return Array.from(grouped.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([ts, values]) => {
-      const date = new Date(ts);
+      const d = new Date(ts);
       return {
         timestamp: ts,
-        label: Number.isNaN(date.getTime())
+        label: Number.isNaN(d.getTime())
           ? ts
-          : `${date.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })} ${date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })}`,
+          : `${d.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })} ${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })}`,
         voltageL1: values.get("voltage_l1") ?? null,
         voltageL2: values.get("voltage_l2") ?? null,
         voltageL3: values.get("voltage_l3") ?? null,
+        voltageAB: values.get("voltage_ab") ?? null,
+        voltageBC: values.get("voltage_bc") ?? null,
+        voltageCA: values.get("voltage_ca") ?? null,
         currentL1: values.get("current_l1") ?? null,
         currentL2: values.get("current_l2") ?? null,
         currentL3: values.get("current_l3") ?? null,
@@ -244,197 +274,143 @@ const mapMetricsToReadings = (metrics: RawMetric[]): HistoricalReading[] => {
         reactiveL1: values.get("reactive_l1") ?? null,
         reactiveL2: values.get("reactive_l2") ?? null,
         reactiveL3: values.get("reactive_l3") ?? null,
-        frequency: values.get("frequency") ?? null,
+        reactiveSigma: values.get("reactive_sigma") ?? null,
+        vaA: values.get("va_a") ?? null,
+        vaB: values.get("va_b") ?? null,
+        vaC: values.get("va_c") ?? null,
+        vaSigma: values.get("va_sigma") ?? null,
+        pfA: values.get("pf_a") ?? null,
+        pfB: values.get("pf_b") ?? null,
+        pfC: values.get("pf_c") ?? null,
+        pfSigma: values.get("pf_sigma") ?? null,
         energyTotal: values.get("energy_total") ?? null,
+        kvarh: values.get("kvarh") ?? null,
+        frequency: values.get("frequency") ?? null,
       };
     });
 };
 
-const mapMetricsToHourlyReadings = (
-  metrics: RawScopedMetric[],
-  fromIso?: string,
-  toIso?: string,
-): HistoricalReading[] => {
-  const latestMetricPerHourDevice = new Map<string, RawScopedMetric>();
+// Custom DateFilter Component
+function DateFilter({
+  value,
+  onChange,
+}: {
+  value: DateRange;
+  onChange: (range: DateRange) => void;
+}) {
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
-  for (const metric of metrics) {
-    const ts = new Date(metric.timestamp);
-    if (Number.isNaN(ts.getTime())) continue;
+  const presets: { key: Exclude<DatePreset, "custom">; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "today", label: "Today" },
+    { key: "7d", label: "7 Days" },
+    { key: "30d", label: "30 Days" },
+    { key: "90d", label: "90 Days" },
+  ];
 
-    const hourStart = new Date(ts);
-    hourStart.setMinutes(0, 0, 0);
-    const hourIso = hourStart.toISOString();
-    const key = `${hourIso}|${metric.deviceId}|${metric.metricKey}`;
-
-    const current = latestMetricPerHourDevice.get(key);
-    if (!current || new Date(metric.timestamp).getTime() > new Date(current.timestamp).getTime()) {
-      latestMetricPerHourDevice.set(key, metric);
+  const handleCustomApply = () => {
+    if (customFrom && customTo) {
+      const from = new Date(customFrom);
+      const to = new Date(customTo);
+      onChange({
+        preset: "custom",
+        from: from.toISOString(),
+        to: to.toISOString(),
+        label: `${from.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })} - ${to.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}`,
+      });
     }
-  }
-
-  const hourlyMap = new Map<string, Map<string, { sum: number; count: number }>>();
-  for (const metric of latestMetricPerHourDevice.values()) {
-    const ts = new Date(metric.timestamp);
-    if (Number.isNaN(ts.getTime())) continue;
-    const hourStart = new Date(ts);
-    hourStart.setMinutes(0, 0, 0);
-    const hourIso = hourStart.toISOString();
-
-    if (!hourlyMap.has(hourIso)) {
-      hourlyMap.set(hourIso, new Map());
-    }
-
-    const values = hourlyMap.get(hourIso)!;
-    const current = values.get(metric.metricKey) ?? { sum: 0, count: 0 };
-    current.sum += Number(metric.metricValue ?? 0);
-    current.count += 1;
-    values.set(metric.metricKey, current);
-  }
-
-  const averageKeys = new Set([
-    "voltage_l1",
-    "voltage_l2",
-    "voltage_l3",
-    "frequency",
-  ]);
-
-  const pickValue = (
-    values: Map<string, { sum: number; count: number }>,
-    key: string,
-  ): number | null => {
-    const agg = values.get(key);
-    if (!agg || agg.count === 0) return null;
-    if (averageKeys.has(key)) {
-      return Number((agg.sum / agg.count).toFixed(2));
-    }
-    return Number(agg.sum.toFixed(2));
   };
 
-  const hourSlots: string[] = [];
-  const parsedFrom = fromIso ? new Date(fromIso) : null;
-  const parsedTo = toIso ? new Date(toIso) : null;
-  const hasValidRange =
-    parsedFrom &&
-    parsedTo &&
-    !Number.isNaN(parsedFrom.getTime()) &&
-    !Number.isNaN(parsedTo.getTime());
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-6 gap-1 px-2 text-[9px]"
+        >
+          <Calendar className="h-3 w-3" />
+          {value.label}
+          <ChevronDown className="h-3 w-3 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {presets.map((p) => (
+          <DropdownMenuItem
+            key={p.key}
+            className={cn(
+              "text-xs",
+              value.preset === p.key && "bg-accent font-medium",
+            )}
+            onClick={() => onChange(buildRange(p.key))}
+          >
+            {p.label}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1.5">
+          <p className="text-[10px] font-medium mb-1">Custom</p>
+          <div className="space-y-1">
+            <input
+              type="datetime-local"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              aria-label="From date"
+              className="w-full rounded border border-input bg-background px-2 py-1 text-[10px]"
+            />
+            <input
+              type="datetime-local"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              aria-label="To date"
+              className="w-full rounded border border-input bg-background px-2 py-1 text-[10px]"
+            />
+            <Button
+              size="sm"
+              className="w-full h-6 text-[10px]"
+              onClick={handleCustomApply}
+              disabled={!customFrom || !customTo}
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
-  if (hasValidRange) {
-    const start = new Date(parsedFrom as Date);
-    start.setMinutes(0, 0, 0);
-    const end = new Date(parsedTo as Date);
-    end.setMinutes(0, 0, 0);
-
-    for (let cursor = start.getTime(); cursor <= end.getTime(); cursor += 60 * 60 * 1000) {
-      hourSlots.push(new Date(cursor).toISOString());
-    }
-  } else {
-    hourSlots.push(
-      ...Array.from(hourlyMap.keys()).sort((a, b) => a.localeCompare(b)),
-    );
-  }
-
-  return hourSlots.map((hourIso) => {
-    const values = hourlyMap.get(hourIso) ?? new Map<string, { sum: number; count: number }>();
-    const d = new Date(hourIso);
-    const label = Number.isNaN(d.getTime())
-      ? hourIso
-      : `${d.toLocaleDateString("id-ID", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        })} ${d.toLocaleTimeString("id-ID", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        })}`;
-
-    return {
-      timestamp: hourIso,
-      label,
-      voltageL1: pickValue(values, "voltage_l1"),
-      voltageL2: pickValue(values, "voltage_l2"),
-      voltageL3: pickValue(values, "voltage_l3"),
-      currentL1: pickValue(values, "current_l1"),
-      currentL2: pickValue(values, "current_l2"),
-      currentL3: pickValue(values, "current_l3"),
-      currentTotal: pickValue(values, "current_total"),
-      powerL1: pickValue(values, "power_l1"),
-      powerL2: pickValue(values, "power_l2"),
-      powerL3: pickValue(values, "power_l3"),
-      powerTotal: pickValue(values, "power_total") ?? pickValue(values, "power"),
-      reactiveL1: pickValue(values, "reactive_l1"),
-      reactiveL2: pickValue(values, "reactive_l2"),
-      reactiveL3: pickValue(values, "reactive_l3"),
-      frequency: pickValue(values, "frequency"),
-      energyTotal: pickValue(values, "energy_total"),
-    };
-  });
-};
+// Donut chart colors
+const DONUT_COLORS = [
+  "hsl(217, 91%, 60%)",
+  "hsl(142, 71%, 45%)",
+  "hsl(38, 92%, 50%)",
+  "hsl(280, 70%, 55%)",
+  "hsl(350, 80%, 55%)",
+  "hsl(180, 60%, 45%)",
+];
 
 export default function ElectricityOutletDetailPage() {
   const params = useParams<{ scopeId: string }>();
-  const searchParams = useSearchParams();
-  const [period, setPeriod] = useState<EnergyPeriodState>(() =>
-    getPresetFromSearchParams(searchParams.get("from"), searchParams.get("to")),
-  );
-  const [appliedPeriod, setAppliedPeriod] = useState<EnergyPeriodState>(() =>
-    getPresetFromSearchParams(searchParams.get("from"), searchParams.get("to")),
-  );
+  const scopeId = params.scopeId;
+
   const [detail, setDetail] = useState<EnergyOutletDetail | null>(null);
-  const [measurementPeriod, setMeasurementPeriod] = useState<EnergyPeriodState>(
-    () => createEnergyPeriod("today"),
-  );
-  const [appliedMeasurementPeriod, setAppliedMeasurementPeriod] =
-    useState<EnergyPeriodState>(() => createEnergyPeriod("today"));
-  const [tablePeriod, setTablePeriod] = useState<EnergyPeriodState>(() =>
-    createEnergyPeriod("today"),
-  );
-  const [appliedTablePeriod, setAppliedTablePeriod] =
-    useState<EnergyPeriodState>(() => createEnergyPeriod("today"));
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<EnergyPeriodState>(
-    () => createEnergyPeriod("today"),
-  );
-  const [appliedAnalyticsPeriod, setAppliedAnalyticsPeriod] =
-    useState<EnergyPeriodState>(() => createEnergyPeriod("today"));
-  const [alertsPeriod, setAlertsPeriod] = useState<EnergyPeriodState>(() =>
-    createEnergyPeriod("today"),
-  );
-  const [appliedAlertsPeriod, setAppliedAlertsPeriod] =
-    useState<EnergyPeriodState>(() => createEnergyPeriod("today"));
-  const [historicalChartData, setHistoricalChartData] = useState<
-    HistoricalReading[]
-  >([]);
-  const [historicalTableData, setHistoricalTableData] = useState<
-    HistoricalReading[]
-  >([]);
-  const [analyticsReadings, setAnalyticsReadings] = useState<
-    HistoricalReading[]
-  >([]);
-  const [alertHistoryData, setAlertHistoryData] = useState<
-    EnergyOutletDetail["alertHistory"]
-  >([]);
-  const [latestEnergyByLocation, setLatestEnergyByLocation] = useState<
-    { name: string; value: number; color?: string }[]
-  >([]);
-  const [activeMetricGroup, setActiveMetricGroup] =
-    useState<Exclude<MetricGroup, "all">>("voltage");
-  const [tableSearch, setTableSearch] = useState("");
-  const [measurementSearch, setMeasurementSearch] = useState("");
-  const [analyticsSearch, setAnalyticsSearch] = useState("");
-  const [alertsSearch, setAlertsSearch] = useState("");
-  const [tableMetricFilter, setTableMetricFilter] =
-    useState<MetricGroup>("all");
-  const [tablePage, setTablePage] = useState(0);
-  const [realtimePowerKw, setRealtimePowerKw] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Realtime metrics
   const [realtimeLastUpdated, setRealtimeLastUpdated] = useState<string | null>(
     null,
   );
   const [capacityVa, setCapacityVa] = useState<number | null>(null);
-  const [realtimePhaseMetrics, setRealtimePhaseMetrics] = useState({
+  const [realtimeMetrics, setRealtimeMetrics] = useState<RealtimeMetrics>({
     voltageL1: 0,
     voltageL2: 0,
     voltageL3: 0,
+    voltageAB: 0,
+    voltageBC: 0,
+    voltageCA: 0,
     currentL1: 0,
     currentL2: 0,
     currentL3: 0,
@@ -446,2268 +422,1535 @@ export default function ElectricityOutletDetailPage() {
     reactiveL1: 0,
     reactiveL2: 0,
     reactiveL3: 0,
-    frequency: 0,
+    reactiveSigma: 0,
+    vaA: 0,
+    vaB: 0,
+    vaC: 0,
+    vaSigma: 0,
+    pfA: 0,
+    pfB: 0,
+    pfC: 0,
+    pfSigma: 0,
     energyTotal: 0,
+    kvarh: 0,
+    frequency: 0,
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const TABLE_PAGE_SIZE = 20;
 
-  const filters = useMemo(
-    () => buildEnergyFilters(appliedPeriod),
-    [appliedPeriod],
+  // Trend chart
+  const [trendRange, setTrendRange] = useState<DateRange>(buildRange("all"));
+  const [trendData, setTrendData] = useState<HistoricalReading[]>([]);
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>("energy");
+
+  // Analytics
+  const [analyticsRange, setAnalyticsRange] = useState<DateRange>(
+    buildRange("7d"),
   );
-  const scopeId = params.scopeId;
+  const [analyticsData, setAnalyticsData] = useState<HistoricalReading[]>([]);
 
+  // Table
+  const [tableRange, setTableRange] = useState<DateRange>(buildRange("all"));
+  const [tableData, setTableData] = useState<HistoricalReading[]>([]);
+  const [tablePage, setTablePage] = useState(0);
+  const [tableSearch, setTableSearch] = useState("");
+  const TABLE_PAGE_SIZE = 8;
+
+  // Load outlet detail
   useEffect(() => {
     let active = true;
-
     const load = async () => {
       try {
         setLoading(true);
         setError(null);
+        const [detailRes, configRes] = await Promise.all([
+          energyDashboardApi.getOutletDetail(scopeId, {}),
+          energyConfigsApi.getAll(scopeId),
+        ]);
+        if (!active) return;
 
-        const response = await energyDashboardApi.getOutletDetail(
-          scopeId,
-          filters,
-        );
-        if (!active) {
-          return;
-        }
-
-        if (!response.success || !response.data) {
+        if (!detailRes.success || !detailRes.data) {
           setDetail(null);
-          setError(response.error || "Failed to load outlet detail");
+          setError(detailRes.error || "Failed to load outlet");
           return;
         }
+        setDetail(detailRes.data);
 
-        setDetail(response.data);
+        if (configRes.success && configRes.data?.[0]) {
+          setCapacityVa(configRes.data[0].capacityVa ?? null);
+        }
       } catch {
-        if (active) {
-          setDetail(null);
-          setError("Failed to load outlet detail");
-        }
+        if (active) setError("Failed to load outlet");
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     };
-
     void load();
-
     return () => {
       active = false;
     };
-  }, [filters, scopeId]);
+  }, [scopeId]);
 
-  const measurementFilters = useMemo(
-    () => buildEnergyFilters(appliedMeasurementPeriod),
-    [appliedMeasurementPeriod],
-  );
-  const tableFilters = useMemo(
-    () => buildEnergyFilters(appliedTablePeriod),
-    [appliedTablePeriod],
-  );
-  const analyticsFilters = useMemo(
-    () => buildEnergyFilters(appliedAnalyticsPeriod),
-    [appliedAnalyticsPeriod],
-  );
-  const alertFilters = useMemo(
-    () => buildEnergyFilters(appliedAlertsPeriod),
-    [appliedAlertsPeriod],
-  );
-
-  useEffect(() => {
-    let active = true;
-    const loadMeasurementData = async () => {
-      const response = await deviceMetricsApi.getAll({
-        scopeId,
-        moduleType: "power_meter",
-        from: measurementFilters.from,
-        to: measurementFilters.to,
-        limit: 50000,
-      });
-
-      if (!active) return;
-      if (!response.success || !response.data) {
-        setHistoricalChartData([]);
-        return;
-      }
-      setHistoricalChartData(mapMetricsToReadings(response.data));
-    };
-
-    void loadMeasurementData();
-    return () => {
-      active = false;
-    };
-  }, [measurementFilters.from, measurementFilters.to, scopeId]);
-
-  useEffect(() => {
-    let active = true;
-    const loadTableData = async () => {
-      const response = await deviceMetricsApi.getAll({
-        scopeId,
-        moduleType: "power_meter",
-        from: tableFilters.from,
-        to: tableFilters.to,
-        limit: 50000,
-      });
-
-      if (!active) return;
-      if (!response.success || !response.data) {
-        setHistoricalTableData([]);
-        return;
-      }
-      setHistoricalTableData(mapMetricsToReadings(response.data));
-      setTablePage(0);
-    };
-
-    void loadTableData();
-    return () => {
-      active = false;
-    };
-  }, [tableFilters.from, tableFilters.to, scopeId]);
-
-  useEffect(() => {
-    let active = true;
-    const loadAnalyticsData = async () => {
-      const response = await deviceMetricsApi.getAll({
-        scopeId,
-        moduleType: "power_meter",
-        from: analyticsFilters.from,
-        to: analyticsFilters.to,
-        limit: 50000,
-      });
-
-      if (!active) return;
-      if (!response.success || !response.data) {
-        setAnalyticsReadings([]);
-        return;
-      }
-      setAnalyticsReadings(mapMetricsToReadings(response.data));
-    };
-
-    void loadAnalyticsData();
-    return () => {
-      active = false;
-    };
-  }, [analyticsFilters.from, analyticsFilters.to, scopeId]);
-
-  useEffect(() => {
-    let active = true;
-    const loadAlertsData = async () => {
-      const response = await alertEventsApi.getAll({
-        scopeId,
-        from: alertFilters.from,
-        to: alertFilters.to,
-        limit: 1000,
-      });
-
-      if (!active) return;
-      if (!response.success || !response.data) {
-        setAlertHistoryData([]);
-        return;
-      }
-
-      setAlertHistoryData(
-        response.data.map((alert) => ({
-          id: alert.id,
-          timestamp: alert.timestamp,
-          deviceName: alert.device?.name || "Unknown Device",
-          locationName: alert.device?.locationName || null,
-          type: alert.alertType,
-          severity: alert.severity,
-          message: alert.description || alert.title,
-        })),
-      );
-    };
-
-    void loadAlertsData();
-    return () => {
-      active = false;
-    };
-  }, [alertFilters.from, alertFilters.to, scopeId]);
-
-  const handlePresetChange = (preset: EnergyPreset) => {
-    setPeriod(createEnergyPeriod(preset));
-  };
-
-  const handleApply = () => {
-    startTransition(() => {
-      setAppliedPeriod(normalizeEnergyPeriod(period));
+  // Load realtime metrics
+  const loadRealtimeMetrics = useCallback(async () => {
+    const res = await deviceMetricsApi.getAll({
+      scopeId,
+      moduleType: "power_meter",
+      limit: 200,
     });
-  };
+    if (!res.success || !res.data?.length) return;
 
-  const handleReset = () => {
-    const next = createEnergyPeriod("today");
-    setPeriod(next);
-    startTransition(() => {
-      setAppliedPeriod(next);
-    });
-  };
+    const latestByKey = new Map<string, (typeof res.data)[0]>();
+    for (const m of res.data) {
+      const cur = latestByKey.get(m.metricKey);
+      if (!cur || new Date(m.timestamp) > new Date(cur.timestamp)) {
+        latestByKey.set(m.metricKey, m);
+      }
+    }
 
-  const currentPower = useMemo(
-    () =>
-      (detail?.devices || []).reduce(
-        (sum, device) => sum + device.latestPowerKw,
-        0,
-      ),
-    [detail],
-  );
-
-  const deviceSummary = useMemo(() => {
-    const devices = detail?.devices || [];
-    const online = devices.filter(
-      (device) => device.status.toLowerCase() === "online",
-    ).length;
-    const offline = devices.filter(
-      (device) => device.status.toLowerCase() === "offline",
-    ).length;
-    return {
-      total: devices.length,
-      online,
-      offline,
-      alerts: devices.reduce((sum, device) => sum + device.alertCount, 0),
+    const getVal = (key: string) =>
+      Number(latestByKey.get(key)?.metricValue ?? 0);
+    const getPowerKw = (key: string) => {
+      const m = latestByKey.get(key);
+      if (!m) return 0;
+      const v = Number(m.metricValue ?? 0);
+      return m.unit === "W" ? v / 1000 : v;
     };
-  }, [detail]);
+
+    const anyMetric =
+      latestByKey.get("power_total") || latestByKey.get("energy_total");
+    if (anyMetric) {
+      setRealtimeLastUpdated(anyMetric.timestamp);
+    }
+
+    setRealtimeMetrics({
+      voltageL1: Number(getVal("voltage_l1").toFixed(1)),
+      voltageL2: Number(getVal("voltage_l2").toFixed(1)),
+      voltageL3: Number(getVal("voltage_l3").toFixed(1)),
+      voltageAB: Number(getVal("voltage_ab").toFixed(1)),
+      voltageBC: Number(getVal("voltage_bc").toFixed(1)),
+      voltageCA: Number(getVal("voltage_ca").toFixed(1)),
+      currentL1: Number(getVal("current_l1").toFixed(2)),
+      currentL2: Number(getVal("current_l2").toFixed(2)),
+      currentL3: Number(getVal("current_l3").toFixed(2)),
+      currentTotal: Number(getVal("current_total").toFixed(2)),
+      powerL1: Number(getPowerKw("power_l1").toFixed(2)),
+      powerL2: Number(getPowerKw("power_l2").toFixed(2)),
+      powerL3: Number(getPowerKw("power_l3").toFixed(2)),
+      powerTotal: Number(getPowerKw("power_total").toFixed(2)),
+      reactiveL1: Number(getVal("reactive_l1").toFixed(2)),
+      reactiveL2: Number(getVal("reactive_l2").toFixed(2)),
+      reactiveL3: Number(getVal("reactive_l3").toFixed(2)),
+      reactiveSigma: Number(getVal("reactive_sigma").toFixed(2)),
+      vaA: Number(getVal("va_a").toFixed(2)),
+      vaB: Number(getVal("va_b").toFixed(2)),
+      vaC: Number(getVal("va_c").toFixed(2)),
+      vaSigma: Number(getVal("va_sigma").toFixed(2)),
+      pfA: Number(getVal("pf_a").toFixed(4)),
+      pfB: Number(getVal("pf_b").toFixed(4)),
+      pfC: Number(getVal("pf_c").toFixed(4)),
+      pfSigma: Number(getVal("pf_sigma").toFixed(4)),
+      energyTotal: Number(getVal("energy_total").toFixed(2)),
+      kvarh: Number(getVal("kvarh").toFixed(2)),
+      frequency: Number(getVal("frequency").toFixed(2)),
+    });
+  }, [scopeId]);
 
   useEffect(() => {
-    let active = true;
+    void loadRealtimeMetrics();
+    const id = setInterval(() => void loadRealtimeMetrics(), 10000);
+    return () => clearInterval(id);
+  }, [loadRealtimeMetrics]);
 
-    const refreshRealtimePower = async () => {
-      const response = await deviceMetricsApi.getAll({
+  // Load trend data
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const params: {
+        scopeId: string;
+        moduleType: string;
+        limit: number;
+        from?: string;
+        to?: string;
+      } = {
         scopeId,
         moduleType: "power_meter",
-        limit: 500,
-      });
-
-      if (!active || !response.success || !response.data?.length) {
-        return;
-      }
-
-      const latestMetricByKey = new Map<string, (typeof response.data)[0]>();
-      for (const metric of response.data) {
-        const current = latestMetricByKey.get(metric.metricKey);
-        if (!current) {
-          latestMetricByKey.set(metric.metricKey, metric);
-          continue;
-        }
-
-        if (
-          new Date(metric.timestamp).getTime() >
-          new Date(current.timestamp).getTime()
-        ) {
-          latestMetricByKey.set(metric.metricKey, metric);
-        }
-      }
-
-      const powerTotalMetric =
-        latestMetricByKey.get("power_total") || latestMetricByKey.get("power");
-
-      if (!powerTotalMetric) {
-        return;
-      }
-
-      const getMetricValue = (key: string) =>
-        Number(latestMetricByKey.get(key)?.metricValue ?? 0);
-      const getPowerKw = (key: string) => {
-        const metric = latestMetricByKey.get(key);
-        if (!metric) return 0;
-        const value = Number(metric.metricValue ?? 0);
-        return metric.unit === "W" ? value / 1000 : value;
+        limit: 10000,
       };
+      if (trendRange.from) params.from = trendRange.from;
+      if (trendRange.to) params.to = trendRange.to;
 
-      const raw = Number(powerTotalMetric.metricValue ?? 0);
-      const valueKw = powerTotalMetric.unit === "W" ? raw / 1000 : raw;
-
-      setRealtimePowerKw(
-        Number.isFinite(valueKw) ? Number(valueKw.toFixed(2)) : 0,
-      );
-      setRealtimeLastUpdated(powerTotalMetric.timestamp);
-      setRealtimePhaseMetrics({
-        voltageL1: Number(getMetricValue("voltage_l1").toFixed(2)),
-        voltageL2: Number(getMetricValue("voltage_l2").toFixed(2)),
-        voltageL3: Number(getMetricValue("voltage_l3").toFixed(2)),
-        currentL1: Number(getMetricValue("current_l1").toFixed(2)),
-        currentL2: Number(getMetricValue("current_l2").toFixed(2)),
-        currentL3: Number(getMetricValue("current_l3").toFixed(2)),
-        currentTotal: Number(getMetricValue("current_total").toFixed(2)),
-        powerL1: Number(getPowerKw("power_l1").toFixed(2)),
-        powerL2: Number(getPowerKw("power_l2").toFixed(2)),
-        powerL3: Number(getPowerKw("power_l3").toFixed(2)),
-        powerTotal: Number(getPowerKw("power_total").toFixed(2)),
-        reactiveL1: Number(getMetricValue("reactive_l1").toFixed(2)),
-        reactiveL2: Number(getMetricValue("reactive_l2").toFixed(2)),
-        reactiveL3: Number(getMetricValue("reactive_l3").toFixed(2)),
-        frequency: Number(getMetricValue("frequency").toFixed(2)),
-        energyTotal: Number(getMetricValue("energy_total").toFixed(2)),
-      });
+      const res = await deviceMetricsApi.getAll(params);
+      if (!active) return;
+      if (res.success && res.data) {
+        setTrendData(mapMetricsToReadings(res.data));
+      }
     };
-
-    void refreshRealtimePower();
-    const intervalId = setInterval(() => {
-      void refreshRealtimePower();
-    }, 15000);
-
+    void load();
     return () => {
       active = false;
-      clearInterval(intervalId);
     };
-  }, [scopeId]);
+  }, [scopeId, trendRange]);
 
+  // Load analytics data
   useEffect(() => {
     let active = true;
-
-    const loadLatestEnergyByLocation = async () => {
-      const response = await deviceMetricsApi.getAll({
+    const load = async () => {
+      const params: {
+        scopeId: string;
+        moduleType: string;
+        limit: number;
+        from?: string;
+        to?: string;
+      } = {
         scopeId,
         moduleType: "power_meter",
-        metricKey: "energy_total",
-        limit: 50000,
-      });
+        limit: 10000,
+      };
+      if (analyticsRange.from) params.from = analyticsRange.from;
+      if (analyticsRange.to) params.to = analyticsRange.to;
 
-      if (!active || !response.success || !response.data) {
-        setLatestEnergyByLocation([]);
-        return;
+      const res = await deviceMetricsApi.getAll(params);
+      if (!active) return;
+      if (res.success && res.data) {
+        setAnalyticsData(mapMetricsToReadings(res.data));
       }
-
-      const latestByDevice = new Map<string, (typeof response.data)[0]>();
-      for (const metric of response.data) {
-        const current = latestByDevice.get(metric.deviceId);
-        if (!current) {
-          latestByDevice.set(metric.deviceId, metric);
-          continue;
-        }
-        if (
-          new Date(metric.timestamp).getTime() >
-          new Date(current.timestamp).getTime()
-        ) {
-          latestByDevice.set(metric.deviceId, metric);
-        }
-      }
-
-      const locationByDevice = new Map<string, string>();
-      for (const device of detail?.devices || []) {
-        locationByDevice.set(
-          device.id,
-          device.locationName || device.locationType || "Unknown Location",
-        );
-      }
-
-      const grouped = new Map<string, { value: number; timestamp: string }>();
-      for (const [deviceId, metric] of latestByDevice.entries()) {
-        const location = locationByDevice.get(deviceId) || "Unknown Location";
-        const value = Number(metric.metricValue ?? 0);
-        const current = grouped.get(location);
-        if (!current) {
-          grouped.set(location, { value, timestamp: metric.timestamp });
-          continue;
-        }
-
-        if (
-          new Date(metric.timestamp).getTime() >
-          new Date(current.timestamp).getTime()
-        ) {
-          grouped.set(location, { value, timestamp: metric.timestamp });
-        }
-      }
-
-      setLatestEnergyByLocation(
-        Array.from(grouped.entries())
-          .map(([name, data]) => ({ name, value: data.value }))
-          .sort((a, b) => b.value - a.value),
-      );
     };
-
-    void loadLatestEnergyByLocation();
-
+    void load();
     return () => {
       active = false;
     };
-  }, [scopeId, detail?.devices]);
+  }, [scopeId, analyticsRange]);
 
+  // Load table data
   useEffect(() => {
     let active = true;
+    const load = async () => {
+      const params: {
+        scopeId: string;
+        moduleType: string;
+        limit: number;
+        from?: string;
+        to?: string;
+      } = {
+        scopeId,
+        moduleType: "power_meter",
+        limit: 5000,
+      };
+      if (tableRange.from) params.from = tableRange.from;
+      if (tableRange.to) params.to = tableRange.to;
 
-    const loadCapacityConfig = async () => {
-      const response = await energyConfigsApi.getAll(scopeId);
-      if (!active || !response.success || !response.data) return;
-
-      const latest = response.data[0];
-      setCapacityVa(
-        typeof latest?.capacityVa === "number" ? latest.capacityVa : null,
-      );
+      const res = await deviceMetricsApi.getAll(params);
+      if (!active) return;
+      if (res.success && res.data) {
+        setTableData(mapMetricsToReadings(res.data));
+        setTablePage(0);
+      }
     };
-
-    void loadCapacityConfig();
-
+    void load();
     return () => {
       active = false;
     };
-  }, [scopeId]);
+  }, [scopeId, tableRange]);
 
-  const maxLoadKw = detail?.maxLoad ?? null;
+  // Status calculation
+  const isOffline = realtimeLastUpdated
+    ? Date.now() - new Date(realtimeLastUpdated).getTime() > 5 * 60 * 1000
+    : true;
 
-  const realtimeSnapshotCards = useMemo(
-    () => [
-      { label: "Voltage L1", value: realtimePhaseMetrics.voltageL1, unit: "V" },
-      { label: "Voltage L2", value: realtimePhaseMetrics.voltageL2, unit: "V" },
-      { label: "Voltage L3", value: realtimePhaseMetrics.voltageL3, unit: "V" },
-      { label: "Current L1", value: realtimePhaseMetrics.currentL1, unit: "A" },
-      { label: "Current L2", value: realtimePhaseMetrics.currentL2, unit: "A" },
-      { label: "Current L3", value: realtimePhaseMetrics.currentL3, unit: "A" },
-      {
-        label: "Current Total",
-        value: realtimePhaseMetrics.currentTotal,
-        unit: "A",
+  // Capacity in Ampere (from VA / Voltage)
+  const capacityAmpere = useMemo(() => {
+    if (!capacityVa) return null;
+    const avgVoltage =
+      (realtimeMetrics.voltageL1 +
+        realtimeMetrics.voltageL2 +
+        realtimeMetrics.voltageL3) /
+      3;
+    if (avgVoltage <= 0) return null;
+    return capacityVa / (avgVoltage * Math.sqrt(3));
+  }, [
+    capacityVa,
+    realtimeMetrics.voltageL1,
+    realtimeMetrics.voltageL2,
+    realtimeMetrics.voltageL3,
+  ]);
+
+  // Trend chart config
+  const trendChartConfig = useMemo(() => {
+    const configs: Record<
+      TrendMetric,
+      { dataKey: string; color: string; unit: string; name: string }
+    > = {
+      energy: {
+        dataKey: "energyTotal",
+        color: "hsl(38, 92%, 50%)",
+        unit: "kWh",
+        name: "Energy",
       },
-      { label: "Power L1", value: realtimePhaseMetrics.powerL1, unit: "kW" },
-      { label: "Power L2", value: realtimePhaseMetrics.powerL2, unit: "kW" },
-      { label: "Power L3", value: realtimePhaseMetrics.powerL3, unit: "kW" },
-      {
-        label: "Power Total",
-        value: realtimePhaseMetrics.powerTotal || realtimePowerKw,
+      power: {
+        dataKey: "powerTotal",
+        color: "hsl(217, 91%, 60%)",
         unit: "kW",
+        name: "Power",
       },
-      {
-        label: "Reactive L1",
-        value: realtimePhaseMetrics.reactiveL1,
-        unit: "var",
+      voltage: {
+        dataKey: "voltageL1",
+        color: "hsl(142, 71%, 45%)",
+        unit: "V",
+        name: "Voltage",
       },
-      {
-        label: "Reactive L2",
-        value: realtimePhaseMetrics.reactiveL2,
-        unit: "var",
+      current: {
+        dataKey: "currentTotal",
+        color: "hsl(280, 70%, 55%)",
+        unit: "A",
+        name: "Current",
       },
-      {
-        label: "Reactive L3",
-        value: realtimePhaseMetrics.reactiveL3,
-        unit: "var",
-      },
-      { label: "Frequency", value: realtimePhaseMetrics.frequency, unit: "Hz" },
-      { label: "Energy", value: realtimePhaseMetrics.energyTotal, unit: "kWh" },
-    ],
-    [realtimePhaseMetrics, realtimePowerKw],
-  );
+    };
+    return configs[trendMetric];
+  }, [trendMetric]);
 
-  const formatRealtimeValue = (value: number) =>
-    Number.isFinite(value)
-      ? value.toLocaleString("id-ID", { maximumFractionDigits: 2 })
-      : "-";
+  // Peak hour analysis
+  const peakHourAnalysis = useMemo(() => {
+    if (!trendData.length) return null;
 
-  const buildAnalyticsSummary = (sourceReadings: HistoricalReading[]) => {
-    const points = [...sourceReadings].sort((a, b) =>
+    // Group by hour
+    const hourlyData = new Map<
+      number,
+      { total: number; count: number; peak: number }
+    >();
+    for (const point of trendData) {
+      const date = new Date(point.timestamp);
+      const hour = date.getHours();
+      const energy = point.energyTotal ?? 0;
+
+      if (!hourlyData.has(hour)) {
+        hourlyData.set(hour, { total: 0, count: 0, peak: 0 });
+      }
+      const data = hourlyData.get(hour)!;
+      data.total += energy;
+      data.count += 1;
+      data.peak = Math.max(data.peak, energy);
+    }
+
+    // Find peak hour
+    let peakHour = 0;
+    let maxAvg = 0;
+    let totalAvg = 0;
+    let totalCount = 0;
+
+    hourlyData.forEach((data, hour) => {
+      const avg = data.total / data.count;
+      totalAvg += avg;
+      totalCount += 1;
+      if (avg > maxAvg) {
+        maxAvg = avg;
+        peakHour = hour;
+      }
+    });
+
+    const overallAvg = totalCount > 0 ? totalAvg / totalCount : 0;
+
+    return {
+      peakHour,
+      peakHourLabel: `${String(peakHour).padStart(2, "0")}:00 - ${String(peakHour + 1).padStart(2, "0")}:00`,
+      peakAvgKwh: maxAvg.toFixed(2),
+      overallAvgKwh: overallAvg.toFixed(2),
+    };
+  }, [trendData]);
+
+  // Analytics summary
+  const analytics = useMemo(() => {
+    if (!analyticsData.length) return null;
+    const points = [...analyticsData].sort((a, b) =>
       a.timestamp.localeCompare(b.timestamp),
     );
 
-    const averageOf = (key: keyof HistoricalReading) => {
-      const values = points
-        .map((item) => item[key])
-        .filter((value): value is number => typeof value === "number");
-      if (!values.length) return 0;
-      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    const avg = (key: keyof HistoricalReading) => {
+      const vals = points
+        .map((p) => p[key])
+        .filter((v): v is number => typeof v === "number");
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
     };
 
-    const fallback = {
-      peakPowerKw: 0,
-      peakTimestamp: null as string | null,
-      busiestHourByKwh: "-",
-      avgPowerKw: 0,
-      avgVoltage: 0,
-      avgCurrent: 0,
-      avgReactive: 0,
-      avgFrequency: 0,
-      totalKwhDelta: 0,
-      changePercent: 0,
-      hourlyKwhProfile: [] as {
-        hourLabel: string;
-        kwh: number;
-        avgPowerKw: number;
-      }[],
-      conclusionLines: [
-        "Data metrik belum cukup untuk menghasilkan kesimpulan analitik.",
-      ],
-    };
-
-    if (!points.length) {
-      return fallback;
-    }
-
-    const peakPoint = points.reduce((max, current) => {
-      const currentPower = Number(current.powerTotal ?? 0);
-      const maxPower = Number(max.powerTotal ?? 0);
-      return currentPower > maxPower ? current : max;
-    }, points[0]);
-
-    const avgPowerKw = averageOf("powerTotal");
-    const avgVoltage =
-      (averageOf("voltageL1") +
-        averageOf("voltageL2") +
-        averageOf("voltageL3")) /
-      3;
-    const avgCurrent =
-      averageOf("currentTotal") ||
-      (averageOf("currentL1") +
-        averageOf("currentL2") +
-        averageOf("currentL3")) /
-        3;
-    const avgReactive =
-      (averageOf("reactiveL1") +
-        averageOf("reactiveL2") +
-        averageOf("reactiveL3")) /
-      3;
-    const avgFrequency = averageOf("frequency");
-
-    const firstPower = Number(points[0].powerTotal ?? 0);
-    const lastPower = Number(points[points.length - 1].powerTotal ?? 0);
-    const changePercent =
-      Math.abs(firstPower) > 0
-        ? ((lastPower - firstPower) / firstPower) * 100
-        : 0;
-
-    const hourlyBucket = new Map<
-      number,
-      { kwhTotal: number; powerTotal: number; powerCount: number }
-    >();
-    let totalKwhDelta = 0;
-
-    for (let index = 1; index < points.length; index += 1) {
-      const prev = points[index - 1];
-      const current = points[index];
-      const date = new Date(current.timestamp);
-      if (Number.isNaN(date.getTime())) continue;
-
-      const prevEnergy = Number(prev.energyTotal ?? 0);
-      const currentEnergy = Number(current.energyTotal ?? 0);
-      const deltaKwh = Math.max(currentEnergy - prevEnergy, 0);
-
-      const hour = date.getHours();
-      const existing = hourlyBucket.get(hour) ?? {
-        kwhTotal: 0,
-        powerTotal: 0,
-        powerCount: 0,
-      };
-      hourlyBucket.set(hour, {
-        kwhTotal: existing.kwhTotal + deltaKwh,
-        powerTotal: existing.powerTotal + Number(current.powerTotal ?? 0),
-        powerCount:
-          existing.powerCount +
-          (typeof current.powerTotal === "number" ? 1 : 0),
-      });
-      totalKwhDelta += deltaKwh;
-    }
-
-    const hourlyKwhProfile = Array.from(hourlyBucket.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([hour, bucket]) => ({
-        hourLabel: `${hour.toString().padStart(2, "0")}:00`,
-        kwh: Number(bucket.kwhTotal.toFixed(3)),
-        avgPowerKw:
-          bucket.powerCount > 0
-            ? Number((bucket.powerTotal / bucket.powerCount).toFixed(2))
-            : 0,
-      }));
-
-    const busiestHour = hourlyKwhProfile.reduce(
-      (max, current) => (current.kwh > max.kwh ? current : max),
-      hourlyKwhProfile[0] ?? { hourLabel: "-", kwh: 0, avgPowerKw: 0 },
+    const peakPoint = points.reduce(
+      (max, cur) =>
+        Number(cur.powerTotal ?? 0) > Number(max.powerTotal ?? 0) ? cur : max,
+      points[0],
     );
 
-    const trendLabel =
-      changePercent > 3 ? "naik" : changePercent < -3 ? "turun" : "stabil";
+    const lastEnergy = points[points.length - 1]?.energyTotal ?? 0;
+    const firstEnergy = points[0]?.energyTotal ?? 0;
+    const energyConsumed = lastEnergy - firstEnergy;
 
     return {
-      peakPowerKw: Number(Number(peakPoint.powerTotal ?? 0).toFixed(2)),
-      peakTimestamp: peakPoint.timestamp,
-      busiestHourByKwh: busiestHour.hourLabel,
-      avgPowerKw: Number(avgPowerKw.toFixed(2)),
-      avgVoltage: Number(avgVoltage.toFixed(2)),
-      avgCurrent: Number(avgCurrent.toFixed(2)),
-      avgReactive: Number(avgReactive.toFixed(2)),
-      avgFrequency: Number(avgFrequency.toFixed(2)),
-      totalKwhDelta: Number(totalKwhDelta.toFixed(3)),
-      changePercent: Number(changePercent.toFixed(2)),
-      hourlyKwhProfile,
-      conclusionLines: [
-        `Jam beban teramai berdasarkan total kWh ada di ${busiestHour.hourLabel} dengan akumulasi ${formatCompactNumber(busiestHour.kwh)} kWh.`,
-        `Puncak daya terjadi pada ${peakPoint.timestamp ? formatDateTime(peakPoint.timestamp) : "-"} sebesar ${formatCompactNumber(peakPoint.powerTotal ?? 0)} kW, dengan rata-rata daya ${formatCompactNumber(avgPowerKw)} kW.`,
-        `Rata-rata metrik: Voltage ${formatCompactNumber(avgVoltage)} V, Current ${formatCompactNumber(avgCurrent)} A, Reactive ${formatCompactNumber(avgReactive)} var, Frequency ${formatCompactNumber(avgFrequency)} Hz.`,
-        `Total pertambahan energi periode ini ${formatCompactNumber(totalKwhDelta)} kWh dan tren daya ${trendLabel} (${formatCompactNumber(changePercent)}%).`,
-      ],
+      peakPowerKw: Number(peakPoint.powerTotal ?? 0).toFixed(2),
+      peakTime: peakPoint.timestamp,
+      avgPower: avg("powerTotal").toFixed(2),
+      avgVoltage: (
+        (avg("voltageL1") + avg("voltageL2") + avg("voltageL3")) /
+        3
+      ).toFixed(1),
+      avgCurrent: avg("currentTotal").toFixed(2),
+      avgPf: avg("pfSigma").toFixed(3),
+      totalEnergy:
+        energyConsumed > 0 ? energyConsumed.toFixed(2) : lastEnergy.toFixed(2),
+      totalKvarh: Number(points[points.length - 1]?.kvarh ?? 0).toFixed(2),
     };
-  };
+  }, [analyticsData]);
 
-  const analytics = useMemo(
-    () => buildAnalyticsSummary(analyticsReadings),
-    [analyticsReadings],
-  );
+  // Device distribution for donut chart
+  const deviceDistribution = useMemo(() => {
+    if (!detail?.devices.length) return [];
+    const locationMap = new Map<string, number>();
+    for (const device of detail.devices) {
+      const loc = device.locationName || device.locationType || "Other";
+      locationMap.set(loc, (locationMap.get(loc) ?? 0) + 1);
+    }
+    return Array.from(locationMap.entries()).map(([name, value]) => ({
+      name,
+      value,
+      percentage: ((value / detail.devices.length) * 100).toFixed(1),
+    }));
+  }, [detail?.devices]);
 
-  const analyticsChartData = useMemo(() => {
-    const keyword = analyticsSearch.toLowerCase().trim();
-    return analytics.hourlyKwhProfile.filter(
-      (item) => !keyword || item.hourLabel.toLowerCase().includes(keyword),
+  // Table filtering and pagination
+  const filteredTableData = useMemo(() => {
+    let data = [...tableData].sort((a, b) =>
+      b.timestamp.localeCompare(a.timestamp),
     );
-  }, [analytics.hourlyKwhProfile, analyticsSearch]);
+    if (tableSearch) {
+      const search = tableSearch.toLowerCase();
+      data = data.filter((r) => r.label.toLowerCase().includes(search));
+    }
+    return data;
+  }, [tableData, tableSearch]);
 
-  const measurementChartData = useMemo(() => {
-    const keyword = measurementSearch.toLowerCase().trim();
-    return historicalChartData.filter(
-      (item) => !keyword || item.label.toLowerCase().includes(keyword),
+  const pagedTableData = useMemo(() => {
+    return filteredTableData.slice(
+      tablePage * TABLE_PAGE_SIZE,
+      (tablePage + 1) * TABLE_PAGE_SIZE,
     );
-  }, [historicalChartData, measurementSearch]);
+  }, [filteredTableData, tablePage]);
 
-  const filteredAlertHistory = useMemo(() => {
-    const keyword = alertsSearch.toLowerCase().trim();
-    return alertHistoryData.filter((alert) => {
-      if (!keyword) return true;
-      const bucket =
-        `${alert.deviceName} ${alert.type} ${alert.severity} ${alert.message} ${alert.locationName || ""}`.toLowerCase();
-      return bucket.includes(keyword);
-    });
-  }, [alertHistoryData, alertsSearch]);
+  const totalTablePages = Math.ceil(filteredTableData.length / TABLE_PAGE_SIZE);
 
-  const locationBreakdownData = useMemo(() => {
-    const source = latestEnergyByLocation;
-    if (!source.length)
-      return [] as { name: string; value: number; color: string }[];
-
-    const palette = [
-      "#0ea5e9",
-      "#22c55e",
-      "#f59e0b",
-      "#a855f7",
-      "#ef4444",
-      "#14b8a6",
-    ];
-    return source
-      .filter((item) => Number(item.value || 0) > 0)
-      .map((item, index) => ({
-        name: item.name || `Lokasi ${index + 1}`,
-        value: Number(item.value || 0),
-        color: item.color || palette[index % palette.length],
-      }));
-  }, [latestEnergyByLocation]);
-
-  const loadPercentage =
-    maxLoadKw && maxLoadKw > 0
-      ? Math.min((realtimePowerKw / maxLoadKw) * 100, 999)
-      : 0;
-  const isRealtimeOffline = realtimeLastUpdated
-    ? Date.now() - new Date(realtimeLastUpdated).getTime() > 5 * 60 * 1000
-    : true;
-  const loadStatus: "OFFLINE" | "NORMAL" | "OVERLOAD" = isRealtimeOffline
-    ? "OFFLINE"
-    : maxLoadKw && maxLoadKw > 0 && realtimePowerKw > maxLoadKw
-      ? "OVERLOAD"
-      : "NORMAL";
-
-  const handleExportExcel = async () => {
+  // Export handler
+  const handleExport = async (format: ExportFormat, period: ExportPeriod) => {
     if (!detail) return;
 
-    const [metricsResponse, scopeResponse, devicesResponse] = await Promise.all([
-      deviceMetricsApi.getAll({
-        scopeId,
-        moduleType: "power_meter",
-        from: filters.from,
-        to: filters.to,
-        limit: 50000,
-      }),
-      scopesApi.getById(scopeId),
-      devicesApi.getAll(scopeId),
-    ]);
+    const metricsRes = await deviceMetricsApi.getAll({
+      scopeId,
+      moduleType: "power_meter",
+      from: new Date(period.from).toISOString(),
+      to: new Date(period.to).toISOString(),
+      limit: 50000,
+    });
 
-    const scopedMetrics: RawScopedMetric[] =
-      metricsResponse.success && metricsResponse.data
-        ? metricsResponse.data.map((item) => ({
-            timestamp: item.timestamp,
-            deviceId: item.deviceId,
-            metricKey: item.metricKey,
-            metricValue: Number(item.metricValue ?? 0),
-          }))
+    const readings =
+      metricsRes.success && metricsRes.data
+        ? mapMetricsToReadings(metricsRes.data)
         : [];
 
-    const exportReadings = mapMetricsToHourlyReadings(
-      scopedMetrics,
-      filters.from,
-      filters.to,
-    );
-    const exportAnalytics = buildAnalyticsSummary(exportReadings);
-    const latestEnergyTotal = (() => {
-      for (let i = exportReadings.length - 1; i >= 0; i -= 1) {
-        const value = exportReadings[i]?.energyTotal;
-        if (typeof value === "number") return value;
-      }
-      return 0;
-    })();
-
-    const locationEnergyMap = new Map<string, number>();
-    const latestEnergyPerDevice = new Map<string, { timestamp: number; value: number }>();
-    for (const metric of scopedMetrics) {
-      if (metric.metricKey !== "energy_total") continue;
-      const ts = new Date(metric.timestamp).getTime();
-      if (!Number.isFinite(ts)) continue;
-      const current = latestEnergyPerDevice.get(metric.deviceId);
-      if (!current || ts > current.timestamp) {
-        latestEnergyPerDevice.set(metric.deviceId, {
-          timestamp: ts,
-          value: Number(metric.metricValue || 0),
-        });
-      }
-    }
-
-    for (const device of detail.devices) {
-      const location = device.locationName || device.locationType || "Uncategorized";
-      const energy = latestEnergyPerDevice.get(device.id)?.value || 0;
-      locationEnergyMap.set(location, Number(((locationEnergyMap.get(location) || 0) + energy).toFixed(2)));
-    }
-
-    const locationBreakdownRows = Array.from(locationEnergyMap.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-
-    const tenantName = scopeResponse.success
-      ? scopeResponse.data?.tenant?.name || "-"
-      : "-";
-
-    const outletDeviceSummary = new Map(
-      detail.devices.map((device) => [device.id, device]),
-    );
-
-    const richDevices =
-      devicesResponse.success && devicesResponse.data
-        ? devicesResponse.data
-        : [];
-
-    const exportDevices = (richDevices.length > 0 ? richDevices : detail.devices).map(
-      (device) => {
-        const summary = outletDeviceSummary.get(device.id);
-        const moduleList =
-          "moduleTypes" in device && Array.isArray(device.moduleTypes)
-            ? device.moduleTypes
-            : summary?.moduleTypes || [];
-
-        return {
-          deviceId: device.id,
-          deviceName: device.name,
-          serialNo: device.serialNo,
-          locationName: device.locationName || "-",
-          locationType: device.locationType || "-",
-          firmwareVersion:
-            "firmwareVersion" in device ? device.firmwareVersion || "-" : "-",
-          status:
-            ("deviceStatus" in device
-              ? (device.deviceStatus as string | null)
-              : null) || device.status || "-",
-          internetStatus:
-            "internetStatus" in device
-              ? ((device.internetStatus as string | null) || "-")
-              : "-",
-          powerStatus:
-            "powerStatus" in device
-              ? ((device.powerStatus as string | null) || "-")
-              : "-",
-          uptime:
-            "uptime" in device ? ((device.uptime as string | null) || "-") : "-",
-          cpuUsagePercent:
-            "cpuUsage" in device && typeof device.cpuUsage === "number"
-              ? Number(device.cpuUsage.toFixed(2))
-              : "-",
-          memoryUsagePercent:
-            "memoryUsagePercent" in device &&
-            typeof device.memoryUsagePercent === "number"
-              ? Number(device.memoryUsagePercent.toFixed(2))
-              : "-",
-          diskUsagePercent:
-            "diskUsagePercent" in device &&
-            typeof device.diskUsagePercent === "number"
-              ? Number(device.diskUsagePercent.toFixed(2))
-              : "-",
-          modules: moduleList.join(", ") || "-",
-          alertCount: summary?.alertCount ?? 0,
-        };
-      },
-    );
-
-    await exportToExcel(`outlet-detail-${detail.id}.xlsx`, [
-      {
-        name: "OutletSummary",
-        rows: [
+    if (format === "excel") {
+      await exportToExcel(`outlet-${detail.id}.xlsx`, [
+        {
+          name: "Summary",
+          rows: [
+            {
+              outlet: detail.name,
+              region: detail.region,
+              address: detail.address,
+              capacityVa: capacityVa ?? "-",
+              devices: detail.devices.length,
+            },
+          ],
+        },
+        {
+          name: "Metrics",
+          rows: readings.map((r) => ({
+            timestamp: r.label,
+            voltageL1: r.voltageL1,
+            voltageL2: r.voltageL2,
+            voltageL3: r.voltageL3,
+            currentL1: r.currentL1,
+            currentL2: r.currentL2,
+            currentL3: r.currentL3,
+            currentTotal: r.currentTotal,
+            powerL1: r.powerL1,
+            powerL2: r.powerL2,
+            powerL3: r.powerL3,
+            powerTotal: r.powerTotal,
+            energyTotal: r.energyTotal,
+            pfSigma: r.pfSigma,
+          })),
+        },
+      ]);
+    } else {
+      await exportToPdf({
+        fileName: `outlet-${detail.id}.pdf`,
+        title: "Detail Outlet",
+        scopeName: detail.name,
+        period: `${period.from} - ${period.to}`,
+        generatedAt: new Date().toLocaleString("id-ID"),
+        summary: [
+          `Outlet: ${detail.name} | Region: ${detail.region}`,
+          `Capacity: ${capacityVa ?? "-"} VA`,
+          `Devices: ${detail.devices.length}`,
+        ],
+        tables: [
           {
-            outlet: detail.name,
-            tenant: tenantName,
-            region: detail.region,
-            city: detail.city,
-            address: detail.address,
-            from: detail.period.from,
-            to: detail.period.to,
-            maxLoadKw: detail.maxLoad ?? "-",
-            capacityVa: capacityVa ?? "-",
-            devices: detail.devices.length,
-            energyTotalKwhHistorical: latestEnergyTotal,
-            peakPowerKw: exportAnalytics.peakPowerKw,
-            peakAt: exportAnalytics.peakTimestamp
-              ? formatDateTime(exportAnalytics.peakTimestamp)
-              : "-",
-            busiestHourByKwh: exportAnalytics.busiestHourByKwh,
-            averagePowerKw: exportAnalytics.avgPowerKw,
-            averageVoltageV: exportAnalytics.avgVoltage,
-            averageCurrentA: exportAnalytics.avgCurrent,
-            averageReactiveVar: exportAnalytics.avgReactive,
-            averageFrequencyHz: exportAnalytics.avgFrequency,
-            totalKwhDelta: exportAnalytics.totalKwhDelta,
-            trendPercent: exportAnalytics.changePercent,
+            title: "Metrics",
+            columns: [
+              "Time",
+              "V L1",
+              "V L2",
+              "V L3",
+              "A Total",
+              "P Total",
+              "Energy",
+              "PF",
+            ],
+            rows: readings
+              .slice(0, 100)
+              .map((r) => [
+                r.label,
+                r.voltageL1 ?? "-",
+                r.voltageL2 ?? "-",
+                r.voltageL3 ?? "-",
+                r.currentTotal ?? "-",
+                r.powerTotal ?? "-",
+                r.energyTotal ?? "-",
+                r.pfSigma ?? "-",
+              ]),
           },
         ],
-      },
-      {
-        name: "DeviceInfo",
-        rows: exportDevices,
-      },
-      {
-        name: "HistoricalPerHour",
-        rows: exportReadings.map((item) => ({
-          "Timestamp (Hour)": item.label,
-          "Voltage L1 (V)": item.voltageL1,
-          "Voltage L2 (V)": item.voltageL2,
-          "Voltage L3 (V)": item.voltageL3,
-          "Current L1 (A)": item.currentL1,
-          "Current L2 (A)": item.currentL2,
-          "Current L3 (A)": item.currentL3,
-          "Current Total (A)": item.currentTotal,
-          "Power L1 (kW)": item.powerL1,
-          "Power L2 (kW)": item.powerL2,
-          "Power L3 (kW)": item.powerL3,
-          "Power Total (kW)": item.powerTotal,
-          "Reactive Power L1 (var)": item.reactiveL1,
-          "Reactive Power L2 (var)": item.reactiveL2,
-          "Reactive Power L3 (var)": item.reactiveL3,
-          "Frequency (Hz)": item.frequency,
-          "Energy Total (kWh)": item.energyTotal,
-        })),
-      },
-      {
-        name: "LocationBreakdown",
-        rows: locationBreakdownRows.map((item) => ({
-          location: item.name,
-          totalKwhEnergyTotal: item.value,
-        })),
-      },
-      {
-        name: "AnalyticsConclusions",
-        rows: exportAnalytics.conclusionLines.map((line, index) => ({
-          no: index + 1,
-          conclusion: line,
-        })),
-      },
-    ]);
+      });
+    }
   };
 
-  const handleExportPdf = async () => {
-    if (!detail) return;
-
-    const [metricsResponse, scopeResponse, devicesResponse] = await Promise.all([
-      deviceMetricsApi.getAll({
-        scopeId,
-        moduleType: "power_meter",
-        from: filters.from,
-        to: filters.to,
-        limit: 50000,
-      }),
-      scopesApi.getById(scopeId),
-      devicesApi.getAll(scopeId),
-    ]);
-
-    const scopedMetrics: RawScopedMetric[] =
-      metricsResponse.success && metricsResponse.data
-        ? metricsResponse.data.map((item) => ({
-            timestamp: item.timestamp,
-            deviceId: item.deviceId,
-            metricKey: item.metricKey,
-            metricValue: Number(item.metricValue ?? 0),
-          }))
-        : [];
-
-    const exportReadings = mapMetricsToHourlyReadings(
-      scopedMetrics,
-      filters.from,
-      filters.to,
-    );
-    const exportAnalytics = buildAnalyticsSummary(exportReadings);
-    const latestEnergyTotal = (() => {
-      for (let i = exportReadings.length - 1; i >= 0; i -= 1) {
-        const value = exportReadings[i]?.energyTotal;
-        if (typeof value === "number") return value;
-      }
-      return 0;
-    })();
-
-    const tenantName = scopeResponse.success
-      ? scopeResponse.data?.tenant?.name || undefined
-      : undefined;
-
-    const outletDeviceSummary = new Map(
-      detail.devices.map((device) => [device.id, device]),
-    );
-
-    const richDevices =
-      devicesResponse.success && devicesResponse.data
-        ? devicesResponse.data
-        : [];
-
-    const exportDeviceRows = (richDevices.length > 0 ? richDevices : detail.devices).map(
-      (device) => {
-        const summary = outletDeviceSummary.get(device.id);
-        const moduleList =
-          "moduleTypes" in device && Array.isArray(device.moduleTypes)
-            ? device.moduleTypes
-            : summary?.moduleTypes || [];
-
-        return [
-          device.id,
-          device.name,
-          device.serialNo,
-          device.locationName || "-",
-          device.locationType || "-",
-          "firmwareVersion" in device ? device.firmwareVersion || "-" : "-",
-          ("deviceStatus" in device
-            ? (device.deviceStatus as string | null)
-            : null) || device.status || "-",
-          "internetStatus" in device
-            ? ((device.internetStatus as string | null) || "-")
-            : "-",
-          "powerStatus" in device
-            ? ((device.powerStatus as string | null) || "-")
-            : "-",
-          "uptime" in device ? ((device.uptime as string | null) || "-") : "-",
-          "cpuUsage" in device && typeof device.cpuUsage === "number"
-            ? Number(device.cpuUsage.toFixed(2))
-            : "-",
-          "memoryUsagePercent" in device &&
-          typeof device.memoryUsagePercent === "number"
-            ? Number(device.memoryUsagePercent.toFixed(2))
-            : "-",
-          "diskUsagePercent" in device &&
-          typeof device.diskUsagePercent === "number"
-            ? Number(device.diskUsagePercent.toFixed(2))
-            : "-",
-          moduleList.join(", ") || "-",
-          summary?.alertCount ?? 0,
-        ];
-      },
-    );
-
-    await exportToPdf({
-      fileName: `outlet-detail-${detail.id}.pdf`,
-      title: `Laporan Detail Outlet`,
-      scopeName: detail.name,
-      tenantName,
-      period: detail.period.label,
-      generatedAt: new Date().toLocaleString("id-ID"),
-      summary: [
-        `Energi total (energy_total historical terakhir): ${formatCompactNumber(latestEnergyTotal)} kWh`,
-        `Tenant: ${tenantName || "-"} | Lokasi: ${detail.address || detail.city || detail.region || "-"}`,
-        `Jumlah device: ${detail.devices.length} | Kapasitas: ${capacityVa ? `${formatCompactNumber(capacityVa)} VA` : "-"}`,
-        `Peak power: ${formatCompactNumber(exportAnalytics.peakPowerKw)} kW (jam ramai: ${exportAnalytics.busiestHourByKwh})`,
-        ...exportAnalytics.conclusionLines,
-      ],
-      tables: [
-        {
-          title: "Historical Per Jam",
-          columns: [
-            "Timestamp (Hour)",
-            "Voltage L1 (V)",
-            "Voltage L2 (V)",
-            "Voltage L3 (V)",
-            "Current L1 (A)",
-            "Current L2 (A)",
-            "Current L3 (A)",
-            "Current Total (A)",
-            "Power L1 (kW)",
-            "Power L2 (kW)",
-            "Power L3 (kW)",
-            "Power Total (kW)",
-            "Reactive Power L1 (var)",
-            "Reactive Power L2 (var)",
-            "Reactive Power L3 (var)",
-            "Frequency (Hz)",
-            "Energy Total (kWh)",
-          ],
-          rows: exportReadings.map((item) => [
-            item.label,
-            item.voltageL1 ?? "-",
-            item.voltageL2 ?? "-",
-            item.voltageL3 ?? "-",
-            item.currentL1 ?? "-",
-            item.currentL2 ?? "-",
-            item.currentL3 ?? "-",
-            item.currentTotal ?? "-",
-            item.powerL1 ?? "-",
-            item.powerL2 ?? "-",
-            item.powerL3 ?? "-",
-            item.powerTotal ?? "-",
-            item.reactiveL1 ?? "-",
-            item.reactiveL2 ?? "-",
-            item.reactiveL3 ?? "-",
-            item.frequency ?? "-",
-            item.energyTotal ?? "-",
-          ]),
-        },
-        {
-          title: "Info Device",
-          columns: [
-            "Device ID",
-            "Device Name",
-            "Serial",
-            "Lokasi",
-            "Tipe Lokasi",
-            "Firmware",
-            "Device Status",
-            "Internet Status",
-            "Power Status",
-            "Uptime",
-            "CPU Usage (%)",
-            "Memory Usage (%)",
-            "Disk Usage (%)",
-            "Modules",
-            "Alert Count",
-          ],
-          rows: exportDeviceRows,
-        },
-      ],
-    });
-  };
+  const fmtVal = (v: number, decimals = 2) =>
+    Number.isFinite(v)
+      ? v.toLocaleString("id-ID", { maximumFractionDigits: decimals })
+      : "-";
 
   return (
     <PageTransition>
       <motion.div
-        className="space-y-6"
+        className="space-y-2 max-w-7xl mx-auto px-1"
         initial="hidden"
         animate="visible"
         variants={containerVariants}
       >
+        {/* Header */}
         <motion.div
           variants={itemVariants}
-          className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between"
+          className="flex items-center justify-between"
         >
-          <div>
-            <Button
-              asChild
-              variant="ghost"
-              className="mb-2 px-0 text-sm text-muted-foreground"
-            >
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="icon" className="h-7 w-7">
               <Link href="/dashboard/electricity">
                 <ArrowLeft className="h-4 w-4" />
-                Kembali ke Power Outlets
               </Link>
             </Button>
-            <h1 className="text-3xl font-bold tracking-tight">
-              {detail?.name || "Outlet Detail"}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Data lengkap outlet, perangkat, dan histori alert sesuai periode
-              aktif.
-            </p>
+            <div>
+              <h1 className="text-sm font-bold">
+                {detail?.name || "Outlet Detail"}
+              </h1>
+              <p className="text-[10px] text-muted-foreground">
+                {detail?.address || detail?.region || ""}
+              </p>
+            </div>
           </div>
-          <EnergyExportActions
-            onExportPdf={handleExportPdf}
-            onExportExcel={handleExportExcel}
-            disabled={!detail || loading}
-          />
-        </motion.div>
-
-        <motion.div variants={itemVariants}>
-          <EnergyPeriodFilter
-            period={period}
-            onPresetChange={handlePresetChange}
-            onFromChange={(value) =>
-              setPeriod((current) => ({
-                ...current,
-                preset: "custom",
-                from: value,
-              }))
-            }
-            onToChange={(value) =>
-              setPeriod((current) => ({
-                ...current,
-                preset: "custom",
-                to: value,
-              }))
-            }
-            onApply={handleApply}
-            onReset={handleReset}
-            loading={loading}
-          />
+          <ExportModal onExport={handleExport} disabled={!detail || loading} />
         </motion.div>
 
         {error && (
           <motion.div
             variants={itemVariants}
-            className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+            className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded"
           >
             {error}
           </motion.div>
         )}
 
+        {/* Row 1: Realtime Power & Power Meter */}
         <motion.div
           variants={itemVariants}
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+          className="grid grid-cols-1 lg:grid-cols-3 gap-2"
         >
-          <Card className="relative overflow-hidden border-0 shadow-lg bg-gradient-to-br from-blue-500 to-cyan-500 text-white">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-white/80">Total Perangkat</p>
-                  <p className="text-2xl font-bold truncate">
-                    {deviceSummary.total}
-                  </p>
+          {/* Daya Realtime - With circular gauge */}
+          <motion.div
+            variants={pulseVariants}
+            animate={!isOffline ? "pulse" : undefined}
+          >
+            <Card
+              className={cn(
+                "border-0 shadow-sm h-full",
+                !isOffline && "ring-1 ring-green-500/20",
+              )}
+            >
+              <CardHeader className="px-3 py-2 pb-0">
+                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+                  <motion.div
+                    animate={!isOffline ? { rotate: [0, 360] } : {}}
+                    transition={{
+                      duration: 8,
+                      repeat: Infinity,
+                      ease: "linear",
+                    }}
+                  >
+                    <Gauge className="h-4 w-4 text-green-500" />
+                  </motion.div>
+                  Daya Realtime
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-2">
+                <div className="flex flex-col items-center">
+                  {/* Circular Gauge - Large, centered */}
+                  <motion.div
+                    className="relative flex-shrink-0"
+                    animate={!isOffline ? { scale: [1, 1.02, 1] } : {}}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }}
+                  >
+                    <svg className="w-40 h-40 -rotate-90">
+                      <circle
+                        cx="80"
+                        cy="80"
+                        r="70"
+                        strokeWidth="10"
+                        fill="none"
+                        className="stroke-muted/20"
+                      />
+                      <motion.circle
+                        cx="80"
+                        cy="80"
+                        r="70"
+                        strokeWidth="10"
+                        fill="none"
+                        strokeDasharray={440}
+                        strokeDashoffset={
+                          440 -
+                          (440 *
+                            Math.min(
+                              (realtimeMetrics.powerTotal /
+                                (capacityVa ? capacityVa / 1000 : 100)) *
+                                100,
+                              100,
+                            )) /
+                            100
+                        }
+                        strokeLinecap="round"
+                        className={cn(
+                          "transition-all duration-500",
+                          isOffline
+                            ? "stroke-slate-400"
+                            : realtimeMetrics.powerTotal >
+                                (capacityVa ? capacityVa / 1000 : 100)
+                              ? "stroke-red-500"
+                              : "stroke-green-500",
+                        )}
+                        initial={{ strokeDashoffset: 440 }}
+                        animate={{
+                          strokeDashoffset:
+                            440 -
+                            (440 *
+                              Math.min(
+                                (realtimeMetrics.powerTotal /
+                                  (capacityVa ? capacityVa / 1000 : 100)) *
+                                  100,
+                                100,
+                              )) /
+                              100,
+                        }}
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <motion.span
+                        className="text-3xl font-bold"
+                        key={realtimeMetrics.powerTotal}
+                        initial={{ scale: 0.8 }}
+                        animate={{ scale: 1 }}
+                      >
+                        {formatCompactNumber(realtimeMetrics.powerTotal)}
+                      </motion.span>
+                      <span className="text-xs text-muted-foreground">kW</span>
+                    </div>
+                  </motion.div>
+
+                  {/* Info below gauge */}
+                  <div className="w-full space-y-1.5 mt-2">
+                    {/* Status Badge */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] text-muted-foreground">
+                        Status
+                      </span>
+                      <motion.div
+                        animate={!isOffline ? glowAnimation : undefined}
+                      >
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[8px] px-1.5 py-0",
+                            isOffline
+                              ? "bg-slate-500/20 text-slate-500"
+                              : "bg-green-500/20 text-green-500 border-green-500/30",
+                          )}
+                        >
+                          <motion.span
+                            className={cn(
+                              "inline-block w-1 h-1 rounded-full mr-1",
+                              isOffline ? "bg-slate-500" : "bg-green-500",
+                            )}
+                            animate={
+                              !isOffline
+                                ? { scale: [1, 1.3, 1], opacity: [1, 0.7, 1] }
+                                : {}
+                            }
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          />
+                          {isOffline ? "OFFLINE" : "ONLINE"}
+                        </Badge>
+                      </motion.div>
+                    </div>
+
+                    {/* Capacity */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] text-muted-foreground">
+                        Capacity
+                      </span>
+                      <span className="text-[10px] font-semibold">
+                        {capacityAmpere
+                          ? `${fmtVal(capacityAmpere, 1)} A`
+                          : "-"}
+                      </span>
+                    </div>
+
+                    {/* Total Energy */}
+                    <motion.div
+                      className="bg-gradient-to-br from-orange-500/10 to-yellow-500/10 rounded-lg p-2"
+                      whileHover={{ scale: 1.02 }}
+                    >
+                      <p className="text-[8px] text-muted-foreground">
+                        Total Energy
+                      </p>
+                      <motion.p
+                        className="text-lg font-bold text-orange-500"
+                        key={realtimeMetrics.energyTotal}
+                        initial={{ y: 5, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                      >
+                        {fmtVal(realtimeMetrics.energyTotal)}
+                        <span className="text-[10px] font-normal ml-1">
+                          kWh
+                        </span>
+                      </motion.p>
+                    </motion.div>
+
+                    <p className="text-[7px] text-muted-foreground">
+                      {realtimeLastUpdated
+                        ? `Updated ${formatDateTime(realtimeLastUpdated)}`
+                        : "No data"}
+                    </p>
+                  </div>
                 </div>
-                <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Package className="h-6 w-6 text-white" />
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Power Meter - Full metrics grouped */}
+          <Card className="border-0 shadow-sm lg:col-span-2">
+            <CardHeader className="px-3 py-2 pb-0">
+              <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+                <Activity className="h-4 w-4 text-blue-500" />
+                Power Meter
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-2 pt-1">
+              {/* Main metrics grid - 3 columns */}
+              <div className="grid grid-cols-3 gap-1.5 mb-2">
+                {/* Voltage L-N */}
+                <div className="bg-muted/30 rounded p-1.5">
+                  <p className="text-[7px] text-muted-foreground uppercase mb-0.5">
+                    V L-N
+                  </p>
+                  <div className="space-y-0.5 text-[8px]">
+                    <div className="flex justify-between">
+                      <span className="text-blue-500">L1</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.voltageL1, 1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-500">L2</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.voltageL2, 1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-orange-500">L3</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.voltageL3, 1)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Voltage L-L */}
+                <div className="bg-muted/30 rounded p-1.5">
+                  <p className="text-[7px] text-muted-foreground uppercase mb-0.5">
+                    V L-L
+                  </p>
+                  <div className="space-y-0.5 text-[8px]">
+                    <div className="flex justify-between">
+                      <span className="text-blue-500">AB</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.voltageAB, 1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-500">BC</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.voltageBC, 1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-orange-500">CA</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.voltageCA, 1)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Current */}
+                <div className="bg-muted/30 rounded p-1.5">
+                  <p className="text-[7px] text-muted-foreground uppercase mb-0.5">
+                    Current (A)
+                  </p>
+                  <div className="space-y-0.5 text-[8px]">
+                    <div className="flex justify-between">
+                      <span className="text-blue-500">L1</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.currentL1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-500">L2</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.currentL2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-orange-500">L3</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.currentL3)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between bg-primary/10 rounded px-0.5">
+                      <span className="text-primary">Σ</span>
+                      <span className="font-bold">
+                        {fmtVal(realtimeMetrics.currentTotal)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Power */}
+                <div className="bg-muted/30 rounded p-1.5">
+                  <p className="text-[7px] text-muted-foreground uppercase mb-0.5">
+                    Power (kW)
+                  </p>
+                  <div className="space-y-0.5 text-[8px]">
+                    <div className="flex justify-between">
+                      <span className="text-blue-500">L1</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.powerL1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-500">L2</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.powerL2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-orange-500">L3</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.powerL3)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between bg-primary/10 rounded px-0.5">
+                      <span className="text-primary">Σ</span>
+                      <span className="font-bold">
+                        {fmtVal(realtimeMetrics.powerTotal)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reactive */}
+                <div className="bg-muted/30 rounded p-1.5">
+                  <p className="text-[7px] text-muted-foreground uppercase mb-0.5">
+                    Reactive (VAR)
+                  </p>
+                  <div className="space-y-0.5 text-[8px]">
+                    <div className="flex justify-between">
+                      <span className="text-blue-500">L1</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.reactiveL1)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-500">L2</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.reactiveL2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-orange-500">L3</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.reactiveL3)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between bg-primary/10 rounded px-0.5">
+                      <span className="text-primary">Σ</span>
+                      <span className="font-bold">
+                        {fmtVal(realtimeMetrics.reactiveSigma)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Apparent VA */}
+                <div className="bg-muted/30 rounded p-1.5">
+                  <p className="text-[7px] text-muted-foreground uppercase mb-0.5">
+                    Apparent (VA)
+                  </p>
+                  <div className="space-y-0.5 text-[8px]">
+                    <div className="flex justify-between">
+                      <span className="text-blue-500">A</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.vaA)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-500">B</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.vaB)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-orange-500">C</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.vaC)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between bg-primary/10 rounded px-0.5">
+                      <span className="text-primary">Σ</span>
+                      <span className="font-bold">
+                        {fmtVal(realtimeMetrics.vaSigma)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Power Factor */}
+                <div className="bg-muted/30 rounded p-1.5 col-span-3">
+                  <p className="text-[7px] text-muted-foreground uppercase mb-0.5">
+                    Power Factor
+                  </p>
+                  <div className="grid grid-cols-4 gap-1 text-[8px]">
+                    <div className="flex justify-between">
+                      <span className="text-blue-500">A</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.pfA, 3)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-500">B</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.pfB, 3)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-orange-500">C</span>
+                      <span className="font-semibold">
+                        {fmtVal(realtimeMetrics.pfC, 3)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between bg-primary/10 rounded px-0.5">
+                      <span className="text-primary">Σ</span>
+                      <span className="font-bold">
+                        {fmtVal(realtimeMetrics.pfSigma, 3)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
 
-          <Card className="relative overflow-hidden border-0 shadow-lg bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-white/80">Perangkat Online</p>
-                  <p className="text-2xl font-bold truncate">
-                    {deviceSummary.online}
-                  </p>
-                </div>
-                <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Zap className="h-6 w-6 text-white" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="relative overflow-hidden border-0 shadow-lg bg-gradient-to-br from-violet-500 to-purple-500 text-white">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-white/80">Perangkat Offline</p>
-                  <p className="text-2xl font-bold truncate">
-                    {deviceSummary.offline}
-                  </p>
-                </div>
-                <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Gauge className="h-6 w-6 text-white" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="relative overflow-hidden border-0 shadow-lg bg-gradient-to-br from-amber-500 to-orange-500 text-white">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-white/80">Alert Perangkat</p>
-                  <p className="text-2xl font-bold truncate">
-                    {deviceSummary.alerts}
-                  </p>
-                </div>
-                <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Bell className="h-6 w-6 text-white" />
+              {/* Energy & Frequency - Full width at bottom */}
+              <div className="bg-gradient-to-r from-orange-500/10 via-purple-500/10 to-cyan-500/10 rounded-lg p-2">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-[7px] text-orange-500 uppercase">
+                      Total kWh
+                    </p>
+                    <p className="text-sm font-bold text-orange-600">
+                      {fmtVal(realtimeMetrics.energyTotal)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[7px] text-purple-500 uppercase">
+                      Total kVARh
+                    </p>
+                    <p className="text-sm font-bold text-purple-600">
+                      {fmtVal(realtimeMetrics.kvarh)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[7px] text-cyan-500 uppercase">
+                      Frequency
+                    </p>
+                    <p className="text-sm font-bold text-cyan-600">
+                      {fmtVal(realtimeMetrics.frequency)} Hz
+                    </p>
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <motion.div variants={itemVariants}>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Gauge className="h-5 w-5" />
-                  Daya Real-Time
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="text-center">
-                  <div className="relative inline-flex items-center justify-center">
-                    <svg className="w-40 h-40 transform -rotate-90">
-                      <circle
-                        cx="80"
-                        cy="80"
-                        r="70"
-                        stroke="currentColor"
-                        strokeWidth="12"
-                        fill="none"
-                        className="text-muted/20"
-                      />
-                      <circle
-                        cx="80"
-                        cy="80"
-                        r="70"
-                        stroke="currentColor"
-                        strokeWidth="12"
-                        fill="none"
-                        strokeDasharray={440}
-                        strokeDashoffset={440 - (440 * loadPercentage) / 100}
-                        className={cn(
-                          "transition-all duration-500",
-                          loadStatus === "OFFLINE"
-                            ? "text-slate-400"
-                            : loadStatus === "OVERLOAD"
-                            ? "text-red-500"
-                            : "text-green-500",
-                        )}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-3xl font-bold">
-                        {formatCompactNumber(realtimePowerKw)}
-                      </span>
-                      <span className="text-sm text-muted-foreground">kW</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Status Beban
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        loadStatus === "OFFLINE"
-                          ? "bg-slate-500/20 text-slate-500 border-slate-500/30"
-                          : loadStatus === "OVERLOAD"
-                          ? "bg-red-500/20 text-red-500 border-red-500/30"
-                          : "bg-green-500/20 text-green-500 border-green-500/30",
-                      )}
-                    >
-                      {loadStatus === "OFFLINE"
-                        ? "DEVICE OFFLINE"
-                        : loadStatus === "OVERLOAD"
-                          ? "OVERLOAD"
-                          : "NORMAL LOAD"}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Beban Puncak
-                    </span>
-                    <span className="font-medium">
-                      {formatCompactNumber(detail?.peakPower || 0)} kW
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Kapasitas Maksimal
-                    </span>
-                    <span className="font-medium">
-                      {maxLoadKw ? `${formatCompactNumber(maxLoadKw)} kW` : "-"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Kapasitas Maksimal (V)
-                    </span>
-                    <span className="font-medium">
-                      {capacityVa !== null
-                        ? `${formatCompactNumber(capacityVa)} V`
-                        : "-"}
-                    </span>
-                  </div>
-                  <Progress
-                    value={loadStatus === "OFFLINE" ? 0 : Math.min(loadPercentage, 100)}
-                    className={cn(
-                      "h-2",
-                      loadStatus === "OVERLOAD" && "[&>div]:bg-red-500",
-                      loadStatus === "OFFLINE" && "[&>div]:bg-slate-400",
-                    )}
-                  />
-                  <p className="text-xs text-center text-muted-foreground">
-                    {formatCompactNumber(loadPercentage)}% dari kapasitas
-                  </p>
-                  <p className="text-xs text-center text-muted-foreground">
-                    Update realtime:{" "}
-                    {realtimeLastUpdated
-                      ? formatDateTime(realtimeLastUpdated)
-                      : "-"}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={itemVariants} className="lg:col-span-2">
-            <Card className="h-full border shadow-sm">
-              <CardHeader className="border-b bg-muted/20">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle>Power Series (Termasuk Daya Realtime)</CardTitle>
-                  <Badge variant="outline">Realtime aktif</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {realtimeSnapshotCards.map((metric) => (
-                    <div
-                      key={metric.label}
-                      className="rounded-lg border bg-muted/20 px-3 py-2"
-                    >
-                      <p className="text-[11px] text-muted-foreground">
-                        {metric.label}
-                      </p>
-                      <p className="text-sm font-semibold leading-tight">
-                        {formatRealtimeValue(metric.value)} {metric.unit}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          <motion.div variants={itemVariants}>
-            <Card className="h-full">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Info Voltage
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[170px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={[
-                        { phase: "L1", value: realtimePhaseMetrics.voltageL1 },
-                        { phase: "L2", value: realtimePhaseMetrics.voltageL2 },
-                        { phase: "L3", value: realtimePhaseMetrics.voltageL3 },
-                      ]}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="phase"
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis tickLine={false} axisLine={false} width={40} />
-                      <Tooltip
-                        formatter={(value: number) => [`${value} V`, "Voltage"]}
-                      />
-                      <Bar
-                        dataKey="value"
-                        fill="#3b82f6"
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={itemVariants}>
-            <Card className="h-full">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Info Current
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[170px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={[
-                        { phase: "L1", value: realtimePhaseMetrics.currentL1 },
-                        { phase: "L2", value: realtimePhaseMetrics.currentL2 },
-                        { phase: "L3", value: realtimePhaseMetrics.currentL3 },
-                      ]}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="phase"
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis tickLine={false} axisLine={false} width={40} />
-                      <Tooltip
-                        formatter={(value: number) => [`${value} A`, "Current"]}
-                      />
-                      <Bar
-                        dataKey="value"
-                        fill="#10b981"
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={itemVariants}>
-            <Card className="h-full">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Info Power
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[170px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={[
-                        { phase: "L1", value: realtimePhaseMetrics.powerL1 },
-                        { phase: "L2", value: realtimePhaseMetrics.powerL2 },
-                        { phase: "L3", value: realtimePhaseMetrics.powerL3 },
-                      ]}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="phase"
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis tickLine={false} axisLine={false} width={40} />
-                      <Tooltip
-                        formatter={(value: number) => [`${value} kW`, "Power"]}
-                      />
-                      <Bar
-                        dataKey="value"
-                        fill="#f59e0b"
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={itemVariants}>
-            <Card className="h-full">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Info Reactive
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[170px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={[
-                        { phase: "L1", value: realtimePhaseMetrics.reactiveL1 },
-                        { phase: "L2", value: realtimePhaseMetrics.reactiveL2 },
-                        { phase: "L3", value: realtimePhaseMetrics.reactiveL3 },
-                      ]}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="phase"
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis tickLine={false} axisLine={false} width={40} />
-                      <Tooltip
-                        formatter={(value: number) => [
-                          `${value} var`,
-                          "Reactive",
-                        ]}
-                      />
-                      <Bar
-                        dataKey="value"
-                        fill="#8b5cf6"
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
-
-        <motion.div variants={itemVariants}>
-          <Card className="h-full">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Activity className="h-4 w-4" />
-                  Riwayat Pengukuran
-                </CardTitle>
-                <div className="grid gap-2 lg:grid-cols-[1fr_1fr_auto_auto]">
-                  <Input
-                    type="datetime-local"
-                    value={measurementPeriod.from}
-                    onChange={(event) =>
-                      setMeasurementPeriod((current) => ({
-                        ...current,
-                        preset: "custom",
-                        from: event.target.value,
-                      }))
-                    }
-                    className="h-8 text-xs"
-                  />
-                  <Input
-                    type="datetime-local"
-                    value={measurementPeriod.to}
-                    onChange={(event) =>
-                      setMeasurementPeriod((current) => ({
-                        ...current,
-                        preset: "custom",
-                        to: event.target.value,
-                      }))
-                    }
-                    className="h-8 text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => {
-                      const next = createEnergyPeriod("today");
-                      setMeasurementPeriod(next);
-                      setAppliedMeasurementPeriod(next);
-                    }}
-                  >
-                    Reset
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    onClick={() =>
-                      setAppliedMeasurementPeriod(
-                        normalizeEnergyPeriod(measurementPeriod),
-                      )
-                    }
-                  >
-                    Terapkan
-                  </Button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input
-                      placeholder="Cari waktu..."
-                      className="pl-8 h-8 text-xs w-[200px]"
-                      value={measurementSearch}
-                      onChange={(event) =>
-                        setMeasurementSearch(event.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {METRIC_GROUPS.map((group) => (
-                      <button
-                        key={group.key}
-                        onClick={() => setActiveMetricGroup(group.key)}
-                        className={
-                          activeMetricGroup === group.key
-                            ? "px-3 py-1 text-xs rounded-full border bg-primary text-primary-foreground border-primary"
-                            : "px-3 py-1 text-xs rounded-full border bg-muted/50 text-muted-foreground border-border hover:bg-muted"
-                        }
-                      >
-                        {group.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+        {/* Row 2: Trend Chart + Analytics + Donut */}
+        <motion.div
+          variants={itemVariants}
+          className="grid grid-cols-1 lg:grid-cols-3 gap-2"
+        >
+          {/* Trend Chart - kWh Bar */}
+          <Card className="border-0 shadow-sm lg:col-span-2">
+            <CardHeader className="px-3 py-2 pb-0 flex flex-row items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-xs font-semibold">Trend</CardTitle>
+                <Select
+                  value={trendMetric}
+                  onValueChange={(v) => setTrendMetric(v as TrendMetric)}
+                >
+                  <SelectTrigger className="h-5 w-20 text-[9px] border-0 bg-muted/50 px-1.5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="energy" className="text-[9px]">
+                      kWh
+                    </SelectItem>
+                    <SelectItem value="power" className="text-[9px]">
+                      Power
+                    </SelectItem>
+                    <SelectItem value="voltage" className="text-[9px]">
+                      Voltage
+                    </SelectItem>
+                    <SelectItem value="current" className="text-[9px]">
+                      Current
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              <DateFilter value={trendRange} onChange={setTrendRange} />
             </CardHeader>
-            <CardContent>
-              {measurementChartData.length === 0 ? (
-                <div className="h-[300px] flex items-center justify-center text-sm text-muted-foreground">
-                  Tidak ada data untuk periode ini
+            <CardContent className="p-3 pt-2">
+              {trendData.length === 0 ? (
+                <div className="h-[200px] flex items-center justify-center text-[10px] text-muted-foreground">
+                  No data available
+                </div>
+              ) : trendMetric === "energy" ? (
+                // Modern Bar Chart for kWh
+                <ChartContainer
+                  config={{
+                    [trendChartConfig.dataKey]: {
+                      label: trendChartConfig.name,
+                      color: trendChartConfig.color,
+                    },
+                  }}
+                  className="h-[200px] w-full"
+                >
+                  <BarChart
+                    data={trendData}
+                    margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="energyGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="hsl(38, 92%, 50%)"
+                          stopOpacity={1}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="hsl(38, 92%, 35%)"
+                          stopOpacity={0.8}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="hsl(var(--border))"
+                      opacity={0.3}
+                    />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 8 }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 8 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={40}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar
+                      dataKey={trendChartConfig.dataKey}
+                      fill="url(#energyGradient)"
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={30}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              ) : (
+                // Area Chart for other metrics
+                <ChartContainer
+                  config={{
+                    [trendChartConfig.dataKey]: {
+                      label: trendChartConfig.name,
+                      color: trendChartConfig.color,
+                    },
+                  }}
+                  className="h-[200px] w-full"
+                >
+                  <AreaChart
+                    data={trendData}
+                    margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id={`fill-${trendChartConfig.dataKey}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor={trendChartConfig.color}
+                          stopOpacity={0.4}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={trendChartConfig.color}
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="hsl(var(--border))"
+                      opacity={0.3}
+                    />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 8 }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 8 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={40}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Area
+                      type="monotone"
+                      dataKey={trendChartConfig.dataKey}
+                      stroke={trendChartConfig.color}
+                      strokeWidth={2}
+                      fill={`url(#fill-${trendChartConfig.dataKey})`}
+                      dot={false}
+                      connectNulls
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              )}
+
+              {/* Peak Hour Info */}
+              {trendMetric === "energy" && peakHourAnalysis?.peakHourLabel && (
+                <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between text-[9px]">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+                    <span className="text-muted-foreground">Peak Hour:</span>
+                    <span className="font-semibold text-orange-600">
+                      {peakHourAnalysis.peakHourLabel}
+                    </span>
+                    <span className="text-muted-foreground">
+                      ({peakHourAnalysis.peakAvgKwh} kWh)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">Avg:</span>
+                    <span className="font-semibold">
+                      {peakHourAnalysis.overallAvgKwh} kWh/hr
+                    </span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Analytics + Donut */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="px-3 py-2 pb-0 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-semibold">Analitik</CardTitle>
+              <DateFilter value={analyticsRange} onChange={setAnalyticsRange} />
+            </CardHeader>
+            <CardContent className="p-3 pt-2">
+              {/* Analytics Stats */}
+              {analytics ? (
+                <div className="space-y-1.5 text-[9px] mb-3">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Peak Power</span>
+                    <span className="font-semibold">
+                      {analytics.peakPowerKw} kW
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Avg Power</span>
+                    <span>{analytics.avgPower} kW</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Avg Voltage</span>
+                    <span>{analytics.avgVoltage} V</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Avg Current</span>
+                    <span>{analytics.avgCurrent} A</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Avg PF</span>
+                    <span>{analytics.avgPf}</span>
+                  </div>
+                  <div className="flex justify-between bg-orange-500/10 rounded px-1.5 py-1">
+                    <span className="text-orange-600 dark:text-orange-400">
+                      Total kWh
+                    </span>
+                    <span className="font-bold text-orange-600 dark:text-orange-400">
+                      {analytics.totalEnergy}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total kVARh</span>
+                    <span>{analytics.totalKvarh}</span>
+                  </div>
                 </div>
               ) : (
-                <>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={measurementChartData}
-                        margin={{ top: 5, right: 10, bottom: 0, left: -10 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fontSize: 9 }}
-                          tickLine={false}
-                          axisLine={false}
-                          interval={Math.max(
-                            0,
-                            Math.floor(measurementChartData.length / 12) - 1,
-                          )}
-                          angle={-30}
-                          textAnchor="end"
-                          height={50}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 10 }}
-                          tickLine={false}
-                          axisLine={false}
-                          width={50}
-                          tickFormatter={(value: number) =>
-                            value.toLocaleString("id-ID", {
-                              maximumFractionDigits: 1,
-                            })
-                          }
-                        />
-                        <Tooltip
-                          contentStyle={{ fontSize: 11 }}
-                          labelFormatter={(label) => `Waktu: ${label}`}
-                          formatter={(value: number, name: string) => [
-                            Number(value).toFixed(2),
-                            name,
-                          ]}
-                        />
-                        {METRIC_GROUPS.find(
-                          (group) => group.key === activeMetricGroup,
-                        )?.lines.map((line) => (
-                          <Line
-                            key={line.dataKey}
-                            type="monotone"
-                            dataKey={line.dataKey}
-                            name={line.name}
-                            stroke={line.color}
-                            strokeWidth={1.5}
-                            dot={false}
-                            connectNulls
-                          />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center mt-2">
-                    {measurementChartData.length} pembacaan
+                <div className="h-20 flex items-center justify-center text-[9px] text-muted-foreground">
+                  No data
+                </div>
+              )}
+
+              {/* Donut Chart - Device Distribution */}
+              {deviceDistribution.length > 0 && (
+                <div className="mt-2 pt-2 border-t">
+                  <p className="text-[9px] font-medium mb-2">
+                    Device Distribution
                   </p>
-                </>
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 h-20">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={deviceDistribution}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={20}
+                            outerRadius={35}
+                            paddingAngle={2}
+                            dataKey="value"
+                          >
+                            {deviceDistribution.map((_, index) => (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={DONUT_COLORS[index % DONUT_COLORS.length]}
+                              />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex-1 space-y-0.5">
+                      {deviceDistribution.slice(0, 4).map((item, index) => (
+                        <div
+                          key={item.name}
+                          className="flex items-center gap-1 text-[8px]"
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{
+                              backgroundColor:
+                                DONUT_COLORS[index % DONUT_COLORS.length],
+                            }}
+                          />
+                          <span className="truncate flex-1">{item.name}</span>
+                          <span className="font-medium">
+                            {item.percentage}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
         </motion.div>
 
+        {/* Row 3: Data Table */}
         <motion.div variants={itemVariants}>
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Activity className="h-4 w-4" />
-                  Tabel Riwayat Data
-                </CardTitle>
-                <div className="grid gap-2 lg:grid-cols-[1fr_1fr_auto_auto]">
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="px-3 py-2 pb-0 flex flex-row items-center justify-between gap-2">
+              <CardTitle className="text-xs font-semibold">
+                Riwayat Data
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                   <Input
-                    type="datetime-local"
-                    value={tablePeriod.from}
-                    onChange={(event) =>
-                      setTablePeriod((current) => ({
-                        ...current,
-                        preset: "custom",
-                        from: event.target.value,
-                      }))
-                    }
-                    className="h-8 text-xs"
-                  />
-                  <Input
-                    type="datetime-local"
-                    value={tablePeriod.to}
-                    onChange={(event) =>
-                      setTablePeriod((current) => ({
-                        ...current,
-                        preset: "custom",
-                        to: event.target.value,
-                      }))
-                    }
-                    className="h-8 text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => {
-                      const next = createEnergyPeriod("today");
-                      setTablePeriod(next);
-                      setAppliedTablePeriod(next);
-                    }}
-                  >
-                    Reset
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    onClick={() =>
-                      setAppliedTablePeriod(normalizeEnergyPeriod(tablePeriod))
-                    }
-                  >
-                    Terapkan
-                  </Button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={tableMetricFilter}
-                    onValueChange={(value) => {
-                      setTableMetricFilter(value as MetricGroup);
+                    placeholder="Cari waktu..."
+                    value={tableSearch}
+                    onChange={(e) => {
+                      setTableSearch(e.target.value);
                       setTablePage(0);
                     }}
-                  >
-                    <SelectTrigger className="w-[180px] h-8 text-xs">
-                      <SelectValue placeholder="Semua Metrik" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua Metrik</SelectItem>
-                      {METRIC_GROUPS.map((group) => (
-                        <SelectItem key={group.key} value={group.key}>
-                          {group.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input
-                      placeholder="Cari waktu..."
-                      className="pl-8 h-8 text-xs w-[180px]"
-                      value={tableSearch}
-                      onChange={(event) => {
-                        setTableSearch(event.target.value);
-                        setTablePage(0);
-                      }}
-                    />
-                  </div>
+                    className="h-6 w-32 pl-7 text-[9px]"
+                  />
                 </div>
+                <DateFilter value={tableRange} onChange={setTableRange} />
               </div>
             </CardHeader>
-            <CardContent>
-              {(() => {
-                const metricColumns: Record<
-                  MetricGroup,
-                  { key: keyof HistoricalReading; label: string }[]
-                > = {
-                  all: [
-                    { key: "voltageL1", label: "V L1" },
-                    { key: "voltageL2", label: "V L2" },
-                    { key: "voltageL3", label: "V L3" },
-                    { key: "currentL1", label: "I L1" },
-                    { key: "currentL2", label: "I L2" },
-                    { key: "currentL3", label: "I L3" },
-                    { key: "currentTotal", label: "I Tot" },
-                    { key: "powerL1", label: "P L1" },
-                    { key: "powerL2", label: "P L2" },
-                    { key: "powerL3", label: "P L3" },
-                    { key: "powerTotal", label: "P Tot" },
-                    { key: "reactiveL1", label: "Q L1" },
-                    { key: "reactiveL2", label: "Q L2" },
-                    { key: "reactiveL3", label: "Q L3" },
-                    { key: "frequency", label: "Hz" },
-                    { key: "energyTotal", label: "kWh" },
-                  ],
-                  voltage: [
-                    { key: "voltageL1", label: "V L1" },
-                    { key: "voltageL2", label: "V L2" },
-                    { key: "voltageL3", label: "V L3" },
-                  ],
-                  current: [
-                    { key: "currentL1", label: "I L1" },
-                    { key: "currentL2", label: "I L2" },
-                    { key: "currentL3", label: "I L3" },
-                    { key: "currentTotal", label: "I Tot" },
-                  ],
-                  power: [
-                    { key: "powerL1", label: "P L1" },
-                    { key: "powerL2", label: "P L2" },
-                    { key: "powerL3", label: "P L3" },
-                    { key: "powerTotal", label: "P Tot" },
-                  ],
-                  reactive: [
-                    { key: "reactiveL1", label: "Q L1" },
-                    { key: "reactiveL2", label: "Q L2" },
-                    { key: "reactiveL3", label: "Q L3" },
-                  ],
-                  energy: [
-                    { key: "frequency", label: "Hz" },
-                    { key: "energyTotal", label: "kWh" },
-                  ],
-                };
-
-                const fmtNum = (value: number | null) =>
-                  value !== null ? value.toFixed(2) : "-";
-
-                const columns = metricColumns[tableMetricFilter];
-                const searchKeyword = tableSearch.toLowerCase();
-                const filteredRows = [...historicalTableData]
-                  .reverse()
-                  .filter(
-                    (row) =>
-                      !tableSearch ||
-                      row.label.toLowerCase().includes(searchKeyword),
-                  );
-
-                const totalPages = Math.max(
-                  1,
-                  Math.ceil(filteredRows.length / TABLE_PAGE_SIZE),
-                );
-
-                const pageData = filteredRows.slice(
-                  tablePage * TABLE_PAGE_SIZE,
-                  (tablePage + 1) * TABLE_PAGE_SIZE,
-                );
-
-                if (historicalTableData.length === 0) {
-                  return (
-                    <div className="h-[120px] flex items-center justify-center text-sm text-muted-foreground">
-                      Tidak ada data untuk periode ini
-                    </div>
-                  );
-                }
-
-                return (
-                  <>
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs">Waktu</TableHead>
-                            {columns.map((column) => (
-                              <TableHead
-                                key={column.key}
-                                className="text-xs text-right"
-                              >
-                                {column.label}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {pageData.map((row, index) => (
-                            <TableRow key={`${row.timestamp}-${index}`}>
-                              <TableCell className="text-xs font-medium">
-                                {row.label}
-                              </TableCell>
-                              {columns.map((column) => (
-                                <TableCell
-                                  key={column.key}
-                                  className="text-xs text-right tabular-nums"
-                                >
-                                  {fmtNum(row[column.key] as number | null)}
-                                </TableCell>
-                              ))}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <p className="text-xs text-muted-foreground">
-                        {filteredRows.length} data
-                        {tableSearch ? " (difilter)" : ""} - Halaman{" "}
-                        {tablePage + 1} dari {totalPages}
-                      </p>
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() =>
-                            setTablePage((current) => Math.max(0, current - 1))
-                          }
-                          disabled={tablePage === 0}
-                          className="px-3 py-1 text-xs rounded border disabled:opacity-50 hover:bg-muted transition-colors"
-                        >
-                          Sebelumnya
-                        </button>
-                        <button
-                          onClick={() =>
-                            setTablePage((current) =>
-                              Math.min(totalPages - 1, current + 1),
-                            )
-                          }
-                          disabled={tablePage >= totalPages - 1}
-                          className="px-3 py-1 text-xs rounded border disabled:opacity-50 hover:bg-muted transition-colors"
-                        >
-                          Berikutnya
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={itemVariants}>
-          <Card className="border shadow-sm">
-            <CardHeader className="border-b bg-muted/20">
-              <CardTitle>Profil Outlet</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 p-5 text-sm">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3 rounded-lg border p-3">
-                    <Building2 className="mt-0.5 h-4 w-4 text-primary" />
-                    <div>
-                      <p className="font-medium">Outlet</p>
-                      <p className="text-muted-foreground">
-                        {detail?.name || "-"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border p-3">
-                    <MapPin className="mt-0.5 h-4 w-4 text-primary" />
-                    <div>
-                      <p className="font-medium">Lokasi</p>
-                      <p className="text-muted-foreground">
-                        {detail?.address ||
-                          detail?.city ||
-                          detail?.region ||
-                          "-"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border p-3">
-                    <Activity className="mt-0.5 h-4 w-4 text-primary" />
-                    <div>
-                      <p className="font-medium">Perbandingan Periode</p>
-                      <p className="text-muted-foreground">
-                        {formatCompactNumber(
-                          detail?.comparisonData.currentPeriod.current || 0,
-                        )}{" "}
-                        kWh saat ini, perubahan{" "}
-                        {formatCompactNumber(
-                          detail?.comparisonData.currentPeriod.change || 0,
-                        )}
-                        %
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">
-                      Peak {formatCompactNumber(analytics.peakPowerKw)} kW
-                    </Badge>
-                    <Badge variant="outline">
-                      Jam Ramai {analytics.busiestHourByKwh}
-                    </Badge>
-                    <Badge variant="outline">
-                      Total Delta {formatCompactNumber(analytics.totalKwhDelta)}{" "}
-                      kWh
-                    </Badge>
-                    <Badge variant="outline">
-                      {detail?.period.label || "-"}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="space-y-3 rounded-lg border p-3">
-                  <p className="text-sm font-medium">
-                    Distribusi Energi per Lokasi
-                  </p>
-                  <div className="h-[240px]">
-                    {locationBreakdownData.length === 0 ? (
-                      <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                        Data lokasi belum tersedia
-                      </div>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={locationBreakdownData}
-                            dataKey="value"
-                            nameKey="name"
-                            innerRadius={48}
-                            outerRadius={90}
-                            paddingAngle={2}
-                          >
-                            {locationBreakdownData.map((entry) => (
-                              <Cell key={entry.name} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            formatter={(value: number) => [
-                              `${formatCompactNumber(value)} kWh`,
-                              "Energi",
-                            ]}
-                          />
-                          <Legend verticalAlign="bottom" height={32} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    )}
-                  </div>
-                  <div className="grid gap-2 text-xs text-muted-foreground">
-                    {locationBreakdownData.slice(0, 4).map((item) => (
-                      <div
-                        key={item.name}
-                        className="flex items-center justify-between rounded border px-2 py-1.5"
-                      >
-                        <span>{item.name}</span>
-                        <span className="font-medium text-foreground">
-                          {formatCompactNumber(item.value)} kWh
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={itemVariants}>
-          <Card className="border shadow-sm">
-            <CardHeader className="border-b bg-muted/20">
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Analytics Outlet
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 p-5">
-              <div className="grid gap-2 lg:grid-cols-[1fr_1fr_auto_auto]">
-                <Input
-                  type="datetime-local"
-                  value={analyticsPeriod.from}
-                  onChange={(event) =>
-                    setAnalyticsPeriod((current) => ({
-                      ...current,
-                      preset: "custom",
-                      from: event.target.value,
-                    }))
-                  }
-                  className="h-8 text-xs"
-                />
-                <Input
-                  type="datetime-local"
-                  value={analyticsPeriod.to}
-                  onChange={(event) =>
-                    setAnalyticsPeriod((current) => ({
-                      ...current,
-                      preset: "custom",
-                      to: event.target.value,
-                    }))
-                  }
-                  className="h-8 text-xs"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  onClick={() => {
-                    const next = createEnergyPeriod("today");
-                    setAnalyticsPeriod(next);
-                    setAppliedAnalyticsPeriod(next);
-                  }}
-                >
-                  Reset
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-8"
-                  onClick={() =>
-                    setAppliedAnalyticsPeriod(
-                      normalizeEnergyPeriod(analyticsPeriod),
-                    )
-                  }
-                >
-                  Terapkan
-                </Button>
-              </div>
-              <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="Cari jam analytics (contoh: 09:00)..."
-                  className="pl-8 h-8 text-xs"
-                  value={analyticsSearch}
-                  onChange={(event) => setAnalyticsSearch(event.target.value)}
-                />
-              </div>
-              <div className="h-[240px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analyticsChartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis
-                      dataKey="hourLabel"
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis tickLine={false} axisLine={false} width={44} />
-                    <Tooltip
-                      formatter={(value: number) => [
-                        `${formatCompactNumber(value)} kWh`,
-                        "Total kWh",
-                      ]}
-                      labelFormatter={(label) => `Jam ${label}`}
-                    />
-                    <Bar dataKey="kwh" fill="#0ea5e9" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="space-y-2 rounded-lg border bg-muted/20 p-3 text-sm">
-                {analytics.conclusionLines.map((line, index) => (
-                  <p key={index} className="text-muted-foreground">
-                    {line}
-                  </p>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <motion.div variants={itemVariants}>
-            <Card className="border shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
-                <div>
-                  <CardTitle>Daftar Perangkat</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Setiap perangkat dengan power terakhir, status, dan jumlah
-                    alert
-                  </p>
-                </div>
-                <Badge variant="outline">{detail?.devices.length || 0}</Badge>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table className="text-[8px]">
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Perangkat</TableHead>
-                      <TableHead>Lokasi</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Power</TableHead>
-                      <TableHead className="text-right">Last Seen</TableHead>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="h-6 px-2 whitespace-nowrap">
+                        Waktu
+                      </TableHead>
+                      <TableHead className="h-6 px-1 text-right">V1</TableHead>
+                      <TableHead className="h-6 px-1 text-right">V2</TableHead>
+                      <TableHead className="h-6 px-1 text-right">V3</TableHead>
+                      <TableHead className="h-6 px-1 text-right">A1</TableHead>
+                      <TableHead className="h-6 px-1 text-right">A2</TableHead>
+                      <TableHead className="h-6 px-1 text-right">A3</TableHead>
+                      <TableHead className="h-6 px-1 text-right">AΣ</TableHead>
+                      <TableHead className="h-6 px-1 text-right">P1</TableHead>
+                      <TableHead className="h-6 px-1 text-right">P2</TableHead>
+                      <TableHead className="h-6 px-1 text-right">P3</TableHead>
+                      <TableHead className="h-6 px-1 text-right">PΣ</TableHead>
+                      <TableHead className="h-6 px-1 text-right">kWh</TableHead>
+                      <TableHead className="h-6 px-1 text-right">PF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(detail?.devices || []).map((device) => (
-                      <TableRow key={device.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{device.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {device.serialNo}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {device.locationName || device.locationType || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{device.status}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCompactNumber(device.latestPowerKw)} kW
-                        </TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground">
-                          {device.lastSeenAt
-                            ? formatDateTime(device.lastSeenAt)
-                            : "-"}
+                    {pagedTableData.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={14}
+                          className="h-12 text-center text-muted-foreground"
+                        >
+                          No data
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      pagedTableData.map((r, i) => (
+                        <TableRow key={i} className="h-5">
+                          <TableCell className="px-2 py-0.5 whitespace-nowrap">
+                            {r.label}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.voltageL1?.toFixed(1) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.voltageL2?.toFixed(1) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.voltageL3?.toFixed(1) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.currentL1?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.currentL2?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.currentL3?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right font-medium">
+                            {r.currentTotal?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.powerL1?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.powerL2?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.powerL3?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right font-medium">
+                            {r.powerTotal?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right text-orange-600">
+                            {r.energyTotal?.toFixed(2) ?? "-"}
+                          </TableCell>
+                          <TableCell className="px-1 py-0.5 text-right">
+                            {r.pfSigma?.toFixed(3) ?? "-"}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
-              </CardContent>
-            </Card>
-          </motion.div>
+              </div>
+              {totalTablePages > 1 && (
+                <div className="flex items-center justify-between px-3 py-1.5 border-t">
+                  <span className="text-[8px] text-muted-foreground">
+                    {filteredTableData.length} records | Page {tablePage + 1} of{" "}
+                    {totalTablePages}
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={() => setTablePage((p) => Math.max(0, p - 1))}
+                      disabled={tablePage === 0}
+                    >
+                      <ChevronLeft className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={() =>
+                        setTablePage((p) =>
+                          Math.min(totalTablePages - 1, p + 1),
+                        )
+                      }
+                      disabled={tablePage >= totalTablePages - 1}
+                    >
+                      <ChevronRight className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
 
-          <motion.div variants={itemVariants}>
-            <Card className="border shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
+        {/* Row 4: Outlet Profile with Devices */}
+        <motion.div variants={itemVariants}>
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="px-3 py-2 pb-0">
+              <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+                <Building2 className="h-4 w-4" />
+                Profil Outlet
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 pt-2">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-[9px] mb-3">
                 <div>
-                  <CardTitle>Alert History</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Histori lengkap event perangkat pada outlet ini
+                  <p className="text-muted-foreground text-[8px]">Region</p>
+                  <p className="font-medium">{detail?.region || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-[8px]">City</p>
+                  <p className="font-medium">{detail?.city || "-"}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-muted-foreground text-[8px]">Address</p>
+                  <p className="font-medium truncate">
+                    {detail?.address || "-"}
                   </p>
                 </div>
-                <Badge variant="outline">{filteredAlertHistory.length}</Badge>
-              </CardHeader>
-              <CardContent className="space-y-3 p-4">
-                <div className="grid gap-2 lg:grid-cols-[1fr_1fr_auto_auto]">
-                  <Input
-                    type="datetime-local"
-                    value={alertsPeriod.from}
-                    onChange={(event) =>
-                      setAlertsPeriod((current) => ({
-                        ...current,
-                        preset: "custom",
-                        from: event.target.value,
-                      }))
-                    }
-                    className="h-8 text-xs"
-                  />
-                  <Input
-                    type="datetime-local"
-                    value={alertsPeriod.to}
-                    onChange={(event) =>
-                      setAlertsPeriod((current) => ({
-                        ...current,
-                        preset: "custom",
-                        to: event.target.value,
-                      }))
-                    }
-                    className="h-8 text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => {
-                      const next = createEnergyPeriod("today");
-                      setAlertsPeriod(next);
-                      setAppliedAlertsPeriod(next);
-                    }}
-                  >
-                    Reset
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    onClick={() =>
-                      setAppliedAlertsPeriod(
-                        normalizeEnergyPeriod(alertsPeriod),
-                      )
-                    }
-                  >
-                    Terapkan
-                  </Button>
+                <div>
+                  <p className="text-muted-foreground text-[8px]">Capacity</p>
+                  <p className="font-medium">
+                    {capacityVa ? `${formatCompactNumber(capacityVa)} VA` : "-"}
+                  </p>
                 </div>
-                <div className="relative">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Cari device, severity, type, pesan..."
-                    className="pl-8 h-8 text-xs"
-                    value={alertsSearch}
-                    onChange={(event) => setAlertsSearch(event.target.value)}
-                  />
-                </div>
-                <ScrollArea className="h-[460px]">
-                  <div className="divide-y">
-                    {filteredAlertHistory.map((alert) => (
-                      <div key={alert.id} className="space-y-2 px-4 py-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-medium">{alert.deviceName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {alert.locationName || "No location"} •{" "}
-                              {formatDateTime(alert.timestamp)}
-                            </p>
-                          </div>
-                          <Badge variant="outline">{alert.severity}</Badge>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{alert.type}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {alert.message}
-                          </p>
+              </div>
+
+              {/* Devices List */}
+              <div className="pt-2 border-t">
+                <p className="text-[9px] font-medium text-muted-foreground mb-2">
+                  Daftar Perangkat ({detail?.devices.length || 0})
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-1.5">
+                  {(detail?.devices || []).map((device) => (
+                    <motion.div
+                      key={device.id}
+                      className="flex items-center gap-1.5 bg-muted/30 rounded-lg px-2 py-1.5 hover:bg-muted/50 transition-colors"
+                      whileHover={{ scale: 1.02 }}
+                    >
+                      <div className="relative">
+                        <Cpu className="h-4 w-4 text-muted-foreground" />
+                        <Circle
+                          className={cn(
+                            "absolute -bottom-0.5 -right-0.5 h-2 w-2 fill-current",
+                            device.status.toLowerCase() === "online"
+                              ? "text-emerald-500"
+                              : device.status.toLowerCase() === "offline"
+                                ? "text-red-500"
+                                : "text-amber-500",
+                          )}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[9px] font-medium truncate">
+                          {device.name}
+                        </p>
+                        <div className="flex items-center gap-1 text-[7px] text-muted-foreground">
+                          {device.locationName && (
+                            <>
+                              <MapPin className="h-2 w-2" />
+                              <span className="truncate">
+                                {device.locationName}
+                              </span>
+                            </>
+                          )}
+                          {!device.locationName && device.serialNo && (
+                            <span className="truncate">{device.serialNo}</span>
+                          )}
                         </div>
                       </div>
-                    ))}
-                    {!filteredAlertHistory.length && !loading && (
-                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        Tidak ada alert pada periode ini.
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       </motion.div>
     </PageTransition>
   );

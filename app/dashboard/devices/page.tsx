@@ -45,9 +45,12 @@ export default function DevicesPage() {
 
   const canRead =
     hasPermission("devices:read") || hasPermission("manage_roles");
-  const canCreate = hasPermission("devices:create") || hasPermission("manage_roles");
-  const canUpdate = hasPermission("devices:update") || hasPermission("manage_roles");
-  const canDelete = hasPermission("devices:delete") || hasPermission("manage_roles");
+  const canCreate =
+    hasPermission("devices:create") || hasPermission("manage_roles");
+  const canUpdate =
+    hasPermission("devices:update") || hasPermission("manage_roles");
+  const canDelete =
+    hasPermission("devices:delete") || hasPermission("manage_roles");
 
   const load = useCallback(async () => {
     try {
@@ -190,7 +193,7 @@ export default function DevicesPage() {
               ))}
             </SelectContent>
           </Select>
-          
+
           {canCreate && (
             <Button
               size="sm"
@@ -219,14 +222,16 @@ export default function DevicesPage() {
                 <TableHead className="text-xs">Device ID</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
                 <TableHead className="text-xs">Last Seen</TableHead>
-                <TableHead className="text-xs w-[120px]">Action</TableHead>
+                {(canUpdate || canDelete) && (
+                  <TableHead className="text-xs w-[120px]">Action</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={canUpdate || canDelete ? 5 : 4}
                     className="text-center text-xs text-muted-foreground"
                   >
                     Loading...
@@ -235,7 +240,7 @@ export default function DevicesPage() {
               ) : rows.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={canUpdate || canDelete ? 5 : 4}
                     className="text-center text-xs text-muted-foreground"
                   >
                     No devices
@@ -244,7 +249,10 @@ export default function DevicesPage() {
               ) : (
                 rows.map((device) => (
                   <TableRow key={device.id}>
-                    <TableCell className="text-xs font-medium">
+                    <TableCell
+                      className="text-xs font-medium cursor-pointer hover:underline"
+                      onClick={() => setSelectedDevice(device)}
+                    >
                       {device.name}
                     </TableCell>
                     <TableCell className="text-xs font-mono text-slate-500">
@@ -268,41 +276,43 @@ export default function DevicesPage() {
                         ? new Date(device.lastSeenAt).toLocaleString()
                         : "-"}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => setSelectedDevice(device)}
-                          title="View Detail"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        {canUpdate && (
+                    {(canUpdate || canDelete) && (
+                      <TableCell>
+                        <div className="flex items-center gap-1">
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7"
-                            onClick={() => handleOpenForm(device)}
-                            title="Edit Device"
+                            onClick={() => setSelectedDevice(device)}
+                            title="View Detail"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Eye className="h-4 w-4" />
                           </Button>
-                        )}
-                        {canDelete && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDelete(device.id)}
-                            title="Delete Device"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
+                          {canUpdate && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              onClick={() => handleOpenForm(device)}
+                              title="Edit Device"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDelete(device.id)}
+                              title="Delete Device"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}
@@ -340,7 +350,10 @@ export default function DevicesPage() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Scope</p>
-                  <p>{scopes.find(s => s.id === selectedDevice?.scopeId)?.name || "-"}</p>
+                  <p>
+                    {scopes.find((s) => s.id === selectedDevice?.scopeId)
+                      ?.name || "-"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Location</p>
@@ -364,7 +377,11 @@ export default function DevicesPage() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Last Seen</p>
-                  <p>{selectedDevice?.lastSeenAt ? new Date(selectedDevice.lastSeenAt).toLocaleString() : "-"}</p>
+                  <p>
+                    {selectedDevice?.lastSeenAt
+                      ? new Date(selectedDevice.lastSeenAt).toLocaleString()
+                      : "-"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -399,7 +416,9 @@ export default function DevicesPage() {
             <div className="rounded border p-3">
               <p className="mb-2 font-semibold text-xs">Network</p>
               <div className="text-xs">
-                <p>Internet Status: {showValue(selectedDevice?.internetStatus)}</p>
+                <p>
+                  Internet Status: {showValue(selectedDevice?.internetStatus)}
+                </p>
               </div>
             </div>
 
@@ -424,7 +443,9 @@ export default function DevicesPage() {
           </DialogHeader>
           <form onSubmit={handleSubmitForm} className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="scopeId" className="text-xs">Scope *</Label>
+              <Label htmlFor="scopeId" className="text-xs">
+                Scope *
+              </Label>
               <Select
                 name="scopeId"
                 defaultValue={editDevice?.scopeId || ""}
@@ -435,7 +456,11 @@ export default function DevicesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {scopes.map((scope) => (
-                    <SelectItem key={scope.id} value={scope.id} className="text-xs">
+                    <SelectItem
+                      key={scope.id}
+                      value={scope.id}
+                      className="text-xs"
+                    >
                       {scope.name}
                     </SelectItem>
                   ))}
@@ -444,7 +469,9 @@ export default function DevicesPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="name" className="text-xs">Device Name *</Label>
+              <Label htmlFor="name" className="text-xs">
+                Device Name *
+              </Label>
               <Input
                 id="name"
                 name="name"
@@ -455,7 +482,9 @@ export default function DevicesPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="serialNo" className="text-xs">Serial Number *</Label>
+              <Label htmlFor="serialNo" className="text-xs">
+                Serial Number *
+              </Label>
               <Input
                 id="serialNo"
                 name="serialNo"
@@ -467,7 +496,9 @@ export default function DevicesPage() {
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">
-                <Label htmlFor="locationName" className="text-xs">Location</Label>
+                <Label htmlFor="locationName" className="text-xs">
+                  Location
+                </Label>
                 <Input
                   id="locationName"
                   name="locationName"
@@ -476,7 +507,9 @@ export default function DevicesPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="locationType" className="text-xs">Location Type</Label>
+                <Label htmlFor="locationType" className="text-xs">
+                  Location Type
+                </Label>
                 <Input
                   id="locationType"
                   name="locationType"
@@ -487,7 +520,9 @@ export default function DevicesPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="firmwareVersion" className="text-xs">Firmware</Label>
+              <Label htmlFor="firmwareVersion" className="text-xs">
+                Firmware
+              </Label>
               <Input
                 id="firmwareVersion"
                 name="firmwareVersion"
@@ -497,7 +532,9 @@ export default function DevicesPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="isActive" className="text-xs">Active</Label>
+              <Label htmlFor="isActive" className="text-xs">
+                Active
+              </Label>
               <Select
                 name="isActive"
                 defaultValue={editDevice?.isActive ? "true" : "false"}
@@ -506,8 +543,12 @@ export default function DevicesPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="true" className="text-xs">Yes</SelectItem>
-                  <SelectItem value="false" className="text-xs">No</SelectItem>
+                  <SelectItem value="true" className="text-xs">
+                    Yes
+                  </SelectItem>
+                  <SelectItem value="false" className="text-xs">
+                    No
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

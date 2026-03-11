@@ -1,65 +1,49 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { motion } from "framer-motion";
-import {
-  AlertTriangle,
-  ArrowRight,
-  DollarSign,
-  MapPinned,
-  Store,
-  Zap,
-} from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { Button } from "@/components/ui/button";
+import { MapPinned } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { PageTransition } from "@/components/ui/page-transition";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  alertEventsApi,
   energyDashboardApi,
+  scopesApi,
+  devicesApi,
+  deviceMetricsApi,
+  type Scope,
+  type Device,
   type EnergyOverviewData,
 } from "@/lib/api";
+import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import {
-  buildEnergyFilters,
-  createEnergyPeriod,
-  formatCompactNumber,
-  formatCurrency,
-  formatDateTime,
-  formatPeriodLabel,
-  normalizeEnergyPeriod,
-  type EnergyPeriodState,
-  type EnergyPreset,
-} from "@/lib/energy-monitoring";
-import { exportToExcel, exportToPdf } from "@/lib/report-export";
-import { EnergyPeriodFilter } from "@/components/dashboard/EnergyPeriodFilter";
-import { EnergyExportActions } from "@/components/dashboard/EnergyExportActions";
-import { useRealtimeContext } from "@/components/providers/RealtimeProvider";
+  MonthlyEnergyChart,
+  EnergyTrendChart,
+  PeakHoursChart,
+  OutletComparisonChart,
+  EnergyDistributionDonut,
+  TotalMetricsChart,
+} from "@/components/dashboard/EnergyAnalyticsCharts";
+import {
+  TopOutletsList,
+  LowOutletsList,
+} from "@/components/dashboard/OutletLists";
+import {
+  createDefaultRange,
+  type DateRange,
+} from "@/components/dashboard/ChartDateFilter";
+import type { MapOutlet } from "@/components/dashboard/OpenLayersMap";
 
-const LeafletMap = dynamic(
-  () => import("@/components/ui/leaflet-map").then((mod) => mod.LeafletMap),
+const OpenLayersMap = dynamic(
+  () =>
+    import("@/components/dashboard/OpenLayersMap").then(
+      (mod) => mod.OpenLayersMap,
+    ),
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-[320px] items-center justify-center rounded-xl bg-muted/30 text-sm text-muted-foreground">
+      <div className="flex h-[400px] items-center justify-center rounded-lg bg-muted/30 text-sm text-muted-foreground">
         Loading map...
       </div>
     ),
@@ -68,635 +52,465 @@ const LeafletMap = dynamic(
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.06,
-    },
-  },
+  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
 };
-
 const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
+  hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0 },
 };
 
-type OverviewAlert = {
-  id: string;
-  outlet: string;
-  region: string;
-  type: string;
-  severity: string;
-  message: string;
-  timestamp: string;
+type EnergyOverviewPageProps = {
+  forcedTenantId?: string;
 };
 
-const getSeverityVariant = (
-  severity: string,
-): "default" | "secondary" | "destructive" | "outline" => {
-  switch (severity.toLowerCase()) {
-    case "critical":
-      return "destructive";
-    case "suspicious":
-      return "secondary";
-    default:
-      return "outline";
-  }
-};
-
-export default function EnergyOverviewPage() {
-  const realtime = useRealtimeContext();
-  const [period, setPeriod] = useState<EnergyPeriodState>(() =>
-    createEnergyPeriod("today"),
-  );
-  const [appliedPeriod, setAppliedPeriod] = useState<EnergyPeriodState>(() =>
-    createEnergyPeriod("today"),
-  );
-  const [overviewData, setOverviewData] = useState<EnergyOverviewData | null>(
-    null,
-  );
-  const [alerts, setAlerts] = useState<OverviewAlert[]>([]);
+export function EnergyOverviewPage({
+  forcedTenantId,
+}: EnergyOverviewPageProps = {}) {
+  // ── State ──────────────────────────────────────
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const filters = useMemo(
-    () => buildEnergyFilters(appliedPeriod),
-    [appliedPeriod],
+  // Raw data
+  const [overviewData, setOverviewData] = useState<EnergyOverviewData | null>(
+    null,
   );
-  const periodLabel = useMemo(
-    () => formatPeriodLabel(appliedPeriod),
-    [appliedPeriod],
-  );
+  const [scopes, setScopes] = useState<Scope[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
+
+  // Filter ranges for each chart section
+  const [globalRange, setGlobalRange] = useState<DateRange>(createDefaultRange);
+  const [peakRange, setPeakRange] = useState<DateRange>(createDefaultRange);
+  const [lowRange, setLowRange] = useState<DateRange>(createDefaultRange);
+  const [trendRange, setTrendRange] = useState<DateRange>(createDefaultRange);
+  const [hoursRange, setHoursRange] = useState<DateRange>(createDefaultRange);
+  const [metricsRange, setMetricsRange] =
+    useState<DateRange>(createDefaultRange);
+  const [comparisonRange, setComparisonRange] =
+    useState<DateRange>(createDefaultRange);
+
+  // Metrics for analytics charts
+  const [hourlyMetrics, setHourlyMetrics] = useState<
+    Array<{ hour: string; kWh: number }>
+  >([]);
+  const [dailyMetrics, setDailyMetrics] = useState<
+    Array<{ label: string; kWh: number }>
+  >([]);
+  const [voltageData, setVoltageData] = useState<
+    Array<{ label: string; value: number }>
+  >([]);
+  const [currentData, setCurrentData] = useState<
+    Array<{ label: string; value: number }>
+  >([]);
+  const [powerData, setPowerData] = useState<
+    Array<{ label: string; value: number }>
+  >([]);
+
+  // ── Load core data ─────────────────────────────
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const filters =
+        globalRange.preset === "all"
+          ? { from: "2024-01-01T00:00:00.000Z", to: new Date().toISOString() }
+          : { from: globalRange.from, to: globalRange.to };
+
+      const [overviewRes, scopesRes, devicesRes] = await Promise.all([
+        energyDashboardApi.getOverview(filters),
+        forcedTenantId ? scopesApi.getAll(forcedTenantId) : scopesApi.getAll(),
+        devicesApi.getAll(),
+      ]);
+
+      if (overviewRes.success && overviewRes.data) {
+        setOverviewData(overviewRes.data);
+      } else {
+        setError(overviewRes.error || "Failed to load overview data");
+      }
+
+      if (scopesRes.success && scopesRes.data) {
+        setScopes(forcedTenantId ? scopesRes.data : scopesRes.data);
+      }
+
+      if (devicesRes.success && devicesRes.data) {
+        setDevices(devicesRes.data);
+      }
+    } catch {
+      setError("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  }, [globalRange, forcedTenantId]);
 
   useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  // ── Load hourly metrics for peak hours chart ───
+  useEffect(() => {
     let active = true;
-
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const [overviewResponse, alertResponse] = await Promise.all([
-          energyDashboardApi.getOverview(filters),
-          alertEventsApi.getAll({
-            moduleType: "power_meter",
-            from: filters.from,
-            to: filters.to,
-            limit: 100,
-          }),
-        ]);
-
-        if (!active) {
-          return;
+    const loadHourly = async () => {
+      const filters: Record<string, string | number> = {
+        metricKey: "energy_total",
+        limit: 5000,
+      };
+      if (hoursRange.preset !== "all") {
+        filters.from = hoursRange.from;
+        filters.to = hoursRange.to;
+      }
+      const metricsRes = await deviceMetricsApi.getAll(filters);
+      if (!active) return;
+      if (metricsRes.success && metricsRes.data) {
+        const hourMap = new Map<string, number>();
+        for (let h = 0; h < 24; h++) {
+          hourMap.set(h.toString().padStart(2, "0"), 0);
         }
-
-        if (!overviewResponse.success || !overviewResponse.data) {
-          setError(overviewResponse.error || "Failed to load overview data");
-          setOverviewData(null);
-        } else {
-          setOverviewData(overviewResponse.data);
+        for (const m of metricsRes.data) {
+          const hour = format(parseISO(m.timestamp), "HH");
+          hourMap.set(hour, (hourMap.get(hour) || 0) + m.metricValue);
         }
-
-        if (alertResponse.success && alertResponse.data) {
-          setAlerts(
-            alertResponse.data.map((alert) => ({
-              id: alert.id,
-              outlet:
-                alert.device?.scope?.name ||
-                alert.device?.name ||
-                "Unknown Outlet",
-              region: alert.device?.scope?.region || "Unknown",
-              type: alert.alertType,
-              severity: alert.severity,
-              message:
-                alert.description || alert.title || "Alert event detected",
-              timestamp: alert.timestamp,
+        setHourlyMetrics(
+          Array.from(hourMap.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([hour, kWh]) => ({
+              hour: `${hour}:00`,
+              kWh: Number(kWh.toFixed(2)),
             })),
-          );
-        } else {
-          setAlerts([]);
-        }
-      } catch {
-        if (active) {
-          setError("Failed to load overview data");
-          setOverviewData(null);
-          setAlerts([]);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+        );
       }
     };
-
-    void load();
-
+    void loadHourly();
     return () => {
       active = false;
     };
-  }, [filters]);
+  }, [hoursRange]);
 
+  // ── Load daily metrics for trend chart ──────────
   useEffect(() => {
-    const unsubscribe = realtime.subscribe("alert", (message) => {
-      if (message.type !== "alert") {
-        return;
+    let active = true;
+    const loadDaily = async () => {
+      const filters: Record<string, string | number> = {
+        metricKey: "energy_total",
+        limit: 10000,
+      };
+      if (trendRange.preset !== "all") {
+        filters.from = trendRange.from;
+        filters.to = trendRange.to;
+      }
+      const metricsRes = await deviceMetricsApi.getAll(filters);
+      if (!active) return;
+      if (metricsRes.success && metricsRes.data) {
+        const dayMap = new Map<string, number>();
+        for (const m of metricsRes.data) {
+          const day = format(parseISO(m.timestamp), "dd MMM");
+          dayMap.set(day, (dayMap.get(day) || 0) + m.metricValue);
+        }
+        setDailyMetrics(
+          Array.from(dayMap.entries()).map(([label, kWh]) => ({
+            label,
+            kWh: Number(kWh.toFixed(2)),
+          })),
+        );
+      }
+    };
+    void loadDaily();
+    return () => {
+      active = false;
+    };
+  }, [trendRange]);
+
+  // ── Load all metrics (voltage, current, power) ───────
+  useEffect(() => {
+    let active = true;
+    const loadMetrics = async () => {
+      const baseFilters: Record<string, string | number> = { limit: 5000 };
+      if (metricsRange.preset !== "all") {
+        baseFilters.from = metricsRange.from;
+        baseFilters.to = metricsRange.to;
       }
 
-      const alertData = message.data as {
-        id: string;
-        moduleType: string;
-        alertType: string;
-        severity: string;
-        title: string;
-        description?: string;
-        timestamp: string;
-        device?: { name: string; scope?: { name: string; region?: string } };
+      const [voltageRes, currentRes, powerRes] = await Promise.all([
+        deviceMetricsApi.getAll({ ...baseFilters, metricKey: "voltage_l1" }),
+        deviceMetricsApi.getAll({ ...baseFilters, metricKey: "current_total" }),
+        deviceMetricsApi.getAll({ ...baseFilters, metricKey: "power_total" }),
+      ]);
+
+      if (!active) return;
+
+      const processData = (res: typeof voltageRes, decimals: number) => {
+        if (!res.success || !res.data) return [];
+        const map = new Map<string, { sum: number; count: number }>();
+        for (const m of res.data) {
+          const key = format(parseISO(m.timestamp), "dd MMM HH:00");
+          const entry = map.get(key) || { sum: 0, count: 0 };
+          entry.sum += m.metricValue;
+          entry.count += 1;
+          map.set(key, entry);
+        }
+        return Array.from(map.entries()).map(([label, { sum, count }]) => ({
+          label,
+          value: Number((sum / count).toFixed(decimals)),
+        }));
       };
 
-      if (alertData.moduleType !== "power_meter") {
-        return;
-      }
+      setVoltageData(processData(voltageRes, 1));
+      setCurrentData(processData(currentRes, 2));
+      setPowerData(processData(powerRes, 2));
+    };
+    void loadMetrics();
+    return () => {
+      active = false;
+    };
+  }, [metricsRange]);
 
-      const alertTime = new Date(alertData.timestamp).getTime();
-      const fromTime = new Date(filters.from || "").getTime();
-      const toTime = new Date(filters.to || "").getTime();
+  // ── Derived data ───────────────────────────────
+  const tenantScopeIds = useMemo(() => {
+    if (!forcedTenantId) return null;
+    return new Set(scopes.map((s) => s.id));
+  }, [scopes, forcedTenantId]);
 
-      if (
-        !Number.isNaN(fromTime) &&
-        !Number.isNaN(toTime) &&
-        (alertTime < fromTime || alertTime > toTime)
-      ) {
-        return;
-      }
+  const filteredOutlets = useMemo(() => {
+    if (!overviewData) return [];
+    if (!tenantScopeIds) return overviewData.outletLocations;
+    return overviewData.outletLocations.filter((o) => tenantScopeIds.has(o.id));
+  }, [overviewData, tenantScopeIds]);
 
-      setAlerts((current) => [
-        {
-          id: alertData.id,
-          outlet:
-            alertData.device?.scope?.name ||
-            alertData.device?.name ||
-            "Unknown Outlet",
-          region: alertData.device?.scope?.region || "Unknown",
-          type: alertData.alertType,
-          severity: alertData.severity,
-          message:
-            alertData.description || alertData.title || "Alert event detected",
-          timestamp: alertData.timestamp,
-        },
-        ...current.filter((item) => item.id !== alertData.id).slice(0, 99),
-      ]);
-    });
+  const filteredDevices = useMemo(() => {
+    if (!tenantScopeIds) return devices;
+    return devices.filter((d) => tenantScopeIds.has(d.scopeId));
+  }, [devices, tenantScopeIds]);
 
-    return unsubscribe;
-  }, [filters.from, filters.to, realtime]);
-
-  const topOutlets = useMemo(
-    () => overviewData?.outletLocations.slice(0, 8) || [],
-    [overviewData],
+  // Summary numbers
+  const totalEnergy = useMemo(
+    () => filteredOutlets.reduce((sum, o) => sum + o.usage, 0),
+    [filteredOutlets],
   );
-
-  const mapOutlets = useMemo(
+  const totalOutlets = filteredOutlets.length;
+  const devicesOnline = useMemo(
     () =>
-      (overviewData?.outletLocations || [])
-        .filter((item) => item.lat !== null && item.lng !== null)
-        .map((item) => ({
-          id: item.id,
-          name: item.name,
-          region: item.region,
-          lat: item.lat as number,
-          lng: item.lng as number,
-          status: (item.status === "alert" || item.status === "high"
-            ? item.status
-            : "normal") as "normal" | "high" | "alert",
-          usage: item.usage,
-          cost: item.cost,
-        })),
-    [overviewData],
+      filteredDevices.filter(
+        (d) => d.status === "ACTIVE" || d.status === "active",
+      ).length,
+    [filteredDevices],
+  );
+  const devicesOffline = useMemo(
+    () =>
+      filteredDevices.filter(
+        (d) => d.status !== "ACTIVE" && d.status !== "active",
+      ).length,
+    [filteredDevices],
   );
 
-  const buildDetailHref = (scopeId: string) => {
-    const params = new URLSearchParams();
-    if (filters.from) params.set("from", filters.from);
-    if (filters.to) params.set("to", filters.to);
-    return `/dashboard/electricity/${scopeId}?${params.toString()}`;
-  };
+  // Map outlets
+  const mapOutlets: MapOutlet[] = useMemo(() => {
+    return filteredOutlets
+      .filter((o) => o.lat != null && o.lng != null)
+      .map((outlet) => {
+        const outletDevices = filteredDevices.filter(
+          (d) => d.scopeId === outlet.id,
+        );
+        const hasOnlineDevice = outletDevices.some(
+          (d) => d.status === "ACTIVE" || d.status === "active",
+        );
+        return {
+          id: outlet.id,
+          name: outlet.name,
+          address: outlet.address || outlet.city || outlet.region,
+          totalEnergy: outlet.usage,
+          lat: outlet.lat!,
+          lng: outlet.lng!,
+          online: hasOnlineDevice,
+          devices: outletDevices.map((d) => ({
+            id: d.id,
+            name: d.name,
+            online: d.status === "ACTIVE" || d.status === "active",
+          })),
+        };
+      });
+  }, [filteredOutlets, filteredDevices]);
 
-  const handlePresetChange = (preset: EnergyPreset) => {
-    setPeriod(createEnergyPeriod(preset));
-  };
+  // Region energy for bar chart
+  const regionData = useMemo(() => {
+    if (!overviewData) return [];
+    if (!tenantScopeIds) return overviewData.regionData;
+    const regionMap = new Map<string, number>();
+    for (const o of filteredOutlets) {
+      const key = o.region || "Unknown";
+      regionMap.set(key, (regionMap.get(key) || 0) + o.usage);
+    }
+    return Array.from(regionMap.entries()).map(([region, kWh]) => ({
+      region,
+      kWh: Number(kWh.toFixed(2)),
+    }));
+  }, [overviewData, tenantScopeIds, filteredOutlets]);
 
-  const handleApply = () => {
-    startTransition(() => {
-      setAppliedPeriod(normalizeEnergyPeriod(period));
-    });
-  };
+  // Peak energy per outlet (top 10)
+  const peakOutletData = useMemo(() => {
+    return [...filteredOutlets]
+      .sort((a, b) => b.usage - a.usage)
+      .slice(0, 10)
+      .map((o) => ({
+        name: o.name,
+        region: o.region || "Unknown",
+        kWh: Number(o.usage.toFixed(2)),
+      }));
+  }, [filteredOutlets]);
 
-  const handleReset = () => {
-    const next = createEnergyPeriod("today");
-    setPeriod(next);
-    startTransition(() => {
-      setAppliedPeriod(next);
-    });
-  };
+  // Low energy per outlet (bottom 10)
+  const lowOutletData = useMemo(() => {
+    return [...filteredOutlets]
+      .sort((a, b) => a.usage - b.usage)
+      .slice(0, 10)
+      .map((o) => ({
+        name: o.name,
+        region: o.region || "Unknown",
+        kWh: Number(o.usage.toFixed(2)),
+      }));
+  }, [filteredOutlets]);
 
-  const handleExportExcel = async () => {
-    if (!overviewData) return;
+  // Outlet comparison (all outlets)
+  const comparisonData = useMemo(() => {
+    return [...filteredOutlets]
+      .sort((a, b) => b.usage - a.usage)
+      .map((o) => ({ name: o.name, kWh: Number(o.usage.toFixed(2)) }));
+  }, [filteredOutlets]);
 
-    await exportToExcel(`energy-overview-${overviewData.date}.xlsx`, [
-      {
-        name: "Summary",
-        rows: [
-          {
-            period: periodLabel,
-            totalEnergyKwh: overviewData.globalKpi.totalEnergy,
-            totalCost: overviewData.globalKpi.totalCost,
-            activeOutlets: overviewData.globalKpi.activeOutlets,
-            alertOutlets: overviewData.globalKpi.alertOutlets,
-          },
-        ],
-      },
-      {
-        name: "Regions",
-        rows: overviewData.regionData.map((item) => ({
-          region: item.region,
-          energyKwh: item.kWh,
-          cost: item.cost,
-          outlets: item.outlets,
-        })),
-      },
-      {
-        name: "Outlets",
-        rows: overviewData.outletLocations.map((item) => ({
-          outlet: item.name,
-          region: item.region,
-          city: item.city,
-          status: item.status,
-          energyKwh: item.usage,
-          cost: item.cost,
-        })),
-      },
-      {
-        name: "Alerts",
-        rows: alerts.map((item) => ({
-          timestamp: formatDateTime(item.timestamp),
-          outlet: item.outlet,
-          region: item.region,
-          type: item.type,
-          severity: item.severity,
-          message: item.message,
-        })),
-      },
-    ]);
-  };
+  // Energy distribution for donut (top 8 regions)
+  const donutData = useMemo(() => {
+    return regionData.slice(0, 8).map((r) => ({ name: r.region, kWh: r.kWh }));
+  }, [regionData]);
 
-  const handleExportPdf = async () => {
-    if (!overviewData) return;
-
-    await exportToPdf({
-      fileName: `energy-overview-${overviewData.date}.pdf`,
-      title: "Energy Monitoring Overview",
-      scopeName: "All Outlets",
-      period: periodLabel,
-      generatedAt: new Date().toLocaleString("id-ID"),
-      summary: [
-        `Total energi: ${formatCompactNumber(overviewData.globalKpi.totalEnergy)} kWh`,
-        `Estimasi biaya: ${formatCurrency(overviewData.globalKpi.totalCost)}`,
-        `Outlet aktif: ${overviewData.globalKpi.activeOutlets}, outlet berstatus alert/high: ${overviewData.globalKpi.alertOutlets}`,
-      ],
-      tables: [
-        {
-          title: "Ringkasan Region",
-          columns: ["Region", "Energi (kWh)", "Biaya", "Outlet"],
-          rows: overviewData.regionData.map((item) => [
-            item.region,
-            item.kWh,
-            formatCurrency(item.cost),
-            item.outlets,
-          ]),
-        },
-        {
-          title: "Outlet Tertinggi",
-          columns: ["Outlet", "Region", "Status", "Energi (kWh)", "Biaya"],
-          rows: topOutlets.map((item) => [
-            item.name,
-            item.region,
-            item.status,
-            item.usage,
-            formatCurrency(item.cost),
-          ]),
-        },
-      ],
-    });
-  };
-
+  // ── Render ─────────────────────────────────────
   return (
     <PageTransition>
       <motion.div
-        className="space-y-6"
+        className="space-y-1.5 p-0"
         initial="hidden"
         animate="visible"
         variants={containerVariants}
       >
-        <motion.div
-          variants={itemVariants}
-          className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"
-        >
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              Energy Overview
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Ringkasan konsumsi energi outlet berdasarkan periode {periodLabel}
-            </p>
-          </div>
-          <EnergyExportActions
-            onExportPdf={handleExportPdf}
-            onExportExcel={handleExportExcel}
-            disabled={!overviewData || loading}
-          />
-        </motion.div>
-
-        <motion.div variants={itemVariants}>
-          <EnergyPeriodFilter
-            period={period}
-            onPresetChange={handlePresetChange}
-            onFromChange={(value) =>
-              setPeriod((current) => ({
-                ...current,
-                preset: "custom",
-                from: value,
-              }))
-            }
-            onToChange={(value) =>
-              setPeriod((current) => ({
-                ...current,
-                preset: "custom",
-                to: value,
-              }))
-            }
-            onApply={handleApply}
-            onReset={handleReset}
-            loading={loading}
-          />
-        </motion.div>
-
         {error && (
           <motion.div
             variants={itemVariants}
-            className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+            className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
           >
             {error}
           </motion.div>
         )}
 
-        <motion.div
-          variants={itemVariants}
-          className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
-        >
-          <Card className="border-0 bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/70">
-                    Energi Periode
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold">
-                    {formatCompactNumber(
-                      overviewData?.globalKpi.totalEnergy || 0,
-                    )}
-                  </p>
-                  <p className="text-sm text-white/80">kWh</p>
-                </div>
-                <Zap className="h-8 w-8 text-white/85" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/70">
-                    Estimasi Biaya
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold">
-                    {formatCurrency(overviewData?.globalKpi.totalCost || 0)}
-                  </p>
-                </div>
-                <DollarSign className="h-8 w-8 text-white/85" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/70">
-                    Outlet Aktif
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold">
-                    {overviewData?.globalKpi.activeOutlets || 0}
-                  </p>
-                </div>
-                <Store className="h-8 w-8 text-white/85" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/70">
-                    Outlet Alert
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold">
-                    {overviewData?.globalKpi.alertOutlets || 0}
-                  </p>
-                </div>
-                <AlertTriangle className="h-8 w-8 text-white/85" />
-              </div>
-            </CardContent>
-          </Card>
+        {/* Summary Cards */}
+        <motion.div variants={itemVariants}>
+          <SummaryCards
+            totalEnergy={totalEnergy}
+            totalOutlets={totalOutlets}
+            devicesOnline={devicesOnline}
+            devicesOffline={devicesOffline}
+            loading={loading}
+          />
         </motion.div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <motion.div variants={itemVariants}>
-            <Card className="overflow-hidden border shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b bg-muted/20">
-                <div>
-                  <CardTitle>Distribusi Energi per Region</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Akumulasi energi pada periode aktif
-                  </p>
-                </div>
-                <Badge variant="outline">
-                  {overviewData?.range.label || periodLabel}
-                </Badge>
-              </CardHeader>
-              <CardContent className="p-4">
-                <div className="h-[320px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={overviewData?.regionData || []}>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        className="stroke-muted"
-                      />
-                      <XAxis
-                        dataKey="region"
-                        tickLine={false}
-                        axisLine={false}
-                        fontSize={12}
-                      />
-                      <YAxis tickLine={false} axisLine={false} fontSize={12} />
-                      <Bar dataKey="kWh" fill="#0f766e" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
+        {/* Main Content Grid: LEFT charts | RIGHT map */}
+        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-1.5">
+          {/* ── LEFT COLUMN ── */}
+          <div className="space-y-1.5">
+            {/* Energy by Region */}
+            <motion.div variants={itemVariants}>
+              <MonthlyEnergyChart
+                data={regionData}
+                dateRange={globalRange}
+                onDateChange={setGlobalRange}
+                loading={loading}
+              />
+            </motion.div>
 
-          <motion.div variants={itemVariants}>
-            <Card className="overflow-hidden border shadow-sm">
-              <CardHeader className="border-b bg-muted/20">
-                <CardTitle className="flex items-center gap-2">
-                  <MapPinned className="h-5 w-5" />
-                  Peta Outlet
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-4">
-                <LeafletMap outlets={mapOutlets} className="h-[320px]" />
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
+            {/* Outlet Comparison */}
+            <motion.div variants={itemVariants}>
+              <OutletComparisonChart
+                data={comparisonData}
+                dateRange={comparisonRange}
+                onDateChange={setComparisonRange}
+                loading={loading}
+              />
+            </motion.div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <motion.div variants={itemVariants}>
-            <Card className="border shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
-                <div>
-                  <CardTitle>Outlet dengan Konsumsi Tertinggi</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Gunakan detail untuk melihat perangkat dan histori secara
-                    lengkap
-                  </p>
-                </div>
-                <Badge variant="outline">{topOutlets.length} outlet</Badge>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Outlet</TableHead>
-                      <TableHead>Region</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Energi</TableHead>
-                      <TableHead className="text-right">Biaya</TableHead>
-                      <TableHead className="text-right">Aksi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {topOutlets.map((outlet) => (
-                      <TableRow key={outlet.id}>
-                        <TableCell className="font-medium">
-                          {outlet.name}
-                        </TableCell>
-                        <TableCell>{outlet.region}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              outlet.status === "alert"
-                                ? "destructive"
-                                : outlet.status === "high"
-                                  ? "secondary"
-                                  : "outline"
-                            }
-                          >
-                            {outlet.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCompactNumber(outlet.usage)} kWh
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(outlet.cost)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button asChild variant="ghost" size="sm">
-                            <Link href={buildDetailHref(outlet.id)}>
-                              Detail
-                              <ArrowRight className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!topOutlets.length && !loading && (
-                      <TableRow>
-                        <TableCell
-                          colSpan={6}
-                          className="py-8 text-center text-sm text-muted-foreground"
-                        >
-                          Tidak ada data outlet pada periode ini.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </motion.div>
+            {/* Top Outlets + Low Outlets (LISTS) */}
+            <motion.div
+              variants={itemVariants}
+              className="grid grid-cols-2 gap-1.5"
+            >
+              <TopOutletsList
+                data={peakOutletData}
+                dateRange={peakRange}
+                onDateChange={setPeakRange}
+                loading={loading}
+              />
+              <LowOutletsList
+                data={lowOutletData}
+                dateRange={lowRange}
+                onDateChange={setLowRange}
+                loading={loading}
+              />
+            </motion.div>
 
-          <motion.div variants={itemVariants}>
-            <Card className="border shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
-                <div>
-                  <CardTitle>Alert History</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Alert power meter pada periode yang sama
-                  </p>
-                </div>
-                <Badge variant="outline">{alerts.length} event</Badge>
-              </CardHeader>
-              <CardContent className="p-0">
-                <ScrollArea className="h-[420px]">
-                  <div className="divide-y">
-                    {alerts.map((alert) => (
-                      <div key={alert.id} className="space-y-2 px-4 py-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-medium">{alert.outlet}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {alert.region} • {formatDateTime(alert.timestamp)}
-                            </p>
-                          </div>
-                          <Badge variant={getSeverityVariant(alert.severity)}>
-                            {alert.severity}
-                          </Badge>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{alert.type}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {alert.message}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                    {!alerts.length && !loading && (
-                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        Tidak ada alert pada periode ini.
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </motion.div>
+            {/* Peak Hours (full width) */}
+            <motion.div variants={itemVariants}>
+              <PeakHoursChart
+                data={hourlyMetrics}
+                dateRange={hoursRange}
+                onDateChange={setHoursRange}
+                loading={loading}
+              />
+            </motion.div>
+          </div>
+
+          {/* ── RIGHT COLUMN ── */}
+          <div className="space-y-1.5">
+            {/* Outlet Map */}
+            <motion.div variants={itemVariants}>
+              <Card className="border-0 shadow-sm overflow-hidden">
+                <CardHeader className="px-2 pt-1.5 pb-0">
+                  <CardTitle className="text-[11px] font-semibold flex items-center gap-1.5">
+                    <MapPinned className="h-3.5 w-3.5" />
+                    Outlet Map
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-1.5 pt-1">
+                  <OpenLayersMap outlets={mapOutlets} className="h-[260px]" />
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Energy Distribution Donut */}
+            <motion.div variants={itemVariants}>
+              <EnergyDistributionDonut data={donutData} loading={loading} />
+            </motion.div>
+
+            {/* Energy Trend */}
+            <motion.div variants={itemVariants}>
+              <EnergyTrendChart
+                data={dailyMetrics}
+                dateRange={trendRange}
+                onDateChange={setTrendRange}
+                loading={loading}
+              />
+            </motion.div>
+
+            {/* Total Metrics Chart (Power/Voltage/Current dropdown) */}
+            <motion.div variants={itemVariants}>
+              <TotalMetricsChart
+                voltageData={voltageData}
+                currentData={currentData}
+                powerData={powerData}
+                dateRange={metricsRange}
+                onDateChange={setMetricsRange}
+                loading={loading}
+              />
+            </motion.div>
+          </div>
         </div>
       </motion.div>
     </PageTransition>
   );
 }
+
+export default EnergyOverviewPage;

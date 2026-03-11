@@ -20,11 +20,8 @@ export async function proxy(request: NextRequest) {
     secret: process.env.AUTH_SECRET 
   });
   
-  // Check for our custom JWT token in cookies (set by client)
-  const customToken = request.cookies.get("auth_token")?.value;
-  
-  // User is logged in if either token exists
-  const isLoggedIn = !!nextAuthToken || !!customToken;
+  // Use NextAuth token as the single source of truth.
+  const isLoggedIn = !!nextAuthToken;
 
   const isAuthPage =
     pathname === "/login" ||
@@ -32,14 +29,12 @@ export async function proxy(request: NextRequest) {
 
   const isProtectedRoute = pathname.startsWith("/dashboard");
 
-  // If on auth page and already logged in with NextAuth, redirect to dashboard
-  // Only check NextAuth token to avoid issues with custom token
+  // If on auth page and already logged in, redirect to dashboard
   if (isAuthPage && nextAuthToken) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   // If trying to access protected route without being logged in
-  // Only redirect if both tokens are missing
   if (isProtectedRoute && !isLoggedIn) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);

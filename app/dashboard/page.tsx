@@ -1,14 +1,10 @@
-import { AlertsDashboard } from "../../components/dashboard/AlertsDashboard";
+import { redirect } from "next/navigation";
 
 export const metadata = {
   title: "Dashboard",
-  description: "Alerts dashboard for monitoring system events",
+  description: "Energy monitoring overview with outlet map",
 };
 
 export default function DashboardPage() {
-  return (
-    <div className="space-y-1">
-      <AlertsDashboard />
-    </div>
-  );
+  redirect("/dashboard/energy-monitoring/overview");
 }

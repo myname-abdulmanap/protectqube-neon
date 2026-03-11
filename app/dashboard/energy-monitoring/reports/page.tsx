@@ -9,7 +9,6 @@ import {
   Zap,
   Gauge,
   TrendingUp,
-  AlertTriangle,
   Search,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +32,6 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { PageTransition } from "@/components/ui/page-transition";
 import {
-  alertEventsApi,
   deviceMetricsApi,
   energyConfigsApi,
   energyDashboardApi,
@@ -82,15 +80,6 @@ type OutletView = {
   maxLoad: number | null;
 };
 
-type OutletAlert = {
-  id: string;
-  type: string;
-  severity: string;
-  message: string;
-  time: string;
-  section: string;
-};
-
 type HistoricalRow = {
   timestampIso: string;
   waktu: string;
@@ -129,19 +118,54 @@ const METRIC_GROUP_OPTIONS: { key: MetricGroup; label: string }[] = [
   { key: "energy", label: "Energi & Frekuensi" },
 ];
 
-const METRIC_COLUMNS: Record<MetricGroup | "all", { key: keyof HistoricalRow; label: string }[]> = {
+const METRIC_COLUMNS: Record<
+  MetricGroup | "all",
+  { key: keyof HistoricalRow; label: string }[]
+> = {
   all: [
-    { key: "voltageL1", label: "V L1" }, { key: "voltageL2", label: "V L2" }, { key: "voltageL3", label: "V L3" },
-    { key: "currentL1", label: "I L1" }, { key: "currentL2", label: "I L2" }, { key: "currentL3", label: "I L3" }, { key: "currentTotal", label: "I Tot" },
-    { key: "powerL1", label: "P L1" }, { key: "powerL2", label: "P L2" }, { key: "powerL3", label: "P L3" }, { key: "powerTotal", label: "P Tot" },
-    { key: "reactiveL1", label: "Q L1" }, { key: "reactiveL2", label: "Q L2" }, { key: "reactiveL3", label: "Q L3" },
-    { key: "frequency", label: "Hz" }, { key: "energyTotal", label: "kWh" },
+    { key: "voltageL1", label: "V L1" },
+    { key: "voltageL2", label: "V L2" },
+    { key: "voltageL3", label: "V L3" },
+    { key: "currentL1", label: "I L1" },
+    { key: "currentL2", label: "I L2" },
+    { key: "currentL3", label: "I L3" },
+    { key: "currentTotal", label: "I Tot" },
+    { key: "powerL1", label: "P L1" },
+    { key: "powerL2", label: "P L2" },
+    { key: "powerL3", label: "P L3" },
+    { key: "powerTotal", label: "P Tot" },
+    { key: "reactiveL1", label: "Q L1" },
+    { key: "reactiveL2", label: "Q L2" },
+    { key: "reactiveL3", label: "Q L3" },
+    { key: "frequency", label: "Hz" },
+    { key: "energyTotal", label: "kWh" },
   ],
-  voltage: [{ key: "voltageL1", label: "V L1" }, { key: "voltageL2", label: "V L2" }, { key: "voltageL3", label: "V L3" }],
-  current: [{ key: "currentL1", label: "I L1" }, { key: "currentL2", label: "I L2" }, { key: "currentL3", label: "I L3" }, { key: "currentTotal", label: "I Tot" }],
-  power: [{ key: "powerL1", label: "P L1" }, { key: "powerL2", label: "P L2" }, { key: "powerL3", label: "P L3" }, { key: "powerTotal", label: "P Tot" }],
-  reactive: [{ key: "reactiveL1", label: "Q L1" }, { key: "reactiveL2", label: "Q L2" }, { key: "reactiveL3", label: "Q L3" }],
-  energy: [{ key: "frequency", label: "Hz" }, { key: "energyTotal", label: "kWh" }],
+  voltage: [
+    { key: "voltageL1", label: "V L1" },
+    { key: "voltageL2", label: "V L2" },
+    { key: "voltageL3", label: "V L3" },
+  ],
+  current: [
+    { key: "currentL1", label: "I L1" },
+    { key: "currentL2", label: "I L2" },
+    { key: "currentL3", label: "I L3" },
+    { key: "currentTotal", label: "I Tot" },
+  ],
+  power: [
+    { key: "powerL1", label: "P L1" },
+    { key: "powerL2", label: "P L2" },
+    { key: "powerL3", label: "P L3" },
+    { key: "powerTotal", label: "P Tot" },
+  ],
+  reactive: [
+    { key: "reactiveL1", label: "Q L1" },
+    { key: "reactiveL2", label: "Q L2" },
+    { key: "reactiveL3", label: "Q L3" },
+  ],
+  energy: [
+    { key: "frequency", label: "Hz" },
+    { key: "energyTotal", label: "kWh" },
+  ],
 };
 
 const SECTION_DOT_CLASSES = [
@@ -168,17 +192,23 @@ export default function ReportsPage() {
 
   const [outlets, setOutlets] = useState<OutletView[]>([]);
   const [selectedOutlet, setSelectedOutlet] = useState<string>("");
-  const [alerts, setAlerts] = useState<OutletAlert[]>([]);
   const [historicalReadings, setHistoricalReadings] = useState<HistoricalRow[]>(
     [],
   );
   const [rawScopeMetrics, setRawScopeMetrics] = useState<RawScopeMetric[]>([]);
-  const [selectedScopeDetail, setSelectedScopeDetail] = useState<Scope | null>(null);
-  const [selectedEnergyConfig, setSelectedEnergyConfig] = useState<{ maxLoadKw: number | null; capacityVa: number | null } | null>(null);
+  const [selectedScopeDetail, setSelectedScopeDetail] = useState<Scope | null>(
+    null,
+  );
+  const [selectedEnergyConfig, setSelectedEnergyConfig] = useState<{
+    maxLoadKw: number | null;
+    capacityVa: number | null;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tableSearch, setTableSearch] = useState("");
-  const [tableMetricFilter, setTableMetricFilter] = useState<MetricGroup | "all">("all");
+  const [tableMetricFilter, setTableMetricFilter] = useState<
+    MetricGroup | "all"
+  >("all");
   const [tablePage, setTablePage] = useState(0);
   const TABLE_PAGE_SIZE = 20;
 
@@ -260,22 +290,19 @@ export default function ReportsPage() {
     if (!outlet) return;
 
     const loadData = async () => {
-      const [metricResponse, alertResponse, scopeResponse, configResponse] = await Promise.all([
-        deviceMetricsApi.getAll({
-          scopeId: outlet.id,
-          moduleType: "power_meter",
-          from: filters.from,
-          to: filters.to,
-          limit: 50000,
-        }),
-        alertEventsApi.getAll({
-          scopeId: outlet.id,
-          moduleType: "power_meter",
-          limit: 50,
-        }),
-        scopesApi.getById(outlet.id),
-        energyConfigsApi.getAll(outlet.id),
-      ]);
+      const [metricResponse, scopeResponse, configResponse] = await Promise.all(
+        [
+          deviceMetricsApi.getAll({
+            scopeId: outlet.id,
+            moduleType: "power_meter",
+            from: filters.from,
+            to: filters.to,
+            limit: 50000,
+          }),
+          scopesApi.getById(outlet.id),
+          energyConfigsApi.getAll(outlet.id),
+        ],
+      );
 
       if (scopeResponse.success && scopeResponse.data) {
         setSelectedScopeDetail(scopeResponse.data);
@@ -283,9 +310,14 @@ export default function ReportsPage() {
         setSelectedScopeDetail(null);
       }
 
-      if (configResponse.success && configResponse.data && configResponse.data.length > 0) {
+      if (
+        configResponse.success &&
+        configResponse.data &&
+        configResponse.data.length > 0
+      ) {
         const sortedConfigs = [...configResponse.data].sort(
-          (a, b) => new Date(b.validFrom).getTime() - new Date(a.validFrom).getTime(),
+          (a, b) =>
+            new Date(b.validFrom).getTime() - new Date(a.validFrom).getTime(),
         );
         const latestConfig = sortedConfigs[0];
         setSelectedEnergyConfig({
@@ -306,7 +338,10 @@ export default function ReportsPage() {
           })),
         );
 
-        const latestByHourDeviceMetric = new Map<string, (typeof metricResponse.data)[number]>();
+        const latestByHourDeviceMetric = new Map<
+          string,
+          (typeof metricResponse.data)[number]
+        >();
         for (const metric of metricResponse.data) {
           const ts = new Date(metric.timestamp);
           if (Number.isNaN(ts.getTime())) continue;
@@ -316,7 +351,11 @@ export default function ReportsPage() {
           const key = `${hourStart.toISOString()}|${metric.deviceId}|${metric.metricKey}`;
 
           const current = latestByHourDeviceMetric.get(key);
-          if (!current || new Date(metric.timestamp).getTime() > new Date(current.timestamp).getTime()) {
+          if (
+            !current ||
+            new Date(metric.timestamp).getTime() >
+              new Date(current.timestamp).getTime()
+          ) {
             latestByHourDeviceMetric.set(key, metric);
           }
         }
@@ -328,8 +367,16 @@ export default function ReportsPage() {
             : `${d.toLocaleDateString("id-ID")} ${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} WIB`;
         };
 
-        const avgKeys = new Set(["voltage_l1", "voltage_l2", "voltage_l3", "frequency"]);
-        const hourlyAgg = new Map<string, Map<string, { sum: number; count: number }>>();
+        const avgKeys = new Set([
+          "voltage_l1",
+          "voltage_l2",
+          "voltage_l3",
+          "frequency",
+        ]);
+        const hourlyAgg = new Map<
+          string,
+          Map<string, { sum: number; count: number }>
+        >();
 
         for (const metric of latestByHourDeviceMetric.values()) {
           const ts = new Date(metric.timestamp);
@@ -346,7 +393,10 @@ export default function ReportsPage() {
           if (!Number.isFinite(value)) continue;
 
           const metricAgg = hourlyAgg.get(hourIso)!;
-          const current = metricAgg.get(metric.metricKey) ?? { sum: 0, count: 0 };
+          const current = metricAgg.get(metric.metricKey) ?? {
+            sum: 0,
+            count: 0,
+          };
           current.sum += value;
           current.count += 1;
           metricAgg.set(metric.metricKey, current);
@@ -380,7 +430,9 @@ export default function ReportsPage() {
               powerL1: toMetricValue(values, "power_l1"),
               powerL2: toMetricValue(values, "power_l2"),
               powerL3: toMetricValue(values, "power_l3"),
-              powerTotal: toMetricValue(values, "power_total") ?? toMetricValue(values, "power"),
+              powerTotal:
+                toMetricValue(values, "power_total") ??
+                toMetricValue(values, "power"),
               reactiveL1: toMetricValue(values, "reactive_l1"),
               reactiveL2: toMetricValue(values, "reactive_l2"),
               reactiveL3: toMetricValue(values, "reactive_l3"),
@@ -391,25 +443,6 @@ export default function ReportsPage() {
       } else {
         setRawScopeMetrics([]);
         setHistoricalReadings([]);
-      }
-
-      if (alertResponse.success && alertResponse.data) {
-        setAlerts(
-          alertResponse.data.map((alert) => {
-            const eventDate = new Date(alert.timestamp);
-            return {
-              id: alert.id,
-              type: alert.alertType,
-              severity: alert.severity,
-              message:
-                alert.description || alert.title || "Alert event detected",
-              time: Number.isNaN(eventDate.getTime())
-                ? "-"
-                : `${eventDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })} WIB`,
-              section: alert.device?.locationName || "Outlet",
-            };
-          }),
-        );
       }
     };
 
@@ -450,9 +483,13 @@ export default function ReportsPage() {
   }, [historicalReadings]);
 
   const sectionConsumptionFromHistorical = useMemo(() => {
-    if (!outlet) return [] as Array<{ name: string; kWh: number; value: number }>;
+    if (!outlet)
+      return [] as Array<{ name: string; kWh: number; value: number }>;
 
-    const latestEnergyByDevice = new Map<string, { timestamp: number; value: number }>();
+    const latestEnergyByDevice = new Map<
+      string,
+      { timestamp: number; value: number }
+    >();
     for (const metric of rawScopeMetrics) {
       if (metric.metricKey !== "energy_total") continue;
       const ts = new Date(metric.timestamp).getTime();
@@ -468,12 +505,19 @@ export default function ReportsPage() {
 
     const sectionMap = new Map<string, number>();
     for (const device of outlet.devices) {
-      const locationName = device.locationName || device.locationType || "Uncategorized";
+      const locationName =
+        device.locationName || device.locationType || "Uncategorized";
       const latestEnergy = latestEnergyByDevice.get(device.id)?.value || 0;
-      sectionMap.set(locationName, toSafeNumber((sectionMap.get(locationName) || 0) + latestEnergy));
+      sectionMap.set(
+        locationName,
+        toSafeNumber((sectionMap.get(locationName) || 0) + latestEnergy),
+      );
     }
 
-    const total = Array.from(sectionMap.values()).reduce((sum, v) => sum + v, 0);
+    const total = Array.from(sectionMap.values()).reduce(
+      (sum, v) => sum + v,
+      0,
+    );
     return Array.from(sectionMap.entries())
       .map(([name, kWh]) => ({
         name,
@@ -511,9 +555,11 @@ export default function ReportsPage() {
               "Scope Type": selectedScopeDetail?.scopeType || "-",
               Periode: periodLabel,
               "Tanggal Cetak": formatReportDate(),
-              "Energy Total kWh (historical terakhir)": latestHistoricalEnergyTotal,
+              "Energy Total kWh (historical terakhir)":
+                latestHistoricalEnergyTotal,
               "Peak Power (historical, kW)": peakPowerFromHistorical,
-              "Kapasitas Maks (kW)": selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "-",
+              "Kapasitas Maks (kW)":
+                selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "-",
               "Kapasitas (VA)": selectedEnergyConfig?.capacityVa ?? "-",
               "Jumlah Device": outlet.devices.length,
             },
@@ -598,16 +644,6 @@ export default function ReportsPage() {
             },
           ],
         },
-        {
-          name: "Alerts",
-          rows: alerts.map((a) => ({
-            Waktu: a.time,
-            Tipe: a.type,
-            Severity: a.severity,
-            Bagian: a.section,
-            Pesan: a.message,
-          })),
-        },
       ],
     );
   };
@@ -679,11 +715,24 @@ export default function ReportsPage() {
         {
           title: "Konsumsi per Bagian",
           columns: ["Bagian", "Persentase (%)", "kWh"],
-          rows: sectionConsumptionFromHistorical.map((s) => [s.name, s.value, s.kWh]),
+          rows: sectionConsumptionFromHistorical.map((s) => [
+            s.name,
+            s.value,
+            s.kWh,
+          ]),
         },
         {
           title: "Info Device",
-          columns: ["Device ID", "Nama", "Serial", "Lokasi", "Tipe Lokasi", "Status", "Last Seen", "Modules"],
+          columns: [
+            "Device ID",
+            "Nama",
+            "Serial",
+            "Lokasi",
+            "Tipe Lokasi",
+            "Status",
+            "Last Seen",
+            "Modules",
+          ],
           rows: outlet.devices.map((device) => [
             device.id,
             device.name,
@@ -721,21 +770,6 @@ export default function ReportsPage() {
             ],
           ],
         },
-        ...(alerts.length > 0
-          ? [
-              {
-                title: "Alert & Notifikasi",
-                columns: ["Waktu", "Tipe", "Severity", "Bagian", "Pesan"],
-                rows: alerts.map((a) => [
-                  a.time,
-                  a.type,
-                  a.severity,
-                  a.section,
-                  a.message,
-                ]),
-              },
-            ]
-          : []),
       ],
     });
   };
@@ -861,7 +895,9 @@ export default function ReportsPage() {
                       <p className="text-lg font-bold">
                         {selectedScopeDetail?.tenant?.name || "-"}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">{outlet.city || outlet.region || "-"}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {outlet.city || outlet.region || "-"}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -876,7 +912,9 @@ export default function ReportsPage() {
                       <p className="text-xs text-muted-foreground">
                         Peak Power (Historical)
                       </p>
-                      <p className="text-lg font-bold">{formatKwh(peakPowerFromHistorical)} kW</p>
+                      <p className="text-lg font-bold">
+                        {formatKwh(peakPowerFromHistorical)} kW
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -916,7 +954,8 @@ export default function ReportsPage() {
                         Tabel Riwayat Pengukuran
                       </CardTitle>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Periode: {periodLabel} &middot; {historicalReadings.length} data per jam
+                        Periode: {periodLabel} &middot;{" "}
+                        {historicalReadings.length} data per jam
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -933,7 +972,9 @@ export default function ReportsPage() {
                         <SelectContent>
                           <SelectItem value="all">Semua Metrik</SelectItem>
                           {METRIC_GROUP_OPTIONS.map((g) => (
-                            <SelectItem key={g.key} value={g.key}>{g.label}</SelectItem>
+                            <SelectItem key={g.key} value={g.key}>
+                              {g.label}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -958,9 +999,19 @@ export default function ReportsPage() {
                     const searchLower = tableSearch.toLowerCase();
                     const filtered = [...historicalReadings]
                       .reverse()
-                      .filter((r) => !tableSearch || r.waktu.toLowerCase().includes(searchLower));
-                    const totalPages = Math.max(1, Math.ceil(filtered.length / TABLE_PAGE_SIZE));
-                    const pageData = filtered.slice(tablePage * TABLE_PAGE_SIZE, (tablePage + 1) * TABLE_PAGE_SIZE);
+                      .filter(
+                        (r) =>
+                          !tableSearch ||
+                          r.waktu.toLowerCase().includes(searchLower),
+                      );
+                    const totalPages = Math.max(
+                      1,
+                      Math.ceil(filtered.length / TABLE_PAGE_SIZE),
+                    );
+                    const pageData = filtered.slice(
+                      tablePage * TABLE_PAGE_SIZE,
+                      (tablePage + 1) * TABLE_PAGE_SIZE,
+                    );
 
                     if (historicalReadings.length === 0) {
                       return (
@@ -978,16 +1029,26 @@ export default function ReportsPage() {
                               <TableRow>
                                 <TableHead className="text-xs">Waktu</TableHead>
                                 {cols.map((c) => (
-                                  <TableHead key={c.key} className="text-xs text-right">{c.label}</TableHead>
+                                  <TableHead
+                                    key={c.key}
+                                    className="text-xs text-right"
+                                  >
+                                    {c.label}
+                                  </TableHead>
                                 ))}
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {pageData.map((row, idx) => (
                                 <TableRow key={`${row.waktu}-${idx}`}>
-                                  <TableCell className="text-xs font-medium">{row.waktu}</TableCell>
+                                  <TableCell className="text-xs font-medium">
+                                    {row.waktu}
+                                  </TableCell>
                                   {cols.map((c) => (
-                                    <TableCell key={c.key} className="text-xs text-right tabular-nums">
+                                    <TableCell
+                                      key={c.key}
+                                      className="text-xs text-right tabular-nums"
+                                    >
                                       {fmtNum(row[c.key] as number | null)}
                                     </TableCell>
                                   ))}
@@ -998,18 +1059,26 @@ export default function ReportsPage() {
                         </div>
                         <div className="flex items-center justify-between mt-3">
                           <p className="text-xs text-muted-foreground">
-                            {filtered.length} data{tableSearch ? " (difilter)" : ""} — Halaman {tablePage + 1} dari {totalPages}
+                            {filtered.length} data
+                            {tableSearch ? " (difilter)" : ""} — Halaman{" "}
+                            {tablePage + 1} dari {totalPages}
                           </p>
                           <div className="flex gap-1">
                             <button
-                              onClick={() => setTablePage((p) => Math.max(0, p - 1))}
+                              onClick={() =>
+                                setTablePage((p) => Math.max(0, p - 1))
+                              }
                               disabled={tablePage === 0}
                               className="px-3 py-1 text-xs rounded border disabled:opacity-50 hover:bg-muted transition-colors"
                             >
                               Sebelumnya
                             </button>
                             <button
-                              onClick={() => setTablePage((p) => Math.min(totalPages - 1, p + 1))}
+                              onClick={() =>
+                                setTablePage((p) =>
+                                  Math.min(totalPages - 1, p + 1),
+                                )
+                              }
                               disabled={tablePage >= totalPages - 1}
                               className="px-3 py-1 text-xs rounded border disabled:opacity-50 hover:bg-muted transition-colors"
                             >
@@ -1112,66 +1181,6 @@ export default function ReportsPage() {
                       </TableBody>
                     </Table>
                   </div>
-                </CardContent>
-              </Card>
-
-              {/* Alerts */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center gap-2 text-sm">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    Alerts ({alerts.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {alerts.length === 0 ? (
-                    <p className="text-xs text-muted-foreground py-4 text-center">
-                      Tidak ada alert
-                    </p>
-                  ) : (
-                    <div className="rounded-md border max-h-[250px] overflow-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs">Waktu</TableHead>
-                            <TableHead className="text-xs">Tipe</TableHead>
-                            <TableHead className="text-xs">Severity</TableHead>
-                            <TableHead className="text-xs">Pesan</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {alerts.map((a) => (
-                            <TableRow key={a.id}>
-                              <TableCell className="text-xs">
-                                {a.time}
-                              </TableCell>
-                              <TableCell className="text-xs">
-                                {a.type}
-                              </TableCell>
-                              <TableCell className="text-xs">
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    "text-[10px]",
-                                    a.severity === "critical"
-                                      ? "bg-red-500/20 text-red-500 border-red-500/30"
-                                      : a.severity === "suspicious"
-                                        ? "bg-yellow-500/20 text-yellow-500 border-yellow-500/30"
-                                        : "bg-blue-500/20 text-blue-500 border-blue-500/30",
-                                  )}
-                                >
-                                  {a.severity}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-xs max-w-[200px] truncate">
-                                {a.message}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             </motion.div>
