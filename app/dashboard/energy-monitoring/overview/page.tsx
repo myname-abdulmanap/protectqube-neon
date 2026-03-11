@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { MapPinned } from "lucide-react";
@@ -8,14 +8,11 @@ import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageTransition } from "@/components/ui/page-transition";
 import {
-  energyDashboardApi,
-  scopesApi,
-  devicesApi,
-  deviceMetricsApi,
-  type Scope,
-  type Device,
-  type EnergyOverviewData,
-} from "@/lib/api";
+  useEnergyOverview,
+  useScopes,
+  useDevices,
+  useDeviceMetrics,
+} from "@/lib/use-energy-data";
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import {
   MonthlyEnergyChart,
@@ -66,18 +63,7 @@ type EnergyOverviewPageProps = {
 export function EnergyOverviewPage({
   forcedTenantId,
 }: EnergyOverviewPageProps = {}) {
-  // ── State ──────────────────────────────────────
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Raw data
-  const [overviewData, setOverviewData] = useState<EnergyOverviewData | null>(
-    null,
-  );
-  const [scopes, setScopes] = useState<Scope[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
-
-  // Filter ranges for each chart section
+  // Filter ranges
   const [globalRange, setGlobalRange] = useState<DateRange>(createDefaultRange);
   const [peakRange, setPeakRange] = useState<DateRange>(createDefaultRange);
   const [lowRange, setLowRange] = useState<DateRange>(createDefaultRange);
@@ -88,184 +74,162 @@ export function EnergyOverviewPage({
   const [comparisonRange, setComparisonRange] =
     useState<DateRange>(createDefaultRange);
 
-  // Metrics for analytics charts
-  const [hourlyMetrics, setHourlyMetrics] = useState<
-    Array<{ hour: string; kWh: number }>
-  >([]);
-  const [dailyMetrics, setDailyMetrics] = useState<
-    Array<{ label: string; kWh: number }>
-  >([]);
-  const [voltageData, setVoltageData] = useState<
-    Array<{ label: string; value: number }>
-  >([]);
-  const [currentData, setCurrentData] = useState<
-    Array<{ label: string; value: number }>
-  >([]);
-  const [powerData, setPowerData] = useState<
-    Array<{ label: string; value: number }>
-  >([]);
+  // ── Build API filters from ranges ──────────────
+  const globalFilters = useMemo(
+    () =>
+      globalRange.preset === "all"
+        ? { from: "2024-01-01T00:00:00.000Z", to: new Date().toISOString() }
+        : { from: globalRange.from, to: globalRange.to },
+    [globalRange],
+  );
 
-  // ── Load core data ─────────────────────────────
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const hourlyFilters = useMemo(
+    () => ({
+      metricKey: "energy_total",
+      limit: 2000,
+      ...(hoursRange.preset !== "all"
+        ? { from: hoursRange.from, to: hoursRange.to }
+        : {}),
+    }),
+    [hoursRange],
+  );
 
-      const filters =
-        globalRange.preset === "all"
-          ? { from: "2024-01-01T00:00:00.000Z", to: new Date().toISOString() }
-          : { from: globalRange.from, to: globalRange.to };
+  const trendFilters = useMemo(
+    () => ({
+      metricKey: "energy_total",
+      limit: 5000,
+      ...(trendRange.preset !== "all"
+        ? { from: trendRange.from, to: trendRange.to }
+        : {}),
+    }),
+    [trendRange],
+  );
 
-      const [overviewRes, scopesRes, devicesRes] = await Promise.all([
-        energyDashboardApi.getOverview(filters),
-        forcedTenantId ? scopesApi.getAll(forcedTenantId) : scopesApi.getAll(),
-        devicesApi.getAll(),
-      ]);
-
-      if (overviewRes.success && overviewRes.data) {
-        setOverviewData(overviewRes.data);
-      } else {
-        setError(overviewRes.error || "Failed to load overview data");
-      }
-
-      if (scopesRes.success && scopesRes.data) {
-        setScopes(forcedTenantId ? scopesRes.data : scopesRes.data);
-      }
-
-      if (devicesRes.success && devicesRes.data) {
-        setDevices(devicesRes.data);
-      }
-    } catch {
-      setError("Failed to load data");
-    } finally {
-      setLoading(false);
+  const metricsBaseFilters = useMemo(() => {
+    const base: Record<string, string | number> = { limit: 2000 };
+    if (metricsRange.preset !== "all") {
+      base.from = metricsRange.from;
+      base.to = metricsRange.to;
     }
-  }, [globalRange, forcedTenantId]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  // ── Load hourly metrics for peak hours chart ───
-  useEffect(() => {
-    let active = true;
-    const loadHourly = async () => {
-      const filters: Record<string, string | number> = {
-        metricKey: "energy_total",
-        limit: 5000,
-      };
-      if (hoursRange.preset !== "all") {
-        filters.from = hoursRange.from;
-        filters.to = hoursRange.to;
-      }
-      const metricsRes = await deviceMetricsApi.getAll(filters);
-      if (!active) return;
-      if (metricsRes.success && metricsRes.data) {
-        const hourMap = new Map<string, number>();
-        for (let h = 0; h < 24; h++) {
-          hourMap.set(h.toString().padStart(2, "0"), 0);
-        }
-        for (const m of metricsRes.data) {
-          const hour = format(parseISO(m.timestamp), "HH");
-          hourMap.set(hour, (hourMap.get(hour) || 0) + m.metricValue);
-        }
-        setHourlyMetrics(
-          Array.from(hourMap.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([hour, kWh]) => ({
-              hour: `${hour}:00`,
-              kWh: Number(kWh.toFixed(2)),
-            })),
-        );
-      }
-    };
-    void loadHourly();
-    return () => {
-      active = false;
-    };
-  }, [hoursRange]);
-
-  // ── Load daily metrics for trend chart ──────────
-  useEffect(() => {
-    let active = true;
-    const loadDaily = async () => {
-      const filters: Record<string, string | number> = {
-        metricKey: "energy_total",
-        limit: 10000,
-      };
-      if (trendRange.preset !== "all") {
-        filters.from = trendRange.from;
-        filters.to = trendRange.to;
-      }
-      const metricsRes = await deviceMetricsApi.getAll(filters);
-      if (!active) return;
-      if (metricsRes.success && metricsRes.data) {
-        const dayMap = new Map<string, number>();
-        for (const m of metricsRes.data) {
-          const day = format(parseISO(m.timestamp), "dd MMM");
-          dayMap.set(day, (dayMap.get(day) || 0) + m.metricValue);
-        }
-        setDailyMetrics(
-          Array.from(dayMap.entries()).map(([label, kWh]) => ({
-            label,
-            kWh: Number(kWh.toFixed(2)),
-          })),
-        );
-      }
-    };
-    void loadDaily();
-    return () => {
-      active = false;
-    };
-  }, [trendRange]);
-
-  // ── Load all metrics (voltage, current, power) ───────
-  useEffect(() => {
-    let active = true;
-    const loadMetrics = async () => {
-      const baseFilters: Record<string, string | number> = { limit: 5000 };
-      if (metricsRange.preset !== "all") {
-        baseFilters.from = metricsRange.from;
-        baseFilters.to = metricsRange.to;
-      }
-
-      const [voltageRes, currentRes, powerRes] = await Promise.all([
-        deviceMetricsApi.getAll({ ...baseFilters, metricKey: "voltage_l1" }),
-        deviceMetricsApi.getAll({ ...baseFilters, metricKey: "current_total" }),
-        deviceMetricsApi.getAll({ ...baseFilters, metricKey: "power_total" }),
-      ]);
-
-      if (!active) return;
-
-      const processData = (res: typeof voltageRes, decimals: number) => {
-        if (!res.success || !res.data) return [];
-        const map = new Map<string, { sum: number; count: number }>();
-        for (const m of res.data) {
-          const key = format(parseISO(m.timestamp), "dd MMM HH:00");
-          const entry = map.get(key) || { sum: 0, count: 0 };
-          entry.sum += m.metricValue;
-          entry.count += 1;
-          map.set(key, entry);
-        }
-        return Array.from(map.entries()).map(([label, { sum, count }]) => ({
-          label,
-          value: Number((sum / count).toFixed(decimals)),
-        }));
-      };
-
-      setVoltageData(processData(voltageRes, 1));
-      setCurrentData(processData(currentRes, 2));
-      setPowerData(processData(powerRes, 2));
-    };
-    void loadMetrics();
-    return () => {
-      active = false;
-    };
+    return base;
   }, [metricsRange]);
 
-  // ── Derived data ───────────────────────────────
+  // ── SWR data fetching (cached + deduped) ───────
+  const {
+    data: overviewData,
+    error: overviewError,
+    isLoading: loading,
+  } = useEnergyOverview(globalFilters);
+  const { data: scopes } = useScopes(forcedTenantId);
+  const { data: deviceList } = useDevices();
+  const devices = useMemo(() => deviceList || [], [deviceList]);
+
+  // Metric hooks — each one is cached + deduped independently
+  const { data: hourlyRaw } = useDeviceMetrics(hourlyFilters);
+  const { data: trendRaw } = useDeviceMetrics(trendFilters);
+  const { data: voltageRaw } = useDeviceMetrics(
+    useMemo(
+      () => ({ ...metricsBaseFilters, metricKey: "voltage_l1" }),
+      [metricsBaseFilters],
+    ),
+  );
+  const { data: currentRaw } = useDeviceMetrics(
+    useMemo(
+      () => ({ ...metricsBaseFilters, metricKey: "current_total" }),
+      [metricsBaseFilters],
+    ),
+  );
+  const { data: powerRaw } = useDeviceMetrics(
+    useMemo(
+      () => ({ ...metricsBaseFilters, metricKey: "power_total" }),
+      [metricsBaseFilters],
+    ),
+  );
+
+  const error = overviewError?.message || null;
+
+  // ── Transform hourly metrics ───────────────────
+  const hourlyMetrics = useMemo(() => {
+    if (!hourlyRaw) return [];
+    const hourMap = new Map<string, number>();
+    for (let h = 0; h < 24; h++) hourMap.set(h.toString().padStart(2, "0"), 0);
+    for (const m of hourlyRaw) {
+      const hour = format(parseISO(m.timestamp), "HH");
+      hourMap.set(hour, (hourMap.get(hour) || 0) + m.metricValue);
+    }
+    return Array.from(hourMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([hour, kWh]) => ({
+        hour: `${hour}:00`,
+        kWh: Number(kWh.toFixed(2)),
+      }));
+  }, [hourlyRaw]);
+
+  // ── Transform daily metrics ────────────────────
+  const dailyMetrics = useMemo(() => {
+    if (!trendRaw) return [];
+    const dayMap = new Map<string, number>();
+    for (const m of trendRaw) {
+      const day = format(parseISO(m.timestamp), "dd MMM");
+      dayMap.set(day, (dayMap.get(day) || 0) + m.metricValue);
+    }
+    return Array.from(dayMap.entries()).map(([label, kWh]) => ({
+      label,
+      kWh: Number(kWh.toFixed(2)),
+    }));
+  }, [trendRaw]);
+
+  const voltageData = useMemo(() => {
+    if (!voltageRaw) return [];
+    const map = new Map<string, { sum: number; count: number }>();
+    for (const m of voltageRaw) {
+      const key = format(parseISO(m.timestamp), "dd MMM HH:00");
+      const entry = map.get(key) || { sum: 0, count: 0 };
+      entry.sum += m.metricValue;
+      entry.count += 1;
+      map.set(key, entry);
+    }
+    return Array.from(map.entries()).map(([label, { sum, count }]) => ({
+      label,
+      value: Number((sum / count).toFixed(1)),
+    }));
+  }, [voltageRaw]);
+
+  const currentData = useMemo(() => {
+    if (!currentRaw) return [];
+    const map = new Map<string, { sum: number; count: number }>();
+    for (const m of currentRaw) {
+      const key = format(parseISO(m.timestamp), "dd MMM HH:00");
+      const entry = map.get(key) || { sum: 0, count: 0 };
+      entry.sum += m.metricValue;
+      entry.count += 1;
+      map.set(key, entry);
+    }
+    return Array.from(map.entries()).map(([label, { sum, count }]) => ({
+      label,
+      value: Number((sum / count).toFixed(2)),
+    }));
+  }, [currentRaw]);
+
+  const powerData = useMemo(() => {
+    if (!powerRaw) return [];
+    const map = new Map<string, { sum: number; count: number }>();
+    for (const m of powerRaw) {
+      const key = format(parseISO(m.timestamp), "dd MMM HH:00");
+      const entry = map.get(key) || { sum: 0, count: 0 };
+      entry.sum += m.metricValue;
+      entry.count += 1;
+      map.set(key, entry);
+    }
+    return Array.from(map.entries()).map(([label, { sum, count }]) => ({
+      label,
+      value: Number((sum / count).toFixed(2)),
+    }));
+  }, [powerRaw]);
+
+  // Derived data
   const tenantScopeIds = useMemo(() => {
-    if (!forcedTenantId) return null;
+    if (!forcedTenantId || !scopes) return null;
     return new Set(scopes.map((s) => s.id));
   }, [scopes, forcedTenantId]);
 
@@ -288,17 +252,15 @@ export function EnergyOverviewPage({
   const totalOutlets = filteredOutlets.length;
   const devicesOnline = useMemo(
     () =>
-      filteredDevices.filter(
-        (d) => d.status === "ACTIVE" || d.status === "active",
-      ).length,
+      filteredDevices.filter((d) => {
+        const normalized = (d.deviceStatus || d.status || "").toLowerCase();
+        return normalized === "online";
+      }).length,
     [filteredDevices],
   );
   const devicesOffline = useMemo(
-    () =>
-      filteredDevices.filter(
-        (d) => d.status !== "ACTIVE" && d.status !== "active",
-      ).length,
-    [filteredDevices],
+    () => filteredDevices.length - devicesOnline,
+    [filteredDevices, devicesOnline],
   );
 
   // Map outlets
@@ -310,7 +272,7 @@ export function EnergyOverviewPage({
           (d) => d.scopeId === outlet.id,
         );
         const hasOnlineDevice = outletDevices.some(
-          (d) => d.status === "ACTIVE" || d.status === "active",
+          (d) => (d.deviceStatus || d.status || "").toLowerCase() === "online",
         );
         return {
           id: outlet.id,
@@ -323,7 +285,7 @@ export function EnergyOverviewPage({
           devices: outletDevices.map((d) => ({
             id: d.id,
             name: d.name,
-            online: d.status === "ACTIVE" || d.status === "active",
+            online: (d.deviceStatus || d.status || "").toLowerCase() === "online",
           })),
         };
       });

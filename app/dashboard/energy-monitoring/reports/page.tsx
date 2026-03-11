@@ -297,7 +297,7 @@ export default function ReportsPage() {
             moduleType: "power_meter",
             from: filters.from,
             to: filters.to,
-            limit: 50000,
+            limit: 5000,
           }),
           scopesApi.getById(outlet.id),
           energyConfigsApi.getAll(outlet.id),

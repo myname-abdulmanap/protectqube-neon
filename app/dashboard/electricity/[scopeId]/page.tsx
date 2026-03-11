@@ -21,8 +21,6 @@ import {
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   Pie,
@@ -494,7 +492,7 @@ export default function ElectricityOutletDetailPage() {
     const res = await deviceMetricsApi.getAll({
       scopeId,
       moduleType: "power_meter",
-      limit: 200,
+      limit: 50,
     });
     if (!res.success || !res.data?.length) return;
 
@@ -556,7 +554,7 @@ export default function ElectricityOutletDetailPage() {
 
   useEffect(() => {
     void loadRealtimeMetrics();
-    const id = setInterval(() => void loadRealtimeMetrics(), 10000);
+    const id = setInterval(() => void loadRealtimeMetrics(), 15000);
     return () => clearInterval(id);
   }, [loadRealtimeMetrics]);
 
@@ -573,7 +571,7 @@ export default function ElectricityOutletDetailPage() {
       } = {
         scopeId,
         moduleType: "power_meter",
-        limit: 10000,
+        limit: 2000,
       };
       if (trendRange.from) params.from = trendRange.from;
       if (trendRange.to) params.to = trendRange.to;
@@ -603,7 +601,7 @@ export default function ElectricityOutletDetailPage() {
       } = {
         scopeId,
         moduleType: "power_meter",
-        limit: 10000,
+        limit: 2000,
       };
       if (analyticsRange.from) params.from = analyticsRange.from;
       if (analyticsRange.to) params.to = analyticsRange.to;
@@ -633,7 +631,7 @@ export default function ElectricityOutletDetailPage() {
       } = {
         scopeId,
         moduleType: "power_meter",
-        limit: 5000,
+        limit: 2000,
       };
       if (tableRange.from) params.from = tableRange.from;
       if (tableRange.to) params.to = tableRange.to;
@@ -1474,7 +1472,7 @@ export default function ElectricityOutletDetailPage() {
                   }}
                   className="h-[200px] w-full"
                 >
-                  <BarChart
+                  <AreaChart
                     data={trendData}
                     margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
                   >
@@ -1489,12 +1487,12 @@ export default function ElectricityOutletDetailPage() {
                         <stop
                           offset="0%"
                           stopColor="hsl(38, 92%, 50%)"
-                          stopOpacity={1}
+                          stopOpacity={0.4}
                         />
                         <stop
                           offset="100%"
-                          stopColor="hsl(38, 92%, 35%)"
-                          stopOpacity={0.8}
+                          stopColor="hsl(38, 92%, 50%)"
+                          stopOpacity={0}
                         />
                       </linearGradient>
                     </defs>
@@ -1518,13 +1516,16 @@ export default function ElectricityOutletDetailPage() {
                       width={40}
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar
+                    <Area
+                      type="monotone"
                       dataKey={trendChartConfig.dataKey}
+                      stroke="hsl(38, 92%, 50%)"
+                      strokeWidth={2}
                       fill="url(#energyGradient)"
-                      radius={[4, 4, 0, 0]}
-                      maxBarSize={30}
+                      dot={false}
+                      connectNulls
                     />
-                  </BarChart>
+                  </AreaChart>
                 </ChartContainer>
               ) : (
                 // Area Chart for other metrics

@@ -58,17 +58,6 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
-const getStatusView = (
-  onlineCount: number,
-  offlineCount: number,
-  total: number,
-) => {
-  if (total === 0) return "warning" as const;
-  if (offlineCount === total) return "offline" as const;
-  if (offlineCount > onlineCount) return "warning" as const;
-  return "online" as const;
-};
-
 const getLatestMetricsByKey = (metrics: MetricItem[]) => {
   const latestByKey = new Map<string, MetricItem>();
   for (const metric of metrics) {
@@ -103,36 +92,25 @@ export default function ElectricityOutletsPage() {
         return;
       }
 
-      // Batch load all outlet data in parallel
+      // Only fetch metrics and configs per outlet (skip expensive getOutletDetail)
       const merged = await Promise.all(
         summaryResponse.data.map(async (summary) => {
-          const [detailResponse, metricResponse, configResponse] =
-            await Promise.all([
-              energyDashboardApi.getOutletDetail(summary.scopeId, {}),
-              deviceMetricsApi.getAll({
-                scopeId: summary.scopeId,
-                moduleType: "power_meter",
-                limit: 100,
-              }),
-              energyConfigsApi.getAll(summary.scopeId),
-            ]);
+          const [metricResponse, configResponse] = await Promise.all([
+            deviceMetricsApi.getAll({
+              scopeId: summary.scopeId,
+              moduleType: "power_meter",
+              limit: 100,
+            }),
+            energyConfigsApi.getAll(summary.scopeId),
+          ]);
 
-          const devices =
-            detailResponse.success && detailResponse.data
-              ? detailResponse.data.devices
-              : [];
-
-          const onlineCount = devices.filter(
-            (d) => d.status.toLowerCase() === "online",
-          ).length;
-          const offlineCount = devices.filter(
-            (d) => d.status.toLowerCase() === "offline",
-          ).length;
-          const statusLabel = getStatusView(
-            onlineCount,
-            offlineCount,
-            devices.length,
-          );
+          // Derive status from summary data instead of loading full detail
+          const statusLabel: "online" | "warning" | "offline" =
+            summary.status === "alert"
+              ? "warning"
+              : summary.status === "normal"
+                ? "online"
+                : "offline";
 
           const metricItems =
             metricResponse.success && metricResponse.data
