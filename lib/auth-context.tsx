@@ -88,7 +88,9 @@ export function useAuth(): AuthContextType {
   );
 
   const logout = useCallback(() => {
-    signOut({ callbackUrl: "/login" });
+    // Use window.location.origin to ensure correct domain in production
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    signOut({ callbackUrl: `${baseUrl}/login` });
   }, []);
 
   const refreshUser = useCallback(async () => {

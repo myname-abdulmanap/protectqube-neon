@@ -446,9 +446,14 @@ export default function ElectricityOutletDetailPage() {
     buildRange("7d"),
   );
   const [analyticsData, setAnalyticsData] = useState<HistoricalReading[]>([]);
+
+  // Server-side pagination for table
   const [tablePage, setTablePage] = useState(0);
   const [tableSearch, setTableSearch] = useState("");
-  const TABLE_PAGE_SIZE = 8;
+  const [tableData, setTableData] = useState<HistoricalReading[]>([]);
+  const [tableTotalRecords, setTableTotalRecords] = useState(0);
+  const [tableLoading, setTableLoading] = useState(false);
+  const TABLE_PAGE_SIZE = 10;
 
   // Load outlet detail
   useEffect(() => {
@@ -573,33 +578,92 @@ export default function ElectricityOutletDetailPage() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      // Use preset-aware limits: smaller window = fewer rows needed
-      const presetLimits: Record<string, number> = {
-        today: 300,
-        "7d": 700,
-        "30d": 1500,
-        "90d": 2500,
-      };
-      const limit = presetLimits[historyRange.preset] ?? 3000;
-      const params: {
-        scopeId: string;
-        moduleType: string;
-        limit: number;
-        from?: string;
-        to?: string;
-      } = {
-        scopeId,
-        moduleType: "power_meter",
-        limit,
-      };
-      if (historyRange.from) params.from = historyRange.from;
-      if (historyRange.to) params.to = historyRange.to;
+      // For long ranges, use aggregated endpoint; for short ranges, use regular
+      const useAggregation = ["7d", "30d", "90d", "all"].includes(
+        historyRange.preset,
+      );
 
-      const res = await deviceMetricsApi.getAll(params);
-      if (!active) return;
-      if (res.success && res.data) {
-        setHistoryData(mapMetricsToReadings(res.data));
-        setTablePage(0);
+      if (useAggregation && historyRange.from && historyRange.to) {
+        // Use aggregated endpoint for better performance
+        const interval = historyRange.preset === "7d" ? "hour" : "day";
+        const res = await deviceMetricsApi.getAggregated({
+          scopeId,
+          moduleType: "power_meter",
+          from: historyRange.from,
+          to: historyRange.to,
+          interval,
+        });
+        if (!active) return;
+        if (res.success && res.data) {
+          // Group aggregated data by timestamp
+          const grouped = new Map<string, Map<string, number>>();
+          for (const m of res.data) {
+            const ts = new Date(m.timestamp).toISOString();
+            if (!grouped.has(ts)) grouped.set(ts, new Map());
+            grouped.get(ts)!.set(m.metricKey, m.avg);
+          }
+
+          const readings = Array.from(grouped.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([ts, values]) => {
+              const d = new Date(ts);
+              return {
+                timestamp: ts,
+                label: `${d.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })} ${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })}`,
+                voltageL1: values.get("voltage_l1") ?? null,
+                voltageL2: values.get("voltage_l2") ?? null,
+                voltageL3: values.get("voltage_l3") ?? null,
+                voltageAB: values.get("voltage_ab") ?? null,
+                voltageBC: values.get("voltage_bc") ?? null,
+                voltageCA: values.get("voltage_ca") ?? null,
+                currentL1: values.get("current_l1") ?? null,
+                currentL2: values.get("current_l2") ?? null,
+                currentL3: values.get("current_l3") ?? null,
+                currentTotal: values.get("current_total") ?? null,
+                powerL1: values.get("power_l1") ?? null,
+                powerL2: values.get("power_l2") ?? null,
+                powerL3: values.get("power_l3") ?? null,
+                powerTotal: values.get("power_total") ?? null,
+                reactiveL1: values.get("reactive_l1") ?? null,
+                reactiveL2: values.get("reactive_l2") ?? null,
+                reactiveL3: values.get("reactive_l3") ?? null,
+                reactiveSigma: values.get("reactive_sigma") ?? null,
+                vaA: values.get("va_a") ?? null,
+                vaB: values.get("va_b") ?? null,
+                vaC: values.get("va_c") ?? null,
+                vaSigma: values.get("va_sigma") ?? null,
+                pfA: values.get("pf_a") ?? null,
+                pfB: values.get("pf_b") ?? null,
+                pfC: values.get("pf_c") ?? null,
+                pfSigma: values.get("pf_sigma") ?? null,
+                energyTotal: values.get("energy_total") ?? null,
+                kvarh: values.get("kvarh") ?? null,
+                frequency: values.get("frequency") ?? null,
+              };
+            });
+          setHistoryData(readings);
+        }
+      } else {
+        // Use regular endpoint for short ranges (today)
+        const params: {
+          scopeId: string;
+          moduleType: string;
+          limit: number;
+          from?: string;
+          to?: string;
+        } = {
+          scopeId,
+          moduleType: "power_meter",
+          limit: 500,
+        };
+        if (historyRange.from) params.from = historyRange.from;
+        if (historyRange.to) params.to = historyRange.to;
+
+        const res = await deviceMetricsApi.getAll(params);
+        if (!active) return;
+        if (res.success && res.data) {
+          setHistoryData(mapMetricsToReadings(res.data));
+        }
       }
     };
     void load();
@@ -607,6 +671,44 @@ export default function ElectricityOutletDetailPage() {
       active = false;
     };
   }, [scopeId, historyRange]);
+
+  // Server-side paginated table data (grouped by timestamp)
+  useEffect(() => {
+    let active = true;
+    const loadTableData = async () => {
+      setTableLoading(true);
+      try {
+        const params: {
+          scopeId: string;
+          moduleType: string;
+          page: number;
+          pageSize: number;
+          from?: string;
+          to?: string;
+        } = {
+          scopeId,
+          moduleType: "power_meter",
+          page: tablePage,
+          pageSize: TABLE_PAGE_SIZE,
+        };
+        if (historyRange.from) params.from = historyRange.from;
+        if (historyRange.to) params.to = historyRange.to;
+
+        const res = await deviceMetricsApi.getPaginatedGrouped(params);
+        if (!active) return;
+        if (res.success && res.data) {
+          setTableData(mapMetricsToReadings(res.data));
+          setTableTotalRecords(res.total);
+        }
+      } finally {
+        if (active) setTableLoading(false);
+      }
+    };
+    void loadTableData();
+    return () => {
+      active = false;
+    };
+  }, [scopeId, historyRange, tablePage]);
 
   // Load analytics data (separate range for summary stats)
   useEffect(() => {
@@ -811,9 +913,9 @@ export default function ElectricityOutletDetailPage() {
     }));
   }, [detail?.devices]);
 
-  // Table filtering and pagination
+  // Table filtering and pagination (server-side)
   const filteredTableData = useMemo(() => {
-    let data = [...historyData].sort((a, b) =>
+    let data = [...tableData].sort((a, b) =>
       b.timestamp.localeCompare(a.timestamp),
     );
     if (tableSearch) {
@@ -821,16 +923,9 @@ export default function ElectricityOutletDetailPage() {
       data = data.filter((r) => r.label.toLowerCase().includes(search));
     }
     return data;
-  }, [historyData, tableSearch]);
+  }, [tableData, tableSearch]);
 
-  const pagedTableData = useMemo(() => {
-    return filteredTableData.slice(
-      tablePage * TABLE_PAGE_SIZE,
-      (tablePage + 1) * TABLE_PAGE_SIZE,
-    );
-  }, [filteredTableData, tablePage]);
-
-  const totalTablePages = Math.ceil(filteredTableData.length / TABLE_PAGE_SIZE);
+  const totalTablePages = Math.ceil(tableTotalRecords / TABLE_PAGE_SIZE);
 
   // Export handler
   const handleExport = async (format: ExportFormat, period: ExportPeriod) => {
@@ -1751,7 +1846,13 @@ export default function ElectricityOutletDetailPage() {
                     className="h-6 w-32 pl-7 text-[9px]"
                   />
                 </div>
-                <DateFilter value={historyRange} onChange={setHistoryRange} />
+                <DateFilter
+                  value={historyRange}
+                  onChange={(r) => {
+                    setHistoryRange(r);
+                    setTablePage(0);
+                  }}
+                />
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -1778,7 +1879,16 @@ export default function ElectricityOutletDetailPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedTableData.length === 0 ? (
+                    {tableLoading ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={14}
+                          className="h-12 text-center text-muted-foreground"
+                        >
+                          Loading...
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredTableData.length === 0 ? (
                       <TableRow>
                         <TableCell
                           colSpan={14}
@@ -1788,7 +1898,7 @@ export default function ElectricityOutletDetailPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      pagedTableData.map((r, i) => (
+                      filteredTableData.map((r, i) => (
                         <TableRow key={i} className="h-5">
                           <TableCell className="px-2 py-0.5 whitespace-nowrap">
                             {r.label}
@@ -1838,11 +1948,11 @@ export default function ElectricityOutletDetailPage() {
                   </TableBody>
                 </Table>
               </div>
-              {totalTablePages > 1 && (
+              {(totalTablePages > 1 || tableTotalRecords > 0) && (
                 <div className="flex items-center justify-between px-3 py-1.5 border-t">
                   <span className="text-[8px] text-muted-foreground">
-                    {filteredTableData.length} records | Page {tablePage + 1} of{" "}
-                    {totalTablePages}
+                    {tableTotalRecords.toLocaleString()} total records | Page{" "}
+                    {tablePage + 1} of {totalTablePages || 1}
                   </span>
                   <div className="flex gap-1">
                     <Button
@@ -1850,7 +1960,7 @@ export default function ElectricityOutletDetailPage() {
                       size="icon"
                       className="h-5 w-5"
                       onClick={() => setTablePage((p) => Math.max(0, p - 1))}
-                      disabled={tablePage === 0}
+                      disabled={tablePage === 0 || tableLoading}
                     >
                       <ChevronLeft className="h-3 w-3" />
                     </Button>
@@ -1863,7 +1973,9 @@ export default function ElectricityOutletDetailPage() {
                           Math.min(totalTablePages - 1, p + 1),
                         )
                       }
-                      disabled={tablePage >= totalTablePages - 1}
+                      disabled={
+                        tablePage >= totalTablePages - 1 || tableLoading
+                      }
                     >
                       <ChevronRight className="h-3 w-3" />
                     </Button>
