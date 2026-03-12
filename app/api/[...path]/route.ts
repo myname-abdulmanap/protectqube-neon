@@ -8,7 +8,35 @@ import { NextRequest, NextResponse } from "next/server";
  * preventing CORS issues when calling from the browser
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+function getApiBaseUrl(): string {
+  const serverUrl = process.env.BACKEND_URL;
+  const publicUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  if (serverUrl) return serverUrl;
+  if (publicUrl) return publicUrl;
+
+  // Never silently fallback to localhost in production (Vercel cannot access localhost:4000).
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing BACKEND_URL (or NEXT_PUBLIC_API_URL) in production environment");
+  }
+
+  return "http://localhost:4000/api";
+}
+
+function validateProxyTarget(request: NextRequest, baseUrl: string): void {
+  try {
+    const target = new URL(baseUrl);
+    const incoming = request.nextUrl;
+
+    if (target.host === incoming.host && target.pathname.startsWith("/api")) {
+      throw new Error(
+        `Invalid proxy target: ${baseUrl}. BACKEND_URL must point to backend server, not this Next.js domain.`
+      );
+    }
+  } catch {
+    // Ignore URL parse validation for non-absolute URLs.
+  }
+}
 
 function getAuthHeader(request: NextRequest): HeadersInit {
   const authHeader = request.headers.get("authorization");
@@ -30,6 +58,8 @@ export async function GET(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
+    const API_BASE_URL = getApiBaseUrl();
+    validateProxyTarget(request, API_BASE_URL);
     const { path } = await params;
     const pathString = path ? path.join("/") : "";
     const searchParams = request.nextUrl.searchParams;
@@ -74,10 +104,12 @@ export async function POST(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
+    const API_BASE_URL = getApiBaseUrl();
+    validateProxyTarget(request, API_BASE_URL);
     const { path } = await params;
     const pathString = path ? path.join("/") : "";
 
-    let body: any = null;
+    let body: unknown = null;
     try {
       body = await request.json();
     } catch {
@@ -115,6 +147,8 @@ export async function PUT(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
+    const API_BASE_URL = getApiBaseUrl();
+    validateProxyTarget(request, API_BASE_URL);
     const { path } = await params;
     const pathString = path ? path.join("/") : "";
     const body = await request.json();
@@ -146,6 +180,8 @@ export async function DELETE(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
+    const API_BASE_URL = getApiBaseUrl();
+    validateProxyTarget(request, API_BASE_URL);
     const { path } = await params;
     const pathString = path ? path.join("/") : "";
 
@@ -183,6 +219,8 @@ export async function PATCH(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
+    const API_BASE_URL = getApiBaseUrl();
+    validateProxyTarget(request, API_BASE_URL);
     const { path } = await params;
     const pathString = path ? path.join("/") : "";
     const body = await request.json();
@@ -210,10 +248,7 @@ export async function PATCH(
  * OPTIONS /api/[...path]
  * Handle CORS preflight requests
  */
-export async function OPTIONS(
-  _request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
-) {
+export async function OPTIONS() {
   return NextResponse.json(
     { success: true },
     {

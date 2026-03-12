@@ -1,6 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+function getApiBaseUrl(): string {
+  const serverUrl = process.env.BACKEND_URL;
+  const publicUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  if (serverUrl) return serverUrl;
+  if (publicUrl) return publicUrl;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing BACKEND_URL (or NEXT_PUBLIC_API_URL) in production environment");
+  }
+
+  return "http://localhost:4000/api";
+}
+
+function validateProxyTarget(request: NextRequest, baseUrl: string): void {
+  try {
+    const target = new URL(baseUrl);
+    const incoming = request.nextUrl;
+
+    // Prevent recursive proxy calls (e.g. BACKEND_URL points to energy.protectqube.ai/api)
+    if (target.host === incoming.host && target.pathname.startsWith("/api")) {
+      throw new Error(
+        `Invalid proxy target: ${baseUrl}. BACKEND_URL must point to backend server, not this Next.js domain.`
+      );
+    }
+  } catch {
+    // Ignore URL parse validation for non-absolute URLs.
+  }
+}
 
 function getAuthHeader(request: NextRequest): HeadersInit {
   const authHeader = request.headers.get("authorization");
@@ -19,6 +46,8 @@ function getAuthHeader(request: NextRequest): HeadersInit {
  */
 export async function GET(request: NextRequest) {
   try {
+    const API_BASE_URL = getApiBaseUrl();
+    validateProxyTarget(request, API_BASE_URL);
     // Get the search params from the incoming request
     const searchParams = request.nextUrl.searchParams;
     const queryString = searchParams.toString();
@@ -53,6 +82,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const API_BASE_URL = getApiBaseUrl();
+    validateProxyTarget(request, API_BASE_URL);
     const body = await request.json();
     const backendUrl = `${API_BASE_URL}/device-metrics`;
     
