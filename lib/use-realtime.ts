@@ -20,8 +20,12 @@ export const useRealtime = () => {
 
   // Initialize WebSocket connection
   useEffect(() => {
+    // Guard flag — set to false in cleanup so the close-handler's
+    // setTimeout(reconnect) doesn't fire after the component unmounts.
+    let mounted = true;
+
     const connectWebSocket = () => {
-      if (typeof window === "undefined") return;
+      if (!mounted || typeof window === "undefined") return;
 
       // Get token from localStorage
       const token = localStorage.getItem("auth_token");
@@ -73,8 +77,12 @@ export const useRealtime = () => {
         ws.addEventListener("close", () => {
           console.log("WebSocket disconnected");
           setIsConnected(false);
-          // Attempt to reconnect after 3 seconds
-          setTimeout(connectWebSocket, 3000);
+          // Only attempt to reconnect if the component is still mounted.
+          // Without this check, the cleanup-triggered close fires the timeout
+          // and creates a new WebSocket after the component is gone.
+          if (mounted) {
+            setTimeout(connectWebSocket, 3000);
+          }
         });
 
         wsRef.current = ws;
@@ -88,6 +96,7 @@ export const useRealtime = () => {
 
     // Cleanup
     return () => {
+      mounted = false;
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -115,6 +124,5 @@ export const useRealtime = () => {
     isConnected,
     error,
     subscribe,
-    ws: wsRef.current,
   };
 };

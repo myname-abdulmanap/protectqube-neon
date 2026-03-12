@@ -434,20 +434,16 @@ export default function ElectricityOutletDetailPage() {
     frequency: 0,
   });
 
-  // Trend chart
-  const [trendRange, setTrendRange] = useState<DateRange>(buildRange("all"));
-  const [trendData, setTrendData] = useState<HistoricalReading[]>([]);
+  // Trend chart + Table — shared single fetch keyed by historyRange
+  const [historyRange, setHistoryRange] = useState<DateRange>(buildRange("all"));
+  const [historyData, setHistoryData] = useState<HistoricalReading[]>([]);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>("energy");
 
-  // Analytics
+  // Analytics — separate narrower range
   const [analyticsRange, setAnalyticsRange] = useState<DateRange>(
     buildRange("7d"),
   );
-  const [analyticsData, setAnalyticsData] = useState<HistoricalReading[]>([]);
-
-  // Table
-  const [tableRange, setTableRange] = useState<DateRange>(buildRange("all"));
-  const [tableData, setTableData] = useState<HistoricalReading[]>([]);
+  const [analyticsData, setAnalyticsData] = useState<HistoricalReading[]>([])
   const [tablePage, setTablePage] = useState(0);
   const [tableSearch, setTableSearch] = useState("");
   const TABLE_PAGE_SIZE = 8;
@@ -487,13 +483,10 @@ export default function ElectricityOutletDetailPage() {
     };
   }, [scopeId]);
 
-  // Load realtime metrics
+  // Load realtime metrics — uses /latest endpoint so we always get one row per
+  // (deviceId, metricKey) regardless of scope size.  No more guessing a limit.
   const loadRealtimeMetrics = useCallback(async () => {
-    const res = await deviceMetricsApi.getAll({
-      scopeId,
-      moduleType: "power_meter",
-      limit: 50,
-    });
+    const res = await deviceMetricsApi.getLatest(scopeId, "power_meter");
     if (!res.success || !res.data?.length) return;
 
     const latestByKey = new Map<string, (typeof res.data)[0]>();
@@ -558,50 +551,46 @@ export default function ElectricityOutletDetailPage() {
     return () => clearInterval(id);
   }, [loadRealtimeMetrics]);
 
-  // Load trend data
+  // History data shared by trend chart + table (one fetch instead of two)
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const params: {
-        scopeId: string;
-        moduleType: string;
-        limit: number;
-        from?: string;
-        to?: string;
-      } = {
+      // Use preset-aware limits: smaller window = fewer rows needed
+      const presetLimits: Record<string, number> = {
+        today: 300, "7d": 700, "30d": 1500, "90d": 2500,
+      };
+      const limit = presetLimits[historyRange.preset] ?? 3000;
+      const params: { scopeId: string; moduleType: string; limit: number; from?: string; to?: string } = {
         scopeId,
         moduleType: "power_meter",
-        limit: 2000,
+        limit,
       };
-      if (trendRange.from) params.from = trendRange.from;
-      if (trendRange.to) params.to = trendRange.to;
+      if (historyRange.from) params.from = historyRange.from;
+      if (historyRange.to) params.to = historyRange.to;
 
       const res = await deviceMetricsApi.getAll(params);
       if (!active) return;
       if (res.success && res.data) {
-        setTrendData(mapMetricsToReadings(res.data));
+        setHistoryData(mapMetricsToReadings(res.data));
+        setTablePage(0);
       }
     };
     void load();
-    return () => {
-      active = false;
-    };
-  }, [scopeId, trendRange]);
+    return () => { active = false; };
+  }, [scopeId, historyRange]);
 
-  // Load analytics data
+  // Load analytics data (separate range for summary stats)
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const params: {
-        scopeId: string;
-        moduleType: string;
-        limit: number;
-        from?: string;
-        to?: string;
-      } = {
+      const presetLimits: Record<string, number> = {
+        today: 300, "7d": 700, "30d": 1500, "90d": 2500,
+      };
+      const limit = presetLimits[analyticsRange.preset] ?? 3000;
+      const params: { scopeId: string; moduleType: string; limit: number; from?: string; to?: string } = {
         scopeId,
         moduleType: "power_meter",
-        limit: 2000,
+        limit,
       };
       if (analyticsRange.from) params.from = analyticsRange.from;
       if (analyticsRange.to) params.to = analyticsRange.to;
@@ -613,41 +602,8 @@ export default function ElectricityOutletDetailPage() {
       }
     };
     void load();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [scopeId, analyticsRange]);
-
-  // Load table data
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const params: {
-        scopeId: string;
-        moduleType: string;
-        limit: number;
-        from?: string;
-        to?: string;
-      } = {
-        scopeId,
-        moduleType: "power_meter",
-        limit: 2000,
-      };
-      if (tableRange.from) params.from = tableRange.from;
-      if (tableRange.to) params.to = tableRange.to;
-
-      const res = await deviceMetricsApi.getAll(params);
-      if (!active) return;
-      if (res.success && res.data) {
-        setTableData(mapMetricsToReadings(res.data));
-        setTablePage(0);
-      }
-    };
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [scopeId, tableRange]);
 
   // Status calculation
   const isOffline = realtimeLastUpdated
@@ -705,16 +661,23 @@ export default function ElectricityOutletDetailPage() {
     return configs[trendMetric];
   }, [trendMetric]);
 
+  // Downsampled dataset for chart rendering — limits DOM nodes without losing shape
+  const trendChartData = useMemo(() => {
+    if (historyData.length <= 300) return historyData;
+    const step = Math.ceil(historyData.length / 300);
+    return historyData.filter((_, i) => i % step === 0);
+  }, [historyData]);
+
   // Peak hour analysis
   const peakHourAnalysis = useMemo(() => {
-    if (!trendData.length) return null;
+    if (!historyData.length) return null;
 
     // Group by hour
     const hourlyData = new Map<
       number,
       { total: number; count: number; peak: number }
     >();
-    for (const point of trendData) {
+    for (const point of historyData) {
       const date = new Date(point.timestamp);
       const hour = date.getHours();
       const energy = point.energyTotal ?? 0;
@@ -752,7 +715,7 @@ export default function ElectricityOutletDetailPage() {
       peakAvgKwh: maxAvg.toFixed(2),
       overallAvgKwh: overallAvg.toFixed(2),
     };
-  }, [trendData]);
+  }, [historyData]);
 
   // Analytics summary
   const analytics = useMemo(() => {
@@ -774,9 +737,9 @@ export default function ElectricityOutletDetailPage() {
       points[0],
     );
 
+    // energy_total is a cumulative meter reading (kWh since device start) —
+    // always show the latest value directly, never subtract or average it.
     const lastEnergy = points[points.length - 1]?.energyTotal ?? 0;
-    const firstEnergy = points[0]?.energyTotal ?? 0;
-    const energyConsumed = lastEnergy - firstEnergy;
 
     return {
       peakPowerKw: Number(peakPoint.powerTotal ?? 0).toFixed(2),
@@ -788,8 +751,7 @@ export default function ElectricityOutletDetailPage() {
       ).toFixed(1),
       avgCurrent: avg("currentTotal").toFixed(2),
       avgPf: avg("pfSigma").toFixed(3),
-      totalEnergy:
-        energyConsumed > 0 ? energyConsumed.toFixed(2) : lastEnergy.toFixed(2),
+      totalEnergy: lastEnergy.toFixed(2),
       totalKvarh: Number(points[points.length - 1]?.kvarh ?? 0).toFixed(2),
     };
   }, [analyticsData]);
@@ -811,7 +773,7 @@ export default function ElectricityOutletDetailPage() {
 
   // Table filtering and pagination
   const filteredTableData = useMemo(() => {
-    let data = [...tableData].sort((a, b) =>
+    let data = [...historyData].sort((a, b) =>
       b.timestamp.localeCompare(a.timestamp),
     );
     if (tableSearch) {
@@ -819,7 +781,7 @@ export default function ElectricityOutletDetailPage() {
       data = data.filter((r) => r.label.toLowerCase().includes(search));
     }
     return data;
-  }, [tableData, tableSearch]);
+  }, [historyData, tableSearch]);
 
   const pagedTableData = useMemo(() => {
     return filteredTableData.slice(
@@ -1457,10 +1419,10 @@ export default function ElectricityOutletDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <DateFilter value={trendRange} onChange={setTrendRange} />
+              <DateFilter value={historyRange} onChange={setHistoryRange} />
             </CardHeader>
             <CardContent className="p-3 pt-2">
-              {trendData.length === 0 ? (
+              {trendChartData.length === 0 ? (
                 <div className="h-[200px] flex items-center justify-center text-[10px] text-muted-foreground">
                   No data available
                 </div>
@@ -1476,7 +1438,7 @@ export default function ElectricityOutletDetailPage() {
                   className="h-[200px] w-full"
                 >
                   <AreaChart
-                    data={trendData}
+                    data={trendChartData}
                     margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
                   >
                     <defs>
@@ -1542,7 +1504,7 @@ export default function ElectricityOutletDetailPage() {
                   className="h-[200px] w-full"
                 >
                   <AreaChart
-                    data={trendData}
+                    data={trendChartData}
                     margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
                   >
                     <defs>
@@ -1749,7 +1711,7 @@ export default function ElectricityOutletDetailPage() {
                     className="h-6 w-32 pl-7 text-[9px]"
                   />
                 </div>
-                <DateFilter value={tableRange} onChange={setTableRange} />
+                <DateFilter value={historyRange} onChange={setHistoryRange} />
               </div>
             </CardHeader>
             <CardContent className="p-0">

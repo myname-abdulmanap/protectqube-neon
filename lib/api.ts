@@ -6,6 +6,10 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/a
 // Token storage key
 const TOKEN_KEY = "auth_token";
 
+// In-memory token cache — written synchronously during render by TokenSync so
+// that the axios interceptor picks it up before SWR's first fetch fires.
+let _memToken: string | null = null;
+
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -18,12 +22,12 @@ const apiClient: AxiosInstance = axios.create({
 // Request interceptor - auto attach JWT token
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Get token from localStorage (only in browser)
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem(TOKEN_KEY);
-      if (token && config.headers) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
+    // Prefer in-memory token (set synchronously on session resolve) over
+    // localStorage (written asynchronously via useEffect) so we never send
+    // an authenticated request without a token.
+    const token = _memToken ?? (typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null);
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
@@ -37,10 +41,18 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      // Clear token
-      if (typeof window !== "undefined") {
+      // Only redirect when the request actually carried a token that was rejected.
+      // If there was no Authorization header the session was still loading — don't
+      // redirect, because that creates an infinite /login → /dashboard loop.
+      const hadAuthHeader = !!(error.config?.headers as Record<string, string>)?.Authorization;
+      if (
+        hadAuthHeader &&
+        typeof window !== "undefined" &&
+        !window.location.pathname.startsWith("/login")
+      ) {
+        // Clear stored token and redirect – but never loop back to /login
         localStorage.removeItem(TOKEN_KEY);
-        // Redirect to login page
+        document.cookie = `${TOKEN_KEY}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
         window.location.href = "/login";
       }
     }
@@ -51,6 +63,7 @@ apiClient.interceptors.response.use(
 // Token management utilities
 export const authToken = {
   set: (token: string) => {
+    _memToken = token;
     if (typeof window !== "undefined") {
       localStorage.setItem(TOKEN_KEY, token);
       // Also set as cookie for middleware to read
@@ -64,6 +77,7 @@ export const authToken = {
     return null;
   },
   remove: () => {
+    _memToken = null;
     if (typeof window !== "undefined") {
       localStorage.removeItem(TOKEN_KEY);
       // Also remove cookie
@@ -801,6 +815,13 @@ export const mqttMessagesApi = {
 export const deviceMetricsApi = {
   getAll: async (filters?: { deviceId?: string; scopeId?: string; moduleType?: string; metricKey?: string; from?: string; to?: string; limit?: number }): Promise<ApiResponse<DeviceMetric[]>> => {
     const response = await apiClient.get<ApiResponse<DeviceMetric[]>>("/device-metrics", { params: filters });
+    return response.data;
+  },
+  /** Returns the single most-recent reading per (deviceId, metricKey) for a scope. */
+  getLatest: async (scopeId: string, moduleType?: string): Promise<ApiResponse<{ deviceId: string; scopeId: string; moduleType: string; metricKey: string; metricValue: number; unit: string | null; timestamp: string }[]>> => {
+    const response = await apiClient.get("/device-metrics/latest", {
+      params: { scopeId, ...(moduleType ? { moduleType } : {}) },
+    });
     return response.data;
   },
   create: async (data: { deviceId: string; scopeId?: string; moduleType: string; metricKey: string; metricValue: number; unit?: string; timestamp: string }): Promise<ApiResponse<DeviceMetric>> => {

@@ -1,13 +1,8 @@
 "use client";
 
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-} from "react";
-import { authApi, authToken, User } from "@/lib/api";
+import React, { useCallback } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
+import type { User } from "@/lib/api";
 
 interface AuthContextType {
   user: User | null;
@@ -23,137 +18,103 @@ interface AuthContextType {
   hasPermission: (permissionName: string) => boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
+// Kept for backward compatibility – no longer holds state of its own.
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  return <>{children}</>;
+}
 
-  // Check if user has a specific permission
-  const hasPermission = useCallback(
-    (permissionName: string): boolean => {
-      if (!user?.role?.permissions) return false;
-      return user.role.permissions.some((p) => p.name === permissionName);
-    },
-    [user],
-  );
+export function useAuth(): AuthContextType {
+  const { data: session, status, update } = useSession();
+  const isLoading = status === "loading";
 
-  // Refresh user data from API
-  const refreshUser = useCallback(async () => {
-    try {
-      const storedToken = authToken.get();
-      if (!storedToken) {
-        setUser(null);
-        setToken(null);
-        setIsLoading(false);
-        return;
+  // Build a shape compatible with the existing User interface
+  const user = session?.user
+    ? {
+        id: session.user.id,
+        name: session.user.name || "",
+        email: session.user.email || "",
+        roleId: "",
+        isActive: true,
+        createdAt: "",
+        updatedAt: "",
+        role: {
+          id: "",
+          name: session.user.role,
+          description: null,
+          createdAt: "",
+          updatedAt: "",
+          permissions: (session.user.permissions || []).map((name) => ({
+            id: name,
+            name,
+            description: null,
+            resource: null,
+            action: null,
+            createdAt: "",
+            updatedAt: "",
+          })),
+        },
+        menus: (session.user.menus || []).map((m) => ({
+          ...m,
+          createdAt: "",
+          updatedAt: "",
+        })),
       }
+    : null;
 
-      setToken(storedToken);
-      const response = await authApi.getCurrentUser();
-      if (response.success && response.data) {
-        setUser(response.data);
-      } else {
-        setUser(null);
-        setToken(null);
-        authToken.remove();
-      }
-    } catch (error) {
-      console.error("Failed to refresh user:", error);
-      setUser(null);
-      setToken(null);
-      authToken.remove();
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const token = session?.user?.backendToken ?? null;
 
-  // Login function
   const login = useCallback(
     async (
       email: string,
       password: string,
     ): Promise<{ success: boolean; error?: string }> => {
       try {
-        setIsLoading(true);
-        const response = await authApi.login(email, password);
+        const result = await signIn("credentials", {
+          email,
+          password,
+          redirect: false,
+        });
 
-        if (response.success && response.data) {
-          setUser(response.data.user);
-          setToken(response.data.token);
-          return { success: true };
-        } else {
-          return { success: false, error: response.error || "Login failed" };
+        if (result?.error) {
+          return { success: false, error: "Email atau password salah" };
         }
-      } catch (error: any) {
-        console.error("Auth context login error:", error);
-
-        // Handle network errors
-        if (
-          error?.code === "ERR_NETWORK" ||
-          error?.message?.includes("Network Error")
-        ) {
-          return {
-            success: false,
-            error:
-              "Tidak dapat terhubung ke server. Pastikan backend berjalan di http://localhost:3001",
-          };
-        }
-
-        // Handle connection refused
-        if (error?.code === "ECONNREFUSED") {
-          return {
-            success: false,
-            error: "Koneksi ditolak. Backend tidak berjalan.",
-          };
-        }
-
-        const errorMessage =
-          error?.response?.data?.error || error?.message || "Login failed";
-        return { success: false, error: errorMessage };
-      } finally {
-        setIsLoading(false);
+        return { success: true };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Login gagal";
+        return { success: false, error: message };
       }
     },
     [],
   );
 
-  // Logout function
   const logout = useCallback(() => {
-    setUser(null);
-    setToken(null);
-    authApi.logout();
+    signOut({ callbackUrl: "/login" });
   }, []);
 
-  // Check authentication on mount
-  useEffect(() => {
-    refreshUser();
-  }, [refreshUser]);
+  const refreshUser = useCallback(async () => {
+    await update();
+  }, [update]);
 
-  const value: AuthContextType = {
+  const hasPermission = useCallback(
+    (permissionName: string): boolean => {
+      return (session?.user?.permissions || []).includes(permissionName);
+    },
+    [session],
+  );
+
+  return {
     user,
     token,
     isLoading,
-    isAuthenticated: !!user,
+    isAuthenticated: !!session,
     login,
     logout,
     refreshUser,
     hasPermission,
   };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
-}
-
-// HOC for protected routes
+// HOC for protected routes (kept for backward compatibility)
 export function withAuth<P extends object>(
   Component: React.ComponentType<P>,
   requiredPermission?: string,
@@ -182,7 +143,7 @@ export function withAuth<P extends object>(
           <div className="text-center">
             <h1 className="text-2xl font-bold text-red-600">Access Denied</h1>
             <p className="text-gray-600 mt-2">
-              You don't have permission to access this page.
+              You don&apos;t have permission to access this page.
             </p>
             <p className="text-sm text-gray-500 mt-1">
               Required permission: {requiredPermission}
