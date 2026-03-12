@@ -958,6 +958,7 @@ export const mqttMessagesApi = {
 
 // Device Metrics API
 export const deviceMetricsApi = {
+<<<<<<< HEAD
 	getAll: async (filters?: {
 		deviceId?: string;
 		scopeId?: string;
@@ -996,6 +997,42 @@ export const deviceMetricsApi = {
 		const response = await apiClient.post<ApiResponse<{ count: number }>>('/device-metrics/batch', data);
 		return response.data;
 	},
+=======
+  getAll: async (filters?: { deviceId?: string; scopeId?: string; moduleType?: string; metricKey?: string; from?: string; to?: string; limit?: number }): Promise<ApiResponse<DeviceMetric[]>> => {
+    const response = await apiClient.get<ApiResponse<DeviceMetric[]>>("/device-metrics", { params: filters });
+    return response.data;
+  },
+  /** Returns the single most-recent reading per (deviceId, metricKey) for a scope. */
+  getLatest: async (scopeId: string, moduleType?: string): Promise<ApiResponse<{ deviceId: string; scopeId: string; moduleType: string; metricKey: string; metricValue: number; unit: string | null; timestamp: string }[]>> => {
+    const response = await apiClient.get("/device-metrics/latest", {
+      params: { scopeId, ...(moduleType ? { moduleType } : {}) },
+    });
+    return response.data;
+  },
+  /** Returns aggregated metrics by time bucket (hour/day) for efficient charts. */
+  getAggregated: async (params: { scopeId?: string; moduleType?: string; from: string; to: string; interval?: 'hour' | 'day' }): Promise<ApiResponse<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }[]>> => {
+    const response = await apiClient.get("/device-metrics/aggregated", { params });
+    return response.data;
+  },
+  /** Returns paginated metrics for table display with total count. */
+  getPaginated: async (params: { scopeId: string; moduleType?: string; from?: string; to?: string; page?: number; pageSize?: number }): Promise<ApiResponse<DeviceMetric[]> & { total: number; page: number; pageSize: number; totalPages: number }> => {
+    const response = await apiClient.get("/device-metrics/paginated", { params });
+    return response.data;
+  },
+  /** Returns paginated metrics grouped by timestamp for table display. Each page has N complete timestamp rows. */
+  getPaginatedGrouped: async (params: { scopeId: string; moduleType?: string; from?: string; to?: string; page?: number; pageSize?: number }): Promise<ApiResponse<{ timestamp: string; metricKey: string; metricValue: number }[]> & { total: number; page: number; pageSize: number; totalPages: number }> => {
+    const response = await apiClient.get("/device-metrics/paginated-grouped", { params });
+    return response.data;
+  },
+  create: async (data: { deviceId: string; scopeId?: string; moduleType: string; metricKey: string; metricValue: number; unit?: string; timestamp: string }): Promise<ApiResponse<DeviceMetric>> => {
+    const response = await apiClient.post<ApiResponse<DeviceMetric>>("/device-metrics", data);
+    return response.data;
+  },
+  createBatch: async (data: Array<{ deviceId: string; scopeId?: string; moduleType: string; metricKey: string; metricValue: number; unit?: string; timestamp: string }>): Promise<ApiResponse<{ count: number }>> => {
+    const response = await apiClient.post<ApiResponse<{ count: number }>>("/device-metrics/batch", data);
+    return response.data;
+  },
+>>>>>>> b1364b1 (fix fetch)
 };
 
 // Alert Events API

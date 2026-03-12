@@ -18,11 +18,21 @@ import {
   type Tenant,
 } from "@/lib/api";
 
-// ── SWR defaults: stale-while-revalidate with 30s dedup ──
+// ── SWR defaults: aggressive caching to protect backend ──
 const defaultConfig: SWRConfiguration = {
   revalidateOnFocus: false,
-  dedupingInterval: 30_000,
+  revalidateOnReconnect: false,
+  dedupingInterval: 60_000, // 1 minute default dedup
+  errorRetryCount: 2,
 };
+
+// Cache profiles for different data types
+const CACHE_PROFILES = {
+  realtime: { dedupingInterval: 10_000 }, // 10s for live data
+  standard: { dedupingInterval: 60_000 }, // 1min for normal data
+  historical: { dedupingInterval: 300_000 }, // 5min for historical/aggregated
+  static: { dedupingInterval: 600_000 }, // 10min for rarely changing data
+} as const;
 
 // ── Generic fetcher that unwraps ApiResponse<T> ──
 type ApiFn<T> = () => Promise<{ success: boolean; data?: T; error?: string }>;
@@ -60,8 +70,10 @@ export function useEnergyOverview(filters?: EnergyDashboardFilters) {
     ? `energy-overview:${filters.from || ""}:${filters.to || ""}`
     : null;
 
-  return useApi<EnergyOverviewData>(key, () =>
-    energyDashboardApi.getOverview(filters),
+  return useApi<EnergyOverviewData>(
+    key, 
+    () => energyDashboardApi.getOverview(filters),
+    CACHE_PROFILES.historical, // 5min cache for overview
   );
 }
 
@@ -70,8 +82,10 @@ export function useEnergyOutlets(filters?: EnergyDashboardFilters) {
     ? `energy-outlets:${filters.from || ""}:${filters.to || ""}`
     : "energy-outlets";
 
-  return useApi<EnergyOutletSummary[]>(key, () =>
-    energyDashboardApi.getOutlets(filters),
+  return useApi<EnergyOutletSummary[]>(
+    key, 
+    () => energyDashboardApi.getOutlets(filters),
+    CACHE_PROFILES.historical, // 5min cache for outlets list
   );
 }
 
@@ -83,8 +97,10 @@ export function useOutletDetail(
     ? `outlet-detail:${scopeId}:${filters?.from || ""}:${filters?.to || ""}`
     : null;
 
-  return useApi<EnergyOutletDetail>(key, () =>
-    energyDashboardApi.getOutletDetail(scopeId!, filters),
+  return useApi<EnergyOutletDetail>(
+    key, 
+    () => energyDashboardApi.getOutletDetail(scopeId!, filters),
+    CACHE_PROFILES.historical, // 5min cache for historical detail
   );
 }
 
@@ -94,7 +110,7 @@ export function useTenants() {
   return useApi<Tenant[]>(
     "tenants",
     () => tenantsApi.getAll(),
-    { dedupingInterval: 120_000 },
+    CACHE_PROFILES.static, // 10min cache for tenants
   );
 }
 
@@ -104,7 +120,7 @@ export function useScopes(tenantId?: string) {
   return useApi<Scope[]>(
     key,
     () => scopesApi.getAll(tenantId),
-    { dedupingInterval: 120_000 },
+    CACHE_PROFILES.static, // 10min cache for scopes
   );
 }
 
@@ -114,7 +130,7 @@ export function useDevices(scopeId?: string) {
   return useApi<Device[]>(
     key,
     () => devicesApi.getAll(scopeId),
-    { dedupingInterval: 120_000 },
+    CACHE_PROFILES.static, // 10min cache for devices
   );
 }
 
@@ -130,6 +146,40 @@ export function useDeviceMetrics(
   return useApi<DeviceMetric[]>(
     key,
     () => deviceMetricsApi.getAll(filters!),
-    { dedupingInterval: 60_000 },
+    CACHE_PROFILES.standard, // 1min cache for metrics
   );
+}
+
+export function useAggregatedMetrics(
+  params: { scopeId?: string; moduleType?: string; from: string; to: string; interval: 'hour' | 'day' } | null,
+) {
+  const key = params
+    ? `metrics-agg:${JSON.stringify(params)}`
+    : null;
+
+  return useApi<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }[]>(
+    key,
+    () => deviceMetricsApi.getAggregated(params!),
+    CACHE_PROFILES.historical, // 5min cache for aggregated metrics
+  );
+}
+
+export function usePaginatedMetrics(
+  params: { scopeId: string; moduleType?: string; from?: string; to?: string; page: number; pageSize: number } | null,
+) {
+  const { status, data: session } = useSession();
+  const hasToken = status === "authenticated" && !!(session as { user?: { backendToken?: string } } | null)?.user?.backendToken;
+  const readyKey = (status === "loading" || !hasToken || !params) ? null : `metrics-paginated:${JSON.stringify(params)}`;
+
+  const { data, error, isLoading, isValidating, mutate } = useSWR<{ data: DeviceMetric[]; total: number; page: number; pageSize: number; totalPages: number }>(
+    readyKey,
+    async () => {
+      const res = await deviceMetricsApi.getPaginated(params!);
+      if (!res.success) throw new Error('API error');
+      return { data: res.data ?? [], total: res.total, page: res.page, pageSize: res.pageSize, totalPages: res.totalPages };
+    },
+    { ...defaultConfig, ...CACHE_PROFILES.standard },
+  );
+
+  return { data: data ?? null, error, isLoading, isValidating, mutate };
 }

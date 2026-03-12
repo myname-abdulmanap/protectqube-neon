@@ -116,7 +116,9 @@ export default function Header({ user }: HeaderProps) {
 
   const handleLogout = async () => {
     authToken.remove();
-    await signOut({ callbackUrl: "/login" });
+    // Use window.location.origin to ensure correct domain in production
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    await signOut({ callbackUrl: `${baseUrl}/login` });
   };
 
   const getRoleBadgeColor = (role: string) => {

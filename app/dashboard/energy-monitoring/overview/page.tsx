@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { MapPinned } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   useScopes,
   useDevices,
   useDeviceMetrics,
+  useAggregatedMetrics,
 } from "@/lib/use-energy-data";
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import {
@@ -86,16 +87,16 @@ export function EnergyOverviewPage({
       case "today":
         return 400;
       case "yesterday":
-        return 700;
-      case "7d":
-        return 1400;
-      case "30d":
-        return 3000;
+        return 400;
       default:
-        // Keep "all" responsive; we aggregate + downsample for chart rendering.
-        return 12000;
+        // For 7d, 30d, all - we'll use aggregated endpoint instead
+        return 500;
     }
   }, [globalRange.preset]);
+
+  // Use aggregation for longer ranges
+  const useAggregation = ["7d", "30d", "all"].includes(globalRange.preset);
+  const aggregationInterval = globalRange.preset === "7d" ? "hour" : "day";
 
   const metricBaseFilters = useMemo(() => {
     const base: Record<string, string | number> = {
@@ -109,6 +110,19 @@ export function EnergyOverviewPage({
     return base;
   }, [globalRange, metricLimit]);
 
+  const aggregatedParams = useMemo(() => {
+    if (!useAggregation) return null;
+    return {
+      moduleType: "power_meter",
+      from:
+        globalRange.preset === "all"
+          ? "2024-01-01T00:00:00.000Z"
+          : globalRange.from,
+      to: globalRange.to || new Date().toISOString(),
+      interval: aggregationInterval as "hour" | "day",
+    };
+  }, [useAggregation, globalRange, aggregationInterval]);
+
   // ── SWR data fetching (cached + deduped) ───────
   const {
     data: overviewData,
@@ -119,36 +133,87 @@ export function EnergyOverviewPage({
   const { data: deviceList } = useDevices();
   const devices = useMemo(() => deviceList || [], [deviceList]);
 
-  // Metric hooks — each one is cached + deduped independently
+  // Regular metrics for short ranges (today, yesterday)
   const { data: energyRaw } = useDeviceMetrics(
     useMemo(
-      () => ({ ...metricBaseFilters, metricKey: "energy_total" }),
-      [metricBaseFilters],
+      () =>
+        useAggregation
+          ? null
+          : { ...metricBaseFilters, metricKey: "energy_total" },
+      [metricBaseFilters, useAggregation],
     ),
   );
   const { data: voltageRaw } = useDeviceMetrics(
     useMemo(
-      () => ({ ...metricBaseFilters, metricKey: "voltage_l1" }),
-      [metricBaseFilters],
+      () =>
+        useAggregation
+          ? null
+          : { ...metricBaseFilters, metricKey: "voltage_l1" },
+      [metricBaseFilters, useAggregation],
     ),
   );
   const { data: currentRaw } = useDeviceMetrics(
     useMemo(
-      () => ({ ...metricBaseFilters, metricKey: "current_total" }),
-      [metricBaseFilters],
+      () =>
+        useAggregation
+          ? null
+          : { ...metricBaseFilters, metricKey: "current_total" },
+      [metricBaseFilters, useAggregation],
     ),
   );
   const { data: powerRaw } = useDeviceMetrics(
     useMemo(
-      () => ({ ...metricBaseFilters, metricKey: "power_total" }),
-      [metricBaseFilters],
+      () =>
+        useAggregation
+          ? null
+          : { ...metricBaseFilters, metricKey: "power_total" },
+      [metricBaseFilters, useAggregation],
     ),
   );
 
+  // Aggregated metrics for long ranges (7d, 30d, all)
+  const { data: aggregatedRaw } = useAggregatedMetrics(aggregatedParams);
+
   const error = overviewError?.message || null;
+
+  // Helper to extract aggregated data by metricKey
+  const getAggregatedByKey = useCallback(
+    (key: string) => {
+      if (!aggregatedRaw) return [];
+      return aggregatedRaw.filter((m) => m.metricKey === key);
+    },
+    [aggregatedRaw],
+  );
 
   // ── Peak Hours from power_total: average kW per hour ───────────────────
   const hourlyMetrics = useMemo(() => {
+    // For aggregated data, use power_total from aggregated endpoint
+    if (useAggregation) {
+      const powerAgg = getAggregatedByKey("power_total");
+      if (!powerAgg.length) return [];
+
+      const hourMap = new Map<string, { sumKw: number; count: number }>();
+      for (let h = 0; h < 24; h++) {
+        hourMap.set(h.toString().padStart(2, "0"), { sumKw: 0, count: 0 });
+      }
+      for (const m of powerAgg) {
+        const hour = format(parseISO(m.timestamp), "HH");
+        const entry = hourMap.get(hour) || { sumKw: 0, count: 0 };
+        entry.sumKw += m.avg;
+        entry.count += 1;
+        hourMap.set(hour, entry);
+      }
+      return Array.from(hourMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([hour, entry]) => ({
+          hour: `${hour}:00`,
+          powerKw: Number(
+            (entry.count > 0 ? entry.sumKw / entry.count : 0).toFixed(2),
+          ),
+          samples: entry.count,
+        }));
+    }
+
     if (!powerRaw) return [];
     const hourMap = new Map<string, { sumKw: number; count: number }>();
     for (let h = 0; h < 24; h++) {
@@ -174,10 +239,19 @@ export function EnergyOverviewPage({
         ),
         samples: entry.count,
       }));
-  }, [powerRaw]);
+  }, [powerRaw, useAggregation, getAggregatedByKey]);
 
   // ── Transform daily metrics ────────────────────
   const dailyMetrics = useMemo(() => {
+    if (useAggregation) {
+      const energyAgg = getAggregatedByKey("energy_total");
+      if (!energyAgg.length) return [];
+      return energyAgg.map((m) => ({
+        label: format(parseISO(m.timestamp), "dd MMM"),
+        kWh: Number(m.avg.toFixed(2)),
+      }));
+    }
+
     if (!energyRaw) return [];
     const dayMap = new Map<string, number>();
     for (const m of energyRaw) {
@@ -189,9 +263,18 @@ export function EnergyOverviewPage({
       kWh: Number(kWh.toFixed(2)),
     }));
     return downsample(points, 240);
-  }, [energyRaw]);
+  }, [energyRaw, useAggregation, getAggregatedByKey]);
 
   const voltageData = useMemo(() => {
+    if (useAggregation) {
+      const voltageAgg = getAggregatedByKey("voltage_l1");
+      if (!voltageAgg.length) return [];
+      return voltageAgg.map((m) => ({
+        label: format(parseISO(m.timestamp), "dd MMM HH:00"),
+        value: Number(m.avg.toFixed(1)),
+      }));
+    }
+
     if (!voltageRaw) return [];
     const map = new Map<string, { sum: number; count: number }>();
     for (const m of voltageRaw) {
@@ -206,9 +289,18 @@ export function EnergyOverviewPage({
       value: Number((sum / count).toFixed(1)),
     }));
     return downsample(points, 300);
-  }, [voltageRaw]);
+  }, [voltageRaw, useAggregation, getAggregatedByKey]);
 
   const currentData = useMemo(() => {
+    if (useAggregation) {
+      const currentAgg = getAggregatedByKey("current_total");
+      if (!currentAgg.length) return [];
+      return currentAgg.map((m) => ({
+        label: format(parseISO(m.timestamp), "dd MMM HH:00"),
+        value: Number(m.avg.toFixed(2)),
+      }));
+    }
+
     if (!currentRaw) return [];
     const map = new Map<string, { sum: number; count: number }>();
     for (const m of currentRaw) {
@@ -223,9 +315,18 @@ export function EnergyOverviewPage({
       value: Number((sum / count).toFixed(2)),
     }));
     return downsample(points, 300);
-  }, [currentRaw]);
+  }, [currentRaw, useAggregation, getAggregatedByKey]);
 
   const powerData = useMemo(() => {
+    if (useAggregation) {
+      const powerAgg = getAggregatedByKey("power_total");
+      if (!powerAgg.length) return [];
+      return powerAgg.map((m) => ({
+        label: format(parseISO(m.timestamp), "dd MMM HH:00"),
+        value: Number(m.avg.toFixed(2)),
+      }));
+    }
+
     if (!powerRaw) return [];
     const map = new Map<string, { sum: number; count: number }>();
     for (const m of powerRaw) {
@@ -240,7 +341,7 @@ export function EnergyOverviewPage({
       value: Number((sum / count).toFixed(2)),
     }));
     return downsample(points, 300);
-  }, [powerRaw]);
+  }, [powerRaw, useAggregation, getAggregatedByKey]);
 
   // Derived data
   const tenantScopeIds = useMemo(() => {
@@ -422,7 +523,8 @@ export function EnergyOverviewPage({
           <div>
             <h2 className="text-base font-semibold">Dashboard Overview</h2>
             <p className="text-sm text-muted-foreground">
-              Overview keseluruhan outlet dan pemakaian energi. Gunakan filter tanggal untuk analisis lebih detail. 
+              Overview keseluruhan outlet dan pemakaian energi. Gunakan filter
+              tanggal untuk analisis lebih detail.
             </p>
           </div>
           <ChartDateFilter value={globalRange} onChange={setGlobalRange} />
