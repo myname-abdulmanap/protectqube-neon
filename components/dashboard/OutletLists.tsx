@@ -18,6 +18,7 @@ interface OutletListProps {
   dateRange: DateRange;
   onDateChange: (r: DateRange) => void;
   loading?: boolean;
+  showDateFilter?: boolean;
 }
 
 export function TopOutletsList({
@@ -25,17 +26,25 @@ export function TopOutletsList({
   dateRange,
   onDateChange,
   loading,
+  showDateFilter = true,
 }: OutletListProps) {
   const maxKwh = data.length > 0 ? Math.max(...data.map((d) => d.kWh)) : 1;
 
   return (
     <Card className="border-0 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between pb-1 px-2 pt-1.5">
-        <CardTitle className="text-[10px] font-semibold flex items-center gap-1">
-          <TrendingUp className="h-3 w-3 text-red-500" />
-          Top Outlets
-        </CardTitle>
-        <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
+      <CardHeader className="flex flex-row items-start justify-between pb-1 px-3 pt-2">
+        <div>
+          <CardTitle className="text-xs font-semibold flex items-center gap-1">
+            <TrendingUp className="h-3 w-3 text-red-500" />
+            Top Outlets
+          </CardTitle>
+          <p className="text-[11px] text-muted-foreground">
+            Outlet dengan energi tertinggi pada rentang filter.
+          </p>
+        </div>
+        {showDateFilter && (
+          <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
+        )}
       </CardHeader>
       <CardContent className="px-2 pb-2 pt-0">
         {loading ? (
@@ -94,17 +103,25 @@ export function LowOutletsList({
   dateRange,
   onDateChange,
   loading,
+  showDateFilter = true,
 }: OutletListProps) {
   const maxKwh = data.length > 0 ? Math.max(...data.map((d) => d.kWh)) : 1;
 
   return (
     <Card className="border-0 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between pb-1 px-2 pt-1.5">
-        <CardTitle className="text-[10px] font-semibold flex items-center gap-1">
-          <TrendingDown className="h-3 w-3 text-green-500" />
-          Low Outlets
-        </CardTitle>
-        <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
+      <CardHeader className="flex flex-row items-start justify-between pb-1 px-3 pt-2">
+        <div>
+          <CardTitle className="text-xs font-semibold flex items-center gap-1">
+            <TrendingDown className="h-3 w-3 text-green-500" />
+            Low Outlets
+          </CardTitle>
+          <p className="text-[11px] text-muted-foreground">
+            Outlet dengan energi terendah pada rentang filter.
+          </p>
+        </div>
+        {showDateFilter && (
+          <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
+        )}
       </CardHeader>
       <CardContent className="px-2 pb-2 pt-0">
         {loading ? (

@@ -181,89 +181,150 @@ export default function ElectricityOutletDetailPage() {
 	const params = useParams<{ scopeId: string }>();
 	const scopeId = params.scopeId;
 
-	const [dateRange, setDateRange] = useState<DateRange>(buildRange('today'));
-	const [detail, setDetail] = useState<OutletDetailPayload | null>(null);
+	const [detail, setDetail] = useState<EnergyOutletDetail | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
-	const [timeSeries, setTimeSeries] = useState<OutletDetailPayload['timeSeries']>([]);
-	const [analyticsData, setAnalyticsData] = useState<OutletDetailPayload['analytics'] | null>(null);
 
-	const [dataLoading, setDataLoading] = useState(false);
-	const [loadedFrom, setLoadedFrom] = useState('');
-	const [loadedTo, setLoadedTo] = useState('');
-
-	const [latestMetrics, setLatestMetrics] = useState<OutletDetailPayload['latestMetrics']>({});
+	// Realtime metrics
 	const [realtimeLastUpdated, setRealtimeLastUpdated] = useState<string | null>(null);
-	const [isMounted, setIsMounted] = useState(false);
+	const [capacityVa, setCapacityVa] = useState<number | null>(null);
+	const [realtimeMetrics, setRealtimeMetrics] = useState<RealtimeMetrics>({
+		voltageL1: 0,
+		voltageL2: 0,
+		voltageL3: 0,
+		voltageAB: 0,
+		voltageBC: 0,
+		voltageCA: 0,
+		currentL1: 0,
+		currentL2: 0,
+		currentL3: 0,
+		currentTotal: 0,
+		powerL1: 0,
+		powerL2: 0,
+		powerL3: 0,
+		powerTotal: 0,
+		reactiveL1: 0,
+		reactiveL2: 0,
+		reactiveL3: 0,
+		reactiveSigma: 0,
+		vaA: 0,
+		vaB: 0,
+		vaC: 0,
+		vaSigma: 0,
+		pfA: 0,
+		pfB: 0,
+		pfC: 0,
+		pfSigma: 0,
+		energyTotal: 0,
+		kvarh: 0,
+		frequency: 0,
+	});
 
+	// Trend chart + Table — shared single fetch keyed by historyRange
+	const [historyRange, setHistoryRange] = useState<DateRange>(buildRange('all'));
+	const [historyData, setHistoryData] = useState<HistoricalReading[]>([]);
+	const [trendMetric, setTrendMetric] = useState<TrendMetric>('energy');
+
+	// Analytics — separate narrower range
+	const [analyticsRange, setAnalyticsRange] = useState<DateRange>(buildRange('7d'));
+	const [analyticsData, setAnalyticsData] = useState<HistoricalReading[]>([]);
+	const [tablePage, setTablePage] = useState(0);
+	const [tableSearch, setTableSearch] = useState('');
+	const TABLE_PAGE_SIZE = 8;
+
+	// Load outlet detail
 	useEffect(() => {
-		setIsMounted(true);
-	}, []);
-
-	const isOffline = useMemo(() => {
-		if (!isMounted || !realtimeLastUpdated) return true;
-		return Date.now() - new Date(realtimeLastUpdated).getTime() > 5 * 60 * 1000;
-	}, [isMounted, realtimeLastUpdated]);
-
-	const fetchForRange = useCallback(
-		async (range: DateRange, isInitial = false) => {
-			if (range.preset === 'custom' && (!range.from || !range.to)) return;
+		let active = true;
+		const load = async () => {
 			try {
-				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-				isInitial ? setLoading(true) : setDataLoading(true);
+				setLoading(true);
 				setError(null);
-				const res = await energyDashboardApi.getOutletDetail(scopeId, { from: range.from, to: range.to });
-				if (!res.success || !res.data) {
-					setError(res.error ?? 'Failed to load outlet');
+				const [detailRes, configRes] = await Promise.all([
+					energyDashboardApi.getOutletDetail(scopeId, {}),
+					energyConfigsApi.getAll(scopeId),
+				]);
+				if (!active) return;
+
+				if (!detailRes.success || !detailRes.data) {
+					setDetail(null);
+					setError(detailRes.error || 'Failed to load outlet');
 					return;
 				}
-				const payload = adaptApiResponse(res.data);
-				if (isInitial) setDetail(payload);
-				setTimeSeries(payload.timeSeries);
-				setAnalyticsData(payload.analytics);
-				setLoadedFrom(range.from);
-				setLoadedTo(range.to);
-			} catch (e: unknown) {
-				setError(e instanceof Error ? e.message : 'Error loading outlet');
+				setDetail(detailRes.data);
+
+				if (configRes.success && configRes.data?.[0]) {
+					setCapacityVa(configRes.data[0].capacityVa ?? null);
+				}
+			} catch {
+				if (active) setError('Failed to load outlet');
 			} finally {
-				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-				isInitial ? setLoading(false) : setDataLoading(false);
+				if (active) setLoading(false);
 			}
-		},
-		[scopeId],
-	);
+		};
+		void load();
+		return () => {
+			active = false;
+		};
+	}, [scopeId]);
 
-	useEffect(() => {
-		void fetchForRange(buildRange('today'), true);
-	}, [fetchForRange]);
-
-	const handleDateRangeChange = (range: DateRange) => {
-		setDateRange(range);
-		if (range.preset === 'custom' && (!range.from || !range.to)) return;
-		void fetchForRange(range, false);
-	};
-
-	const pollRealtimeMetrics = useCallback(async () => {
-		const res = await deviceMetricsApi.getAll({ scopeId, moduleType: 'power_meter', limit: 50 });
+	// Load realtime metrics — uses /latest endpoint so we always get one row per
+	// (deviceId, metricKey) regardless of scope size.  No more guessing a limit.
+	const loadRealtimeMetrics = useCallback(async () => {
+		const res = await deviceMetricsApi.getLatest(scopeId, 'power_meter');
 		if (!res.success || !res.data?.length) return;
+
 		const latestByKey = new Map<string, (typeof res.data)[0]>();
 		for (const m of res.data) {
 			const cur = latestByKey.get(m.metricKey);
-			if (!cur || new Date(m.timestamp) > new Date(cur.timestamp)) latestByKey.set(m.metricKey, m);
+			if (!cur || new Date(m.timestamp) > new Date(cur.timestamp)) {
+				latestByKey.set(m.metricKey, m);
+			}
 		}
-		const updated: OutletDetailPayload['latestMetrics'] = {};
-		for (const [key, m] of latestByKey)
-			updated[key] = {
-				value: key === 'energy_total' ? Number(m.metricValue) - ENERGY_METER_OFFSET_KWH : Number(m.metricValue),
-				unit: m.unit ?? null,
-				timestamp: m.timestamp,
-			};
-		setLatestMetrics(updated);
-		const latestTs = Array.from(latestByKey.values())
-			.map((m) => m.timestamp)
-			.sort()
-			.pop();
-		if (latestTs) setRealtimeLastUpdated(latestTs);
+
+		const getVal = (key: string) => Number(latestByKey.get(key)?.metricValue ?? 0);
+		const getPowerKw = (key: string) => {
+			const m = latestByKey.get(key);
+			if (!m) return 0;
+			const v = Number(m.metricValue ?? 0);
+			return m.unit === 'W' ? v / 1000 : v;
+		};
+
+		const anyMetric = latestByKey.get('power_total') || latestByKey.get('energy_total');
+		if (anyMetric) {
+			setRealtimeLastUpdated(anyMetric.timestamp);
+		}
+
+		setRealtimeMetrics({
+			voltageL1: Number(getVal('voltage_l1').toFixed(1)),
+			voltageL2: Number(getVal('voltage_l2').toFixed(1)),
+			voltageL3: Number(getVal('voltage_l3').toFixed(1)),
+			voltageAB: Number(getVal('voltage_ab').toFixed(1)),
+			voltageBC: Number(getVal('voltage_bc').toFixed(1)),
+			voltageCA: Number(getVal('voltage_ca').toFixed(1)),
+			currentL1: Number(getVal('current_l1').toFixed(2)),
+			currentL2: Number(getVal('current_l2').toFixed(2)),
+			currentL3: Number(getVal('current_l3').toFixed(2)),
+			currentTotal: Number(getVal('current_total').toFixed(2)),
+			powerL1: Number(getPowerKw('power_l1').toFixed(2)),
+			powerL2: Number(getPowerKw('power_l2').toFixed(2)),
+			powerL3: Number(getPowerKw('power_l3').toFixed(2)),
+			powerTotal: Number(getPowerKw('power_total').toFixed(2)),
+			reactiveL1: Number(getVal('reactive_l1').toFixed(2)),
+			reactiveL2: Number(getVal('reactive_l2').toFixed(2)),
+			reactiveL3: Number(getVal('reactive_l3').toFixed(2)),
+			reactiveSigma: Number(getVal('reactive_sigma').toFixed(2)),
+			vaA: Number(getVal('va_a').toFixed(2)),
+			vaB: Number(getVal('va_b').toFixed(2)),
+			vaC: Number(getVal('va_c').toFixed(2)),
+			vaSigma: Number(getVal('va_sigma').toFixed(2)),
+			pfA: Number(getVal('pf_a').toFixed(4)),
+			pfB: Number(getVal('pf_b').toFixed(4)),
+			pfC: Number(getVal('pf_c').toFixed(4)),
+			pfSigma: Number(getVal('pf_sigma').toFixed(4)),
+			energyTotal: Number(getVal('energy_total').toFixed(2)),
+			kvarh: Number(getVal('kvarh').toFixed(2)),
+			frequency: Number(getVal('frequency').toFixed(2)),
+		});
 	}, [scopeId]);
 
 	useEffect(() => {
