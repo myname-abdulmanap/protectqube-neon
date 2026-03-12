@@ -1,22 +1,46 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
+<<<<<<< HEAD
 // API Base URL - should be configured via environment variable
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+=======
+// API Base URL - for server-side calls
+const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+
+// Client-side uses relative paths through Next.js proxy to avoid CORS issues
+const getClientBaseURL = () => {
+  // In browser, use relative path through Next.js /api routes
+  if (typeof window !== "undefined") {
+    return "/api";
+  }
+  // On server, use the backend URL directly
+  return BACKEND_API_URL;
+};
+>>>>>>> cb4a5c5 (add proxy)
 
 // Token storage key
 const TOKEN_KEY = 'auth_token';
 
-// Create axios instance
+// Create axios instance with dynamic baseURL
 const apiClient: AxiosInstance = axios.create({
+<<<<<<< HEAD
 	baseURL: API_BASE_URL,
 	headers: {
 		'Content-Type': 'application/json',
 	},
 	timeout: 30000, // 30 seconds
+=======
+  baseURL: getClientBaseURL(),
+  headers: {
+    "Content-Type": "application/json",
+  },
+  timeout: 30000, // 30 seconds
+>>>>>>> cb4a5c5 (add proxy)
 });
 
 // Request interceptor - auto attach JWT token
 apiClient.interceptors.request.use(
+<<<<<<< HEAD
 	(config: InternalAxiosRequestConfig) => {
 		// Get token from localStorage (only in browser)
 		if (typeof window !== 'undefined') {
@@ -30,10 +54,36 @@ apiClient.interceptors.request.use(
 	(error) => {
 		return Promise.reject(error);
 	},
+=======
+  (config: InternalAxiosRequestConfig) => {
+     // CRITICAL: Set baseURL dynamically at request-time, not module-load-time
+     // to support SSR where module loads on server but requests happen on client
+     const isClient = typeof window !== "undefined";
+     const baseURL = isClient ? "/api" : BACKEND_API_URL;
+   
+     // Only prepend baseURL if URL is relative (not absolute)
+     if (config.url && !config.url.startsWith("http")) {
+       config.baseURL = baseURL;
+     }
+
+    // Prefer in-memory token (set synchronously on session resolve) over
+    // localStorage (written asynchronously via useEffect) so we never send
+    // an authenticated request without a token.
+    const token = _memToken ?? (typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null);
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+   (error) => {
+     return Promise.reject(error);
+   }
+>>>>>>> cb4a5c5 (add proxy)
 );
 
 // Response interceptor - handle 401 and redirect to login
 apiClient.interceptors.response.use(
+<<<<<<< HEAD
 	(response) => response,
 	(error: AxiosError) => {
 		if (error.response?.status === 401) {
@@ -46,6 +96,27 @@ apiClient.interceptors.response.use(
 		}
 		return Promise.reject(error);
 	},
+=======
+  (response) => response,
+  (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      // Only redirect when the request actually carried a token that was rejected.
+      // If there was no Authorization header the session was still loading — don't
+      // redirect, because that creates an infinite /login → /dashboard loop.
+      if (
+        hadAuthHeader &&
+        typeof window !== "undefined" &&
+        !window.location.pathname.startsWith("/login")
+      ) {
+        // Clear stored token and redirect – but never loop back to /login
+        localStorage.removeItem(TOKEN_KEY);
+        document.cookie = `${TOKEN_KEY}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(error);
+  }
+>>>>>>> cb4a5c5 (add proxy)
 );
 
 // Token management utilities
