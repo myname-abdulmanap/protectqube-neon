@@ -1,7 +1,17 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from "axios";
 
-// API Base URL - should be configured via environment variable
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+// API Base URL - for server-side calls
+const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+
+// Client-side uses relative paths through Next.js proxy to avoid CORS issues
+const getClientBaseURL = () => {
+  // In browser, use relative path through Next.js /api routes
+  if (typeof window !== "undefined") {
+    return "/api";
+  }
+  // On server, use the backend URL directly
+  return BACKEND_API_URL;
+};
 
 // Token storage key
 const TOKEN_KEY = "auth_token";
@@ -10,9 +20,9 @@ const TOKEN_KEY = "auth_token";
 // that the axios interceptor picks it up before SWR's first fetch fires.
 let _memToken: string | null = null;
 
-// Create axios instance
+// Create axios instance with dynamic baseURL
 const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getClientBaseURL(),
   headers: {
     "Content-Type": "application/json",
   },
@@ -22,6 +32,16 @@ const apiClient: AxiosInstance = axios.create({
 // Request interceptor - auto attach JWT token
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+     // CRITICAL: Set baseURL dynamically at request-time, not module-load-time
+     // to support SSR where module loads on server but requests happen on client
+     const isClient = typeof window !== "undefined";
+     const baseURL = isClient ? "/api" : BACKEND_API_URL;
+   
+     // Only prepend baseURL if URL is relative (not absolute)
+     if (config.url && !config.url.startsWith("http")) {
+       config.baseURL = baseURL;
+     }
+
     // Prefer in-memory token (set synchronously on session resolve) over
     // localStorage (written asynchronously via useEffect) so we never send
     // an authenticated request without a token.
@@ -31,9 +51,9 @@ apiClient.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+   (error) => {
+     return Promise.reject(error);
+   }
 );
 
 // Response interceptor - handle 401 and redirect to login
@@ -44,7 +64,6 @@ apiClient.interceptors.response.use(
       // Only redirect when the request actually carried a token that was rejected.
       // If there was no Authorization header the session was still loading — don't
       // redirect, because that creates an infinite /login → /dashboard loop.
-      const hadAuthHeader = !!(error.config?.headers as Record<string, string>)?.Authorization;
       if (
         hadAuthHeader &&
         typeof window !== "undefined" &&
