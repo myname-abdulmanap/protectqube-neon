@@ -64,6 +64,7 @@ apiClient.interceptors.response.use(
       // Only redirect when the request actually carried a token that was rejected.
       // If there was no Authorization header the session was still loading — don't
       // redirect, because that creates an infinite /login → /dashboard loop.
+      const hadAuthHeader = !!error.config?.headers?.Authorization;
       if (
         hadAuthHeader &&
         typeof window !== "undefined" &&
