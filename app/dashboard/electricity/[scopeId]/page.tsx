@@ -17,10 +17,54 @@ import { OutletProfileCard } from '@/components/electricity/detail/OutletProfile
 import { DateFilter, type DateRange, buildRange } from '@/components/electricity/detail/DateFilter';
 import { DataLoadingOverlay } from '@/components/electricity/detail/DataLoadingOverlay';
 
-import { deviceMetricsApi, energyDashboardApi, type EnergyOutletDetail } from '@/lib/api';
+import { deviceMetricsApi, energyDashboardApi, type EnergyOutletDetail, type HistoryRow } from '@/lib/api';
 import { exportToExcel, exportToPdf } from '@/lib/report-export';
 import { ExportModal, type ExportFormat, type ExportPeriod } from '@/components/dashboard/ExportModal';
 import { formatCompactNumber } from '@/lib/energy-monitoring';
+
+const ENERGY_METER_OFFSET_KWH = 365.7645;
+
+export type HistoryColumn = {
+	key: keyof HistoryRow | 'timestamp';
+	label: string;
+	highlight?: boolean;
+	align?: 'right';
+};
+
+export const HISTORY_COLS: HistoryColumn[] = [
+	{ key: 'timestamp', label: 'Time' },
+	{ key: 'voltage_l1', label: 'V1', align: 'right' as const },
+	{ key: 'voltage_l2', label: 'V2', align: 'right' as const },
+	{ key: 'voltage_l3', label: 'V3', align: 'right' as const },
+	{ key: 'current_l1', label: 'A1', align: 'right' as const },
+	{ key: 'current_l2', label: 'A2', align: 'right' as const },
+	{ key: 'current_l3', label: 'A3', align: 'right' as const },
+	{ key: 'current_total', label: 'AΣ', align: 'right' as const },
+	{ key: 'power_l1', label: 'P1', align: 'right' as const },
+	{ key: 'power_l2', label: 'P2', align: 'right' as const },
+	{ key: 'power_l3', label: 'P3', align: 'right' as const },
+	{ key: 'power_total', label: 'PΣ', align: 'right' as const },
+	{ key: 'energy_total', label: 'kWh', align: 'right' as const, highlight: true },
+	{ key: 'pf_sigma', label: 'PF', align: 'right' as const },
+];
+
+export const fmtTs = (ts: string) => {
+	try {
+		const d = new Date(ts);
+		const day = d.getDate();
+		const mon = d.toLocaleString('en-GB', { month: 'short' });
+		const hh = String(d.getHours()).padStart(2, '0');
+		const mm = String(d.getMinutes()).padStart(2, '0');
+		return `${day} ${mon} ${hh}.${mm}`;
+	} catch {
+		return ts;
+	}
+};
+
+export const fmtVal = (v: number | null | undefined) => {
+	if (v == null) return '-';
+	return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+};
 
 export interface OutletDetailPayload {
 	id: string;
@@ -51,7 +95,7 @@ export interface OutletDetailPayload {
 		avgPfSigma: number;
 		totalEnergyKwh: number;
 		totalKvarh: number;
-		peakHour: number | null;
+		peakHour: string | null;
 		peakHourAvgKwh: number;
 		overallAvgKwhPerHour: number;
 	};
@@ -209,7 +253,11 @@ export default function ElectricityOutletDetailPage() {
 		}
 		const updated: OutletDetailPayload['latestMetrics'] = {};
 		for (const [key, m] of latestByKey)
-			updated[key] = { value: Number(m.metricValue), unit: m.unit ?? null, timestamp: m.timestamp };
+			updated[key] = {
+				value: key === 'energy_total' ? Number(m.metricValue) - ENERGY_METER_OFFSET_KWH : Number(m.metricValue),
+				unit: m.unit ?? null,
+				timestamp: m.timestamp,
+			};
 		setLatestMetrics(updated);
 		const latestTs = Array.from(latestByKey.values())
 			.map((m) => m.timestamp)
@@ -266,23 +314,135 @@ export default function ElectricityOutletDetailPage() {
 
 	const handleExport = async (format: ExportFormat, period: ExportPeriod) => {
 		if (!detail) return;
-		const metricsRes = await deviceMetricsApi.getAll({
-			scopeId,
-			moduleType: 'power_meter',
-			from: new Date(period.from).toISOString(),
-			to: new Date(period.to).toISOString(),
-			limit: 50_000,
-		});
-		type FlatMetric = { timestamp: string; metricKey: string; metricValue: number };
-		const pivotRows = (input: FlatMetric[]): Array<Record<string, string | number>> => {
-			const map = new Map<string, Record<string, string | number>>();
-			for (const r of input) {
-				if (!map.has(r.timestamp)) map.set(r.timestamp, { timestamp: r.timestamp });
-				map.get(r.timestamp)![r.metricKey] = r.metricValue;
+
+		const exportFrom = period.from;
+		const exportTo = period.to;
+
+		let exportAnalytics = analyticsData ?? detail.analytics;
+
+		try {
+			const analyticsRes = await energyDashboardApi.getOutletDetail(scopeId, {
+				from: exportFrom,
+				to: exportTo,
+			});
+
+			if (analyticsRes.success && analyticsRes.data) {
+				exportAnalytics = adaptApiResponse(analyticsRes.data).analytics;
 			}
-			return Array.from(map.values()).sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+		} catch (e) {
+			console.warn('Failed to fetch analytics for export period:', e);
+		}
+
+		let allRows: HistoryRow[] = [];
+		let currentCursor: string | null = null;
+		let fetching = true;
+
+		const EXPORT_PAGE_SIZE = 1000;
+
+		while (fetching) {
+			try {
+				const res = await energyDashboardApi.getOutletHistory(scopeId, {
+					from: exportFrom,
+					to: exportTo,
+					cursor: currentCursor ?? undefined,
+					pageSize: EXPORT_PAGE_SIZE,
+				});
+
+				if (res.success && res.data) {
+					allRows = [...allRows, ...res.data.rows];
+					currentCursor = res.data.nextCursor;
+
+					if (!currentCursor) fetching = false;
+				} else {
+					console.error('Export fetch error:', res.error);
+					fetching = false;
+				}
+			} catch (e) {
+				console.error('Export exception:', e);
+				fetching = false;
+			}
+		}
+
+		if (!allRows.length) {
+			console.warn('No history rows for export');
+			return;
+		}
+
+		allRows.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+		let energyDelta = exportAnalytics.totalEnergyKwh;
+
+		if (allRows.length > 1) {
+			const firstEnergy = Number(allRows[allRows.length - 1].energy_total ?? 0);
+			const lastEnergy = Number(allRows[0].energy_total ?? 0);
+
+			if (lastEnergy > firstEnergy) {
+				energyDelta = Number((lastEnergy - firstEnergy).toFixed(3));
+			}
+		}
+
+		let trendPct = 0;
+
+		if (allRows.length > 1) {
+			const firstPower = Number(allRows[allRows.length - 1].power_total ?? 0);
+			const lastPower = Number(allRows[0].power_total ?? 0);
+
+			if (firstPower > 0) {
+				trendPct = Math.round(((lastPower - firstPower) / firstPower) * 100);
+			}
+		}
+
+		const fmt = (v: number, d = 2) => v.toLocaleString('id-ID', { maximumFractionDigits: d });
+
+		const peakHourStr = exportAnalytics.peakHour ? fmtTs(exportAnalytics.peakHour) : '-';
+		const peakEnergyPerMinute = exportAnalytics.peakPowerKw / 60;
+
+		const fmtPeriod = (utcIso: string) => {
+			try {
+				const utc = new Date(utcIso);
+				const wib = new Date(utc.getTime() + 7 * 60 * 60 * 1000);
+
+				const day = String(wib.getUTCDate()).padStart(2, '0');
+				const mon = wib.toLocaleString('id-ID', {
+					month: 'long',
+					timeZone: 'UTC',
+				});
+				const year = wib.getUTCFullYear();
+
+				const hh = String(wib.getUTCHours()).padStart(2, '0');
+				const mm = String(wib.getUTCMinutes()).padStart(2, '0');
+
+				return `${day} ${mon} ${year}, ${hh}:${mm}`;
+			} catch {
+				return utcIso;
+			}
 		};
-		const rows = metricsRes.success && metricsRes.data ? pivotRows(metricsRes.data as FlatMetric[]) : [];
+
+		const periodLabel = `${fmtPeriod(exportFrom)} – ${fmtPeriod(exportTo)}`;
+
+		const excelRows = allRows.map((row) => {
+			const flatRow: Record<string, string | number> = {
+				timestamp: fmtTs(row.timestamp),
+			};
+
+			HISTORY_COLS.forEach((col) => {
+				if (col.key !== 'timestamp') {
+					flatRow[col.key] = fmtVal(row[col.key as keyof HistoryRow] as number);
+				}
+			});
+
+			return flatRow;
+		});
+
+		const pdfHeaders = HISTORY_COLS.map((c) => c.label);
+
+		const pdfRows = allRows.map((row) =>
+			HISTORY_COLS.map((col) => {
+				if (col.key === 'timestamp') return fmtTs(row.timestamp);
+				return fmtVal(row[col.key as keyof HistoryRow] as number);
+			}),
+		);
+
 		if (format === 'excel') {
 			await exportToExcel(`outlet-${detail.id}.xlsx`, [
 				{
@@ -291,48 +451,66 @@ export default function ElectricityOutletDetailPage() {
 						{
 							outlet: detail.name,
 							region: detail.region ?? '-',
+							city: detail.city ?? '-',
 							address: detail.address ?? '-',
-							capacityVa: detail.capacityVa ?? '-',
+							capacity_va: detail.capacityVa ?? '-',
 							devices: detail.devices.length,
+							period: periodLabel,
+							energy_total_kwh: fmt(energyDelta),
+							total_kvarh: fmt(exportAnalytics.totalKvarh),
+							peak_power_kw: fmt(exportAnalytics.peakPowerKw),
+							avg_power_kw: fmt(exportAnalytics.avgPowerKw),
+							peak_hour: peakHourStr,
+							avg_voltage_v: fmt(exportAnalytics.avgVoltageV),
+							avg_current_a: fmt(exportAnalytics.avgCurrentA),
+							avg_pf: fmt(exportAnalytics.avgPfSigma, 3),
+							trend_percent: `${trendPct}%`,
 						},
 					],
 				},
-				{ name: 'Metrics', rows },
+				{
+					name: 'History Metrics',
+					rows: excelRows,
+				},
 			]);
-		} else {
-			await exportToPdf({
-				fileName: `outlet-${detail.id}.pdf`,
-				title: 'Detail Outlet',
-				scopeName: detail.name,
-				period: `${period.from} - ${period.to}`,
-				generatedAt: new Date().toLocaleString('id-ID'),
-				summary: [
-					`Outlet: ${detail.name} | Region: ${detail.region ?? '-'}`,
-					`Capacity: ${detail.capacityVa ? `${formatCompactNumber(detail.capacityVa)} VA` : '-'}`,
-					`Devices: ${detail.devices.length}`,
-				],
-				tables: [
-					{
-						title: 'Metrics',
-						columns: ['Time', 'V1', 'V2', 'V3', 'A Total', 'P Total', 'Energy', 'PF'],
-						rows: rows
-							.slice(0, 100)
-							.map((r) => [
-								String(r['timestamp'] ?? '-'),
-								String(r['voltage_l1'] ?? '-'),
-								String(r['voltage_l2'] ?? '-'),
-								String(r['voltage_l3'] ?? '-'),
-								String(r['current_total'] ?? '-'),
-								String(r['power_total'] ?? '-'),
-								String(r['energy_total'] ?? '-'),
-								String(r['pf_sigma'] ?? '-'),
-							]),
-					},
-				],
-			});
-		}
-	};
 
+			return;
+		}
+
+		await exportToPdf({
+			fileName: `outlet-${detail.id}.pdf`,
+			title: 'Laporan Detail Outlet',
+			scopeName: detail.name,
+			period: periodLabel,
+			generatedAt: new Date().toLocaleString('id-ID'),
+
+			summary: [
+				`Outlet: ${detail.name} | Region: ${detail.region ?? '-'} | Kota: ${detail.city ?? '-'}`,
+				`Alamat: ${detail.address ?? '-'}`,
+				`Kapasitas: ${
+					detail.capacityVa ? `${formatCompactNumber(detail.capacityVa)} VA` : '-'
+				} | Jumlah Device: ${detail.devices.length}`,
+				`Energi total periode ini: ${fmt(energyDelta)} kWh | Total kVArh: ${fmt(exportAnalytics.totalKvarh)}`,
+				`Peak power: ${fmt(exportAnalytics.peakPowerKw)} kW (jam ramai: ${peakHourStr})`,
+				`Jam beban teramai: ${peakHourStr} dengan konsumsi ${fmt(peakEnergyPerMinute, 3)} kWh/menit`,
+				`Rata-rata daya: ${fmt(exportAnalytics.avgPowerKw)} kW`,
+				`Rata-rata metrik: Voltage ${fmt(
+					exportAnalytics.avgVoltageV,
+				)} V, Current ${fmt(exportAnalytics.avgCurrentA)} A, PF ${fmt(exportAnalytics.avgPfSigma, 3)}`,
+				`Total pertambahan energi periode ini ${fmt(energyDelta)} kWh dan tren daya ${
+					trendPct === 0 ? 'stabil (0%)' : `${trendPct > 0 ? 'naik' : 'turun'} (${Math.abs(trendPct)}%)`
+				}`,
+			],
+
+			tables: [
+				{
+					title: 'History Metrics',
+					columns: pdfHeaders,
+					rows: pdfRows,
+				},
+			],
+		});
+	};
 	const dateRangeLabel = useMemo(() => {
 		if (!loadedFrom || !loadedTo) return '';
 		const from = new Date(loadedFrom).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
@@ -437,8 +615,12 @@ export default function ElectricityOutletDetailPage() {
 
 				{detail && (
 					<motion.div variants={itemVariant} className='relative'>
-						<DataLoadingOverlay isLoading={dataLoading} label={overlayLabel} />
-						<HistoryTableCard scopeId={scopeId} dateRange={dateRange} dataLoading={dataLoading} />
+						<HistoryTableCard
+							columns={HISTORY_COLS}
+							scopeId={scopeId}
+							dateRange={dateRange}
+							dataLoading={dataLoading}
+						/>
 					</motion.div>
 				)}
 

@@ -1,11 +1,13 @@
 "use client";
 
 import useSWR, { type SWRConfiguration } from "swr";
+import { useSession } from "next-auth/react";
 import {
   energyDashboardApi,
   scopesApi,
   devicesApi,
   deviceMetricsApi,
+  tenantsApi,
   type EnergyDashboardFilters,
   type EnergyOverviewData,
   type EnergyOutletSummary,
@@ -13,6 +15,7 @@ import {
   type Scope,
   type Device,
   type DeviceMetric,
+  type Tenant,
 } from "@/lib/api";
 
 // ── SWR defaults: stale-while-revalidate with 30s dedup ──
@@ -25,8 +28,20 @@ const defaultConfig: SWRConfiguration = {
 type ApiFn<T> = () => Promise<{ success: boolean; data?: T; error?: string }>;
 
 function useApi<T>(key: string | null, fetcher: ApiFn<T>, config?: SWRConfiguration) {
+  const { status, data: session } = useSession();
+  // Block all SWR fetches until the session is resolved AND the backendToken
+  // is present. This covers two cases:
+  //   1. status === "loading" — session not resolved yet
+  //   2. status === "authenticated" but backendToken missing — shouldn't happen
+  //      in normal flow but guards against edge cases
+  // TokenSync writes the token synchronously during render when session
+  // resolves, so by the time readyKey becomes non-null the in-memory token
+  // is already set and axios will include it.
+  const hasToken = status === "authenticated" && !!(session as { user?: { backendToken?: string } } | null)?.user?.backendToken;
+  const readyKey = (status === "loading" || !hasToken) ? null : key;
+
   const { data, error, isLoading, isValidating, mutate } = useSWR<T>(
-    key,
+    readyKey,
     async () => {
       const res = await fetcher();
       if (!res.success || !res.data) throw new Error(res.error || "API error");
@@ -74,6 +89,14 @@ export function useOutletDetail(
 }
 
 // ── Reference data hooks (rarely changes, long cache) ──
+
+export function useTenants() {
+  return useApi<Tenant[]>(
+    "tenants",
+    () => tenantsApi.getAll(),
+    { dedupingInterval: 120_000 },
+  );
+}
 
 export function useScopes(tenantId?: string) {
   const key = tenantId ? `scopes:${tenantId}` : "scopes";

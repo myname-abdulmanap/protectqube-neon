@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import {
   Menu,
   LogOut,
   User,
-  Settings,
   Building2,
   ChevronDown,
   KeyRound,
@@ -15,7 +14,6 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,10 +39,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   authToken,
   authApi,
-  tenantsApi,
-  scopesApi,
-  type Tenant,
 } from "@/lib/api";
+import { useTenants, useScopes } from "@/lib/use-energy-data";
 
 interface UserData {
   id?: string;
@@ -64,9 +60,14 @@ export default function Header({ user }: HeaderProps) {
   const { toggle } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [tenantName, setTenantName] = useState<string | null>(null);
-  const [autoSelected, setAutoSelected] = useState(false);
+
+  // ── Data via SWR (cached + deduped across all mounted components) ──
+  const { data: tenantList } = useTenants();
+  const { data: scopeList } = useScopes();
+  const tenants = useMemo(() => tenantList ?? [], [tenantList]);
+
+  // Prevent auto-redirect from firing more than once per mount
+  const didAutoRedirect = useRef(false);
 
   const tenantIdFromPath = useMemo(() => {
     const match = pathname.match(
@@ -83,82 +84,33 @@ export default function Header({ user }: HeaderProps) {
     );
   }, [pathname]);
 
-  // Load tenants and user's associated scopes
+  // Auto-select tenant when landing on /overview without a tenantId.
+  // Runs only after SWR data is loaded, and only redirects once per mount (useRef guard).
   useEffect(() => {
-    let active = true;
-    const loadData = async () => {
-      const [tenantsRes, scopesRes] = await Promise.all([
-        tenantsApi.getAll(),
-        scopesApi.getAll(),
-      ]);
-      if (!active) return;
+    if (didAutoRedirect.current || !isOnOverviewPage || tenantIdFromPath) return;
+    if (!tenants.length && !scopeList?.length) return; // still loading
 
-      const allTenants =
-        tenantsRes.success && tenantsRes.data ? tenantsRes.data : [];
-      const userScopes =
-        scopesRes.success && scopesRes.data ? scopesRes.data : [];
-
-      setTenants(allTenants);
-
-      // Auto-select logic: ONLY on overview page without tenant selected
-      if (!isOnOverviewPage || tenantIdFromPath) {
-        // Not on overview page or already has tenant - don't auto-redirect
+    if (scopeList?.length) {
+      const scopeTenantId = scopeList[0].tenantId;
+      if (scopeTenantId) {
+        didAutoRedirect.current = true;
+        router.push(`/dashboard/energy-monitoring/overview/${scopeTenantId}`);
         return;
       }
-
-      // If user has scopes, auto-select their tenant
-      if (userScopes.length > 0) {
-        const firstScope = userScopes[0];
-        const scopeTenantId = firstScope.tenantId;
-        if (scopeTenantId) {
-          router.push(`/dashboard/energy-monitoring/overview/${scopeTenantId}`);
-          setAutoSelected(true);
-          const tenant = allTenants.find((t) => t.id === scopeTenantId);
-          setTenantName(tenant?.name || "Tenant");
-          return;
-        }
-      }
-
-      // If only one tenant exists, auto-select it
-      if (allTenants.length === 1) {
-        router.push(
-          `/dashboard/energy-monitoring/overview/${allTenants[0].id}`,
-        );
-        setAutoSelected(true);
-        setTenantName(allTenants[0].name);
-      }
-    };
-    void loadData();
-    return () => {
-      active = false;
-    };
-  }, [router, tenantIdFromPath, isOnOverviewPage]);
-
-  useEffect(() => {
-    if (tenantIdFromPath && tenants.length > 0) {
-      const found = tenants.find((t) => t.id === tenantIdFromPath);
-      const name = found?.name || "Unknown Tenant";
-      queueMicrotask(() => setTenantName(name));
-      return;
-    } else if (tenantIdFromPath) {
-      let active = true;
-      const loadTenant = async () => {
-        const response = await tenantsApi.getById(tenantIdFromPath);
-        if (!active) return;
-        setTenantName(
-          response.success && response.data
-            ? response.data.name
-            : "Unknown Tenant",
-        );
-      };
-      void loadTenant();
-      return () => {
-        active = false;
-      };
-    } else if (!autoSelected) {
-      queueMicrotask(() => setTenantName(null));
     }
-  }, [tenantIdFromPath, tenants, autoSelected]);
+
+    if (tenants.length === 1) {
+      didAutoRedirect.current = true;
+      router.push(`/dashboard/energy-monitoring/overview/${tenants[0].id}`);
+    }
+  }, [isOnOverviewPage, tenantIdFromPath, tenants, scopeList, router]);
+
+  // Derive tenant display name from the already-loaded tenants list — no extra API call
+  const tenantName = useMemo(() => {
+    if (!tenantIdFromPath) return null;
+    const found = tenants.find((t) => t.id === tenantIdFromPath);
+    return found?.name ?? null;
+  }, [tenantIdFromPath, tenants]);
 
   const handleTenantSelect = (tenantId: string) => {
     router.push(`/dashboard/energy-monitoring/overview/${tenantId}`);
@@ -190,8 +142,8 @@ export default function Header({ user }: HeaderProps) {
       .slice(0, 2);
   };
 
-  // Show tenant selector only if we have multiple tenants and not auto-selected
-  const showTenantDropdown = tenants.length > 1 || tenantName;
+  // Show tenant selector only if we have multiple tenants or a name to display
+  const showTenantDropdown = tenants.length > 1 || !!tenantName;
 
   // Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);

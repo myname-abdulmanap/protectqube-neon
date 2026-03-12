@@ -79,6 +79,7 @@ export const authConfig: NextAuthConfig = {
                 order: menu.order,
                 parentId: menu.parentId,
               })) || [],
+            backendToken: data.data.token,
           };
         } catch (error) {
           console.error("Auth error:", error);
@@ -94,6 +95,8 @@ export const authConfig: NextAuthConfig = {
         token.role = user.role;
         token.permissions = user.permissions || [];
         token.menus = user.menus || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        token.backendToken = (user as any).backendToken;
       }
       return token;
     },
@@ -103,6 +106,7 @@ export const authConfig: NextAuthConfig = {
         session.user.role = token.role;
         session.user.permissions = token.permissions || [];
         session.user.menus = token.menus || [];
+        session.user.backendToken = token.backendToken;
       }
       return session;
     },

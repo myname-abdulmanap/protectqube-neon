@@ -19,6 +19,7 @@ declare module "next-auth" {
       role: Role;
       permissions: string[];
       menus: SidebarMenu[];
+      backendToken: string;
     } & DefaultSession["user"];
   }
 
@@ -26,6 +27,7 @@ declare module "next-auth" {
     role: Role;
     permissions?: string[];
     menus?: SidebarMenu[];
+    backendToken?: string;
   }
 }
 
@@ -35,5 +37,6 @@ declare module "next-auth/jwt" {
     role: Role;
     permissions?: string[];
     menus?: SidebarMenu[];
+    backendToken?: string;
   }
 }

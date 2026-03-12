@@ -8,71 +8,30 @@ import { History, ChevronLeft, ChevronRight, Loader2, ServerCrash } from 'lucide
 import { energyDashboardApi, type HistoryRow } from '@/lib/api';
 import type { DateRange } from '@/components/electricity/detail/DateFilter';
 import { cn } from '@/lib/utils';
-
-const PAGE_SIZE = 20;
-
-const COLS: Array<{
-	key: keyof HistoryRow | 'timestamp';
-	label: string;
-	highlight?: boolean;
-	align?: 'right';
-}> = [
-	{ key: 'timestamp', label: 'Time' },
-	{ key: 'voltage_l1', label: 'V1', align: 'right' },
-	{ key: 'voltage_l2', label: 'V2', align: 'right' },
-	{ key: 'voltage_l3', label: 'V3', align: 'right' },
-	{ key: 'current_l1', label: 'A1', align: 'right' },
-	{ key: 'current_l2', label: 'A2', align: 'right' },
-	{ key: 'current_l3', label: 'A3', align: 'right' },
-	{ key: 'current_total', label: 'AΣ', align: 'right' },
-	{ key: 'power_l1', label: 'P1', align: 'right' },
-	{ key: 'power_l2', label: 'P2', align: 'right' },
-	{ key: 'power_l3', label: 'P3', align: 'right' },
-	{ key: 'power_total', label: 'PΣ', align: 'right' },
-	{ key: 'energy_total', label: 'kWh', align: 'right', highlight: true },
-	{ key: 'pf_sigma', label: 'PF', align: 'right' },
-];
-
-const fmtTs = (ts: string) => {
-	try {
-		const d = new Date(ts);
-		const day = d.getDate();
-		const mon = d.toLocaleString('en-GB', { month: 'short' });
-		const hh = String(d.getHours()).padStart(2, '0');
-		const mm = String(d.getMinutes()).padStart(2, '0');
-		return `${day} ${mon} ${hh}.${mm}`;
-	} catch {
-		return ts;
-	}
-};
-
-const fmtVal = (v: number | null | undefined) => {
-	if (v == null) return <span className='text-muted-foreground/30'>—</span>;
-	return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
-};
+import { fmtTs, fmtVal, HistoryColumn } from '@/app/dashboard/electricity/[scopeId]/page';
 
 interface HistoryTableCardProps {
+	columns: HistoryColumn[];
 	scopeId: string;
 	dateRange: DateRange;
 	dataLoading?: boolean;
 }
 
-interface PageState {
-	rows: HistoryRow[];
-	nextCursor: string | null;
-	total: number | null;
-}
+const PAGE_SIZE = 20;
 
-export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: HistoryTableCardProps) {
-	const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
-	const [currentPageIdx, setCurrentPageIdx] = useState(0);
-	const [pageState, setPageState] = useState<PageState>({ rows: [], nextCursor: null, total: null });
+export function HistoryTableCard({ columns, scopeId, dateRange, dataLoading = false }: HistoryTableCardProps) {
+	const [rows, setRows] = useState<HistoryRow[]>([]);
+	const [nextCursor, setNextCursor] = useState<string | null>(null);
+	const [total, setTotal] = useState<number | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
+	const [pageIdx, setPageIdx] = useState(0);
 	const lastRangeKey = useRef('');
 
 	const fetchPage = useCallback(
 		async (cursor: string | null) => {
+			if (dateRange.preset === 'custom' && (!dateRange.from || !dateRange.to)) return;
 			setLoading(true);
 			setError(null);
 			try {
@@ -86,45 +45,54 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 					setError(res.error ?? 'Failed to load history');
 					return;
 				}
-				setPageState({ rows: res.data.rows, nextCursor: res.data.nextCursor, total: res.data.total });
+				setRows(res.data.rows);
+				setNextCursor(res.data.nextCursor);
+				setTotal(res.data.total);
 			} catch (e) {
 				setError(e instanceof Error ? e.message : 'Error loading history');
 			} finally {
 				setLoading(false);
 			}
 		},
-		[scopeId, dateRange.from, dateRange.to],
+		[scopeId, dateRange],
 	);
 
 	useEffect(() => {
 		if (dateRange.preset === 'custom' && (!dateRange.from || !dateRange.to)) return;
+
 		const rangeKey = `${dateRange.from}__${dateRange.to}`;
 		if (rangeKey === lastRangeKey.current) return;
 		lastRangeKey.current = rangeKey;
+
 		setCursorStack([null]);
-		setCurrentPageIdx(0);
+		setPageIdx(0);
+
 		void fetchPage(null);
 	}, [dateRange, fetchPage]);
 
 	const handleNext = () => {
-		if (!pageState.nextCursor) return;
-		const nextIdx = currentPageIdx + 1;
-		setCursorStack([...cursorStack.slice(0, nextIdx + 1), pageState.nextCursor]);
-		setCurrentPageIdx(nextIdx);
-		void fetchPage(pageState.nextCursor);
+		if (!nextCursor) return;
+		const nextIdx = pageIdx + 1;
+		setCursorStack([...cursorStack.slice(0, nextIdx + 1), nextCursor]);
+		setPageIdx(nextIdx);
+		void fetchPage(nextCursor);
 	};
 
 	const handlePrev = () => {
-		if (currentPageIdx <= 0) return;
-		const prevIdx = currentPageIdx - 1;
-		setCurrentPageIdx(prevIdx);
+		if (pageIdx <= 0) return;
+		const prevIdx = pageIdx - 1;
+		setPageIdx(prevIdx);
 		void fetchPage(cursorStack[prevIdx] ?? null);
 	};
 
-	const currentPage = currentPageIdx + 1;
-	const hasNext = !!pageState.nextCursor;
-	const hasPrev = currentPageIdx > 0;
-	const totalLabel = pageState.total ? `${pageState.total.toLocaleString('en-US')} records` : '';
+	const handleRetry = () => {
+		void fetchPage(cursorStack[pageIdx] ?? null);
+	};
+
+	const totalLabel = total ? `${total.toLocaleString('en-US')} records` : '';
+	const currentPage = pageIdx + 1;
+	const hasNext = !!nextCursor;
+	const hasPrev = pageIdx > 0;
 
 	return (
 		<Card className='border-0 shadow-sm'>
@@ -147,11 +115,7 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 					<div className='flex flex-col items-center justify-center py-10 gap-3 text-destructive'>
 						<ServerCrash className='h-8 w-8 opacity-60' />
 						<p className='text-sm'>{error}</p>
-						<Button
-							variant='outline'
-							size='sm'
-							onClick={() => void fetchPage(cursorStack[currentPageIdx] ?? null)}
-						>
+						<Button variant='outline' size='sm' onClick={handleRetry}>
 							Retry
 						</Button>
 					</div>
@@ -162,7 +126,7 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 						<Table className='text-sm min-w-max'>
 							<TableHeader>
 								<TableRow className='bg-muted/20 hover:bg-muted/20'>
-									{COLS.map((c) => (
+									{columns.map((c) => (
 										<TableHead
 											key={c.key}
 											className={cn(
@@ -181,7 +145,7 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 								{loading &&
 									Array.from({ length: PAGE_SIZE }).map((_, i) => (
 										<TableRow key={`sk-${i}`} className='animate-pulse border-border/20'>
-											{COLS.map((c) => (
+											{columns.map((c) => (
 												<TableCell key={c.key} className='px-3 py-2'>
 													<div className='h-3 bg-muted/50 rounded w-14' />
 												</TableCell>
@@ -189,10 +153,10 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 										</TableRow>
 									))}
 
-								{!loading && pageState.rows.length === 0 && (
+								{!loading && rows.length === 0 && (
 									<TableRow>
 										<TableCell
-											colSpan={COLS.length}
+											colSpan={columns.length}
 											className='text-center text-sm text-muted-foreground py-10'
 										>
 											No data for this period
@@ -201,12 +165,12 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 								)}
 
 								{!loading &&
-									pageState.rows.map((row, i) => (
+									rows.map((row, i) => (
 										<TableRow
 											key={`${row.timestamp}-${i}`}
 											className='hover:bg-muted/10 transition-colors border-border/20'
 										>
-											{COLS.map((c) => (
+											{columns.map((c) => (
 												<TableCell
 													key={c.key}
 													className={cn(
@@ -230,10 +194,9 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 				<div className='flex items-center justify-between mt-3'>
 					<span className='text-sm text-muted-foreground'>
 						Page {currentPage}
-						{pageState.rows.length > 0 && !loading && (
+						{rows.length > 0 && !loading && (
 							<span className='ml-1 text-muted-foreground/60'>
-								· {PAGE_SIZE * (currentPage - 1) + 1}–
-								{PAGE_SIZE * (currentPage - 1) + pageState.rows.length} rows
+								· {PAGE_SIZE * (currentPage - 1) + 1}–{PAGE_SIZE * (currentPage - 1) + rows.length} rows
 							</span>
 						)}
 					</span>
