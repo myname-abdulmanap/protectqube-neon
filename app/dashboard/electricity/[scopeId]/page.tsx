@@ -435,7 +435,9 @@ export default function ElectricityOutletDetailPage() {
   });
 
   // Trend chart + Table — shared single fetch keyed by historyRange
-  const [historyRange, setHistoryRange] = useState<DateRange>(buildRange("all"));
+  const [historyRange, setHistoryRange] = useState<DateRange>(
+    buildRange("all"),
+  );
   const [historyData, setHistoryData] = useState<HistoricalReading[]>([]);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>("energy");
 
@@ -443,7 +445,7 @@ export default function ElectricityOutletDetailPage() {
   const [analyticsRange, setAnalyticsRange] = useState<DateRange>(
     buildRange("7d"),
   );
-  const [analyticsData, setAnalyticsData] = useState<HistoricalReading[]>([])
+  const [analyticsData, setAnalyticsData] = useState<HistoricalReading[]>([]);
   const [tablePage, setTablePage] = useState(0);
   const [tableSearch, setTableSearch] = useState("");
   const TABLE_PAGE_SIZE = 8;
@@ -557,10 +559,19 @@ export default function ElectricityOutletDetailPage() {
     const load = async () => {
       // Use preset-aware limits: smaller window = fewer rows needed
       const presetLimits: Record<string, number> = {
-        today: 300, "7d": 700, "30d": 1500, "90d": 2500,
+        today: 300,
+        "7d": 700,
+        "30d": 1500,
+        "90d": 2500,
       };
       const limit = presetLimits[historyRange.preset] ?? 3000;
-      const params: { scopeId: string; moduleType: string; limit: number; from?: string; to?: string } = {
+      const params: {
+        scopeId: string;
+        moduleType: string;
+        limit: number;
+        from?: string;
+        to?: string;
+      } = {
         scopeId,
         moduleType: "power_meter",
         limit,
@@ -576,7 +587,9 @@ export default function ElectricityOutletDetailPage() {
       }
     };
     void load();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [scopeId, historyRange]);
 
   // Load analytics data (separate range for summary stats)
@@ -584,10 +597,19 @@ export default function ElectricityOutletDetailPage() {
     let active = true;
     const load = async () => {
       const presetLimits: Record<string, number> = {
-        today: 300, "7d": 700, "30d": 1500, "90d": 2500,
+        today: 300,
+        "7d": 700,
+        "30d": 1500,
+        "90d": 2500,
       };
       const limit = presetLimits[analyticsRange.preset] ?? 3000;
-      const params: { scopeId: string; moduleType: string; limit: number; from?: string; to?: string } = {
+      const params: {
+        scopeId: string;
+        moduleType: string;
+        limit: number;
+        from?: string;
+        to?: string;
+      } = {
         scopeId,
         moduleType: "power_meter",
         limit,
@@ -602,7 +624,9 @@ export default function ElectricityOutletDetailPage() {
       }
     };
     void load();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [scopeId, analyticsRange]);
 
   // Status calculation
@@ -1084,9 +1108,9 @@ export default function ElectricityOutletDetailPage() {
                         {/* {capacityAmpere
                           ? `${fmtVal(capacityAmpere, 1)} A`
                           : "-"} */}
-                          {capacityVa ? `${formatCompactNumber(capacityVa)} VA` : "-"}
-
-
+                        {capacityVa
+                          ? `${formatCompactNumber(capacityVa)} VA`
+                          : "-"}
                       </span>
                     </div>
 
