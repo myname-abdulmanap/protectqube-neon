@@ -36,10 +36,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useSidebar } from "@/components/providers/SidebarProvider";
 import { motion } from "framer-motion";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import {
-  authToken,
-  authApi,
-} from "@/lib/api";
+import { authToken, authApi } from "@/lib/api";
 import { useTenants, useScopes } from "@/lib/use-energy-data";
 
 interface UserData {
@@ -87,7 +84,8 @@ export default function Header({ user }: HeaderProps) {
   // Auto-select tenant when landing on /overview without a tenantId.
   // Runs only after SWR data is loaded, and only redirects once per mount (useRef guard).
   useEffect(() => {
-    if (didAutoRedirect.current || !isOnOverviewPage || tenantIdFromPath) return;
+    if (didAutoRedirect.current || !isOnOverviewPage || tenantIdFromPath)
+      return;
     if (!tenants.length && !scopeList?.length) return; // still loading
 
     if (scopeList?.length) {

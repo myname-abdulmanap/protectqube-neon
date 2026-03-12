@@ -106,7 +106,7 @@ export const authConfig: NextAuthConfig = {
         session.user.role = token.role;
         session.user.permissions = token.permissions || [];
         session.user.menus = token.menus || [];
-        session.user.backendToken = token.backendToken;
+        session.user.backendToken = token.backendToken ?? "";
       }
       return session;
     },
