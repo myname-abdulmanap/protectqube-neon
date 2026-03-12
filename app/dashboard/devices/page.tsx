@@ -122,12 +122,16 @@ export default function DevicesPage() {
   const handleSubmitForm = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const latitudeRaw = (formData.get("latitude") as string) || "";
+    const longitudeRaw = (formData.get("longitude") as string) || "";
     const payload = {
       scopeId: formData.get("scopeId") as string,
       name: formData.get("name") as string,
       serialNo: formData.get("serialNo") as string,
       locationName: formData.get("locationName") as string,
       locationType: formData.get("locationType") as string,
+      latitude: latitudeRaw === "" ? null : Number(latitudeRaw),
+      longitude: longitudeRaw === "" ? null : Number(longitudeRaw),
       firmwareVersion: formData.get("firmwareVersion") as string,
       isActive: formData.get("isActive") === "true",
     };
@@ -364,6 +368,14 @@ export default function DevicesPage() {
                   <p>{selectedDevice?.locationType || "-"}</p>
                 </div>
                 <div>
+                  <p className="text-muted-foreground">Latitude</p>
+                  <p>{selectedDevice?.latitude ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Longitude</p>
+                  <p>{selectedDevice?.longitude ?? "-"}</p>
+                </div>
+                <div>
                   <p className="text-muted-foreground">Firmware</p>
                   <p>{selectedDevice?.firmwareVersion || "-"}</p>
                 </div>
@@ -515,6 +527,37 @@ export default function DevicesPage() {
                   name="locationType"
                   defaultValue={editDevice?.locationType || ""}
                   className="text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label htmlFor="latitude" className="text-xs">
+                  Latitude
+                </Label>
+                <Input
+                  id="latitude"
+                  name="latitude"
+                  type="number"
+                  step="any"
+                  defaultValue={editDevice?.latitude ?? ""}
+                  className="text-xs"
+                  placeholder="-6.200000"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="longitude" className="text-xs">
+                  Longitude
+                </Label>
+                <Input
+                  id="longitude"
+                  name="longitude"
+                  type="number"
+                  step="any"
+                  defaultValue={editDevice?.longitude ?? ""}
+                  className="text-xs"
+                  placeholder="106.816666"
                 />
               </div>
             </div>

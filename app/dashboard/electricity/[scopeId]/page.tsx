@@ -492,24 +492,40 @@ export default function ElectricityOutletDetailPage() {
     if (!res.success || !res.data?.length) return;
 
     const latestByKey = new Map<string, (typeof res.data)[0]>();
+    const sumByKey = new Map<string, number>();
     for (const m of res.data) {
       const cur = latestByKey.get(m.metricKey);
       if (!cur || new Date(m.timestamp) > new Date(cur.timestamp)) {
         latestByKey.set(m.metricKey, m);
       }
+
+      // /latest already returns one latest row per (deviceId, metricKey).
+      // Summing by metricKey gives true outlet totals for multi-device scopes.
+      sumByKey.set(
+        m.metricKey,
+        (sumByKey.get(m.metricKey) ?? 0) + Number(m.metricValue ?? 0),
+      );
     }
 
     const getVal = (key: string) =>
       Number(latestByKey.get(key)?.metricValue ?? 0);
+    const getSum = (key: string) => Number(sumByKey.get(key) ?? 0);
     const getPowerKw = (key: string) => {
       const m = latestByKey.get(key);
       if (!m) return 0;
       const v = Number(m.metricValue ?? 0);
       return m.unit === "W" ? v / 1000 : v;
     };
+    const getPowerKwSum = (key: string) => {
+      const total = getSum(key);
+      const unitHint = latestByKey.get(key)?.unit;
+      return unitHint === "W" ? total / 1000 : total;
+    };
 
-    const anyMetric =
-      latestByKey.get("power_total") || latestByKey.get("energy_total");
+    const anyMetric = [...res.data].sort(
+      (a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    )[0];
     if (anyMetric) {
       setRealtimeLastUpdated(anyMetric.timestamp);
     }
@@ -524,25 +540,25 @@ export default function ElectricityOutletDetailPage() {
       currentL1: Number(getVal("current_l1").toFixed(2)),
       currentL2: Number(getVal("current_l2").toFixed(2)),
       currentL3: Number(getVal("current_l3").toFixed(2)),
-      currentTotal: Number(getVal("current_total").toFixed(2)),
+      currentTotal: Number(getSum("current_total").toFixed(2)),
       powerL1: Number(getPowerKw("power_l1").toFixed(2)),
       powerL2: Number(getPowerKw("power_l2").toFixed(2)),
       powerL3: Number(getPowerKw("power_l3").toFixed(2)),
-      powerTotal: Number(getPowerKw("power_total").toFixed(2)),
+      powerTotal: Number(getPowerKwSum("power_total").toFixed(2)),
       reactiveL1: Number(getVal("reactive_l1").toFixed(2)),
       reactiveL2: Number(getVal("reactive_l2").toFixed(2)),
       reactiveL3: Number(getVal("reactive_l3").toFixed(2)),
-      reactiveSigma: Number(getVal("reactive_sigma").toFixed(2)),
+      reactiveSigma: Number(getSum("reactive_sigma").toFixed(2)),
       vaA: Number(getVal("va_a").toFixed(2)),
       vaB: Number(getVal("va_b").toFixed(2)),
       vaC: Number(getVal("va_c").toFixed(2)),
-      vaSigma: Number(getVal("va_sigma").toFixed(2)),
+      vaSigma: Number(getSum("va_sigma").toFixed(2)),
       pfA: Number(getVal("pf_a").toFixed(4)),
       pfB: Number(getVal("pf_b").toFixed(4)),
       pfC: Number(getVal("pf_c").toFixed(4)),
       pfSigma: Number(getVal("pf_sigma").toFixed(4)),
-      energyTotal: Number(getVal("energy_total").toFixed(2)),
-      kvarh: Number(getVal("kvarh").toFixed(2)),
+      energyTotal: Number(getSum("energy_total").toFixed(2)),
+      kvarh: Number(getSum("kvarh").toFixed(2)),
       frequency: Number(getVal("frequency").toFixed(2)),
     });
   }, [scopeId]);

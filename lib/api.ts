@@ -175,6 +175,8 @@ export interface Device {
   serialNo: string;
   locationName: string | null;
   locationType: string | null;
+  latitude: number | null;
+  longitude: number | null;
   firmwareVersion: string | null;
   status: string;
   deviceStatus: string | null;
@@ -730,11 +732,11 @@ export const devicesApi = {
     const response = await apiClient.get<ApiResponse<Device>>(`/devices/${id}`);
     return response.data;
   },
-  create: async (data: { scopeId: string; name: string; serialNo: string; locationName?: string; locationType?: string; firmwareVersion?: string; status?: string; isActive?: boolean }): Promise<ApiResponse<Device>> => {
+  create: async (data: { scopeId: string; name: string; serialNo: string; locationName?: string; locationType?: string; latitude?: number | null; longitude?: number | null; firmwareVersion?: string; status?: string; isActive?: boolean }): Promise<ApiResponse<Device>> => {
     const response = await apiClient.post<ApiResponse<Device>>("/devices", data);
     return response.data;
   },
-  update: async (id: string, data: { scopeId?: string; name?: string; serialNo?: string; locationName?: string | null; locationType?: string | null; firmwareVersion?: string; status?: string; deviceStatus?: string | null; cpuTemp?: number | null; cpuUsage?: number | null; memoryUsedMb?: number | null; memoryTotalMb?: number | null; memoryUsagePercent?: number | null; diskUsedGb?: number | null; diskTotalGb?: number | null; diskUsagePercent?: number | null; uptime?: string | null; loadAverage?: number | null; internetStatus?: string | null; powerStatus?: string | null; isActive?: boolean }): Promise<ApiResponse<Device>> => {
+  update: async (id: string, data: { scopeId?: string; name?: string; serialNo?: string; locationName?: string | null; locationType?: string | null; latitude?: number | null; longitude?: number | null; firmwareVersion?: string; status?: string; deviceStatus?: string | null; cpuTemp?: number | null; cpuUsage?: number | null; memoryUsedMb?: number | null; memoryTotalMb?: number | null; memoryUsagePercent?: number | null; diskUsedGb?: number | null; diskTotalGb?: number | null; diskUsagePercent?: number | null; uptime?: string | null; loadAverage?: number | null; internetStatus?: string | null; powerStatus?: string | null; isActive?: boolean }): Promise<ApiResponse<Device>> => {
     const response = await apiClient.put<ApiResponse<Device>>(`/devices/${id}`, data);
     return response.data;
   },
