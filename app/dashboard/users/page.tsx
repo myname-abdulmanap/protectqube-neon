@@ -167,7 +167,13 @@ export default function UsersPage() {
       if (data.success) {
         toast.success("User created successfully");
         setIsCreateOpen(false);
-        setFormData({ email: "", name: "", password: "", roleId: "", scopeIds: [] });
+        setFormData({
+          email: "",
+          name: "",
+          password: "",
+          roleId: "",
+          scopeIds: [],
+        });
         await fetchUsers();
       } else {
         toast.error(data.error || "Failed to create user");
@@ -213,7 +219,13 @@ export default function UsersPage() {
         toast.success("User updated successfully");
         setIsEditOpen(false);
         setSelectedUser(null);
-        setFormData({ email: "", name: "", password: "", roleId: "", scopeIds: [] });
+        setFormData({
+          email: "",
+          name: "",
+          password: "",
+          roleId: "",
+          scopeIds: [],
+        });
         await fetchUsers();
       } else {
         toast.error(data.error || "Failed to update user");
@@ -388,7 +400,8 @@ export default function UsersPage() {
                 <div className="max-h-36 overflow-y-auto rounded-md border p-2 space-y-1">
                   {scopes.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
-                      Tidak ada scope yang bisa dipilih. Pastikan akun ini punya akses scope atau login sebagai superadmin.
+                      Tidak ada scope yang bisa dipilih. Pastikan akun ini punya
+                      akses scope atau login sebagai superadmin.
                     </p>
                   ) : (
                     scopes.map((scope) => (
@@ -504,7 +517,11 @@ export default function UsersPage() {
                     <TableCell className="py-1.5 px-2 hidden lg:table-cell text-[10px] text-gray-600 dark:text-gray-400">
                       {(user.scopeIds || []).length > 0
                         ? (user.scopeIds || [])
-                            .map((scopeId) => scopes.find((scope) => scope.id === scopeId)?.name || scopeId)
+                            .map(
+                              (scopeId) =>
+                                scopes.find((scope) => scope.id === scopeId)
+                                  ?.name || scopeId,
+                            )
                             .join(", ")
                         : "-"}
                     </TableCell>

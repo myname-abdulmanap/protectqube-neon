@@ -754,6 +754,7 @@ interface PeakHoursProps {
   onDateChange: (r: DateRange) => void;
   loading?: boolean;
   showDateFilter?: boolean;
+  showDeviceSummary?: boolean;
   totalDevices?: number;
   devicesOnline?: number;
 }
@@ -764,6 +765,7 @@ export function PeakHoursChart({
   onDateChange,
   loading,
   showDateFilter = true,
+  showDeviceSummary = true,
   totalDevices = 0,
   devicesOnline = 0,
 }: PeakHoursProps) {
@@ -886,7 +888,9 @@ export function PeakHoursChart({
 
             {/* Detailed Peak Hour Info */}
             <div className="mt-3 pt-3 border-t border-border/50">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+              <div
+                className={`grid grid-cols-2 gap-4 text-xs ${showDeviceSummary ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}
+              >
                 <div>
                   <p className="text-muted-foreground mb-1">Peak Hour</p>
                   <p className="font-semibold text-base text-orange-600">
@@ -917,22 +921,24 @@ export function PeakHoursChart({
                   <p className="font-semibold text-base">{dateLabel}</p>
                   <p className="text-muted-foreground">Filter aktif</p>
                 </div>
-                <div>
-                  <p className="text-muted-foreground mb-1">Devices</p>
-                  <p className="font-semibold text-base">
-                    {totalDevices} device
-                  </p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="flex items-center gap-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                      {devicesOnline} online
-                    </span>
-                    <span className="flex items-center gap-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                      {totalDevices - devicesOnline} offline
-                    </span>
+                {showDeviceSummary ? (
+                  <div>
+                    <p className="text-muted-foreground mb-1">Devices</p>
+                    <p className="font-semibold text-base">
+                      {totalDevices} device
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="flex items-center gap-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                        {devicesOnline} online
+                      </span>
+                      <span className="flex items-center gap-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                        {totalDevices - devicesOnline} offline
+                      </span>
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             </div>
           </>

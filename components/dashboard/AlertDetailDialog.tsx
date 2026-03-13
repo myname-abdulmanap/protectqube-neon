@@ -179,7 +179,9 @@ export function AlertDetailDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const normalizeModuleType = (value: string | null | undefined): string => {
-    const normalized = String(value || "").trim().toLowerCase();
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
     if (normalized.includes("ai")) return "ai";
     return "power_meter";
   };
@@ -204,7 +206,9 @@ export function AlertDetailDialog({
 
   useEffect(() => {
     if (!selectedActionKey) return;
-    const stillValid = availableActions.some((a) => a.key === selectedActionKey);
+    const stillValid = availableActions.some(
+      (a) => a.key === selectedActionKey,
+    );
     if (!stillValid) {
       setSelectedActionKey("");
     }
@@ -447,7 +451,11 @@ export function AlertDetailDialog({
                     size="sm"
                     className="h-7 px-2 text-[10px]"
                     onClick={() => void handleUpdate()}
-                    disabled={availableActions.length === 0 || !selectedActionKey || isSubmitting}
+                    disabled={
+                      availableActions.length === 0 ||
+                      !selectedActionKey ||
+                      isSubmitting
+                    }
                   >
                     {isSubmitting ? "Saving..." : "Update"}
                   </Button>
@@ -457,7 +465,12 @@ export function AlertDetailDialog({
                     variant="outline"
                     className="h-7 px-2 text-[10px]"
                     onClick={() => void handleUpdateAll()}
-                    disabled={availableActions.length === 0 || !selectedActionKey || isSubmitting || !onActionUpdateAll}
+                    disabled={
+                      availableActions.length === 0 ||
+                      !selectedActionKey ||
+                      isSubmitting ||
+                      !onActionUpdateAll
+                    }
                   >
                     Update All
                   </Button>

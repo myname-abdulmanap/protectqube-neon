@@ -102,6 +102,7 @@ type HistoricalRow = {
 };
 
 type RawScopeMetric = {
+  scopeId: string;
   timestamp: string;
   deviceId: string;
   metricKey: string;
@@ -109,6 +110,7 @@ type RawScopeMetric = {
 };
 
 type MetricGroup = "voltage" | "current" | "power" | "reactive" | "energy";
+type ExportMode = "aggregate" | "selected";
 
 const METRIC_GROUP_OPTIONS: { key: MetricGroup; label: string }[] = [
   { key: "voltage", label: "Tegangan (V)" },
@@ -192,6 +194,7 @@ export default function ReportsPage() {
 
   const [outlets, setOutlets] = useState<OutletView[]>([]);
   const [selectedOutlet, setSelectedOutlet] = useState<string>("");
+  const [exportMode, setExportMode] = useState<ExportMode>("aggregate");
   const [historicalReadings, setHistoricalReadings] = useState<HistoricalRow[]>(
     [],
   );
@@ -331,6 +334,7 @@ export default function ReportsPage() {
       if (metricResponse.success && metricResponse.data) {
         setRawScopeMetrics(
           metricResponse.data.map((item) => ({
+            scopeId: outlet.id,
             timestamp: item.timestamp,
             deviceId: item.deviceId,
             metricKey: item.metricKey,
@@ -465,6 +469,56 @@ export default function ReportsPage() {
   const formatReportDate = () =>
     `${new Date().toLocaleDateString("id-ID", { year: "numeric", month: "long", day: "numeric" })} ${new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })} WIB`;
 
+  const buildAggregateComparison = (items: OutletView[]) => {
+    if (!items.length) {
+      return {
+        avgDailyCurrent: 0,
+        avgDailyPrevious: 0,
+        avgDailyChange: 0,
+        totalCurrentPeriod: 0,
+        totalPreviousPeriod: 0,
+        totalPeriodChange: 0,
+      };
+    }
+
+    const avgDailyCurrent =
+      items.reduce(
+        (sum, o) => sum + toSafeNumber(o.comparisonData?.dailyAverage?.current),
+        0,
+      ) / items.length;
+    const avgDailyPrevious =
+      items.reduce(
+        (sum, o) =>
+          sum + toSafeNumber(o.comparisonData?.dailyAverage?.previous),
+        0,
+      ) / items.length;
+    const avgDailyChange =
+      items.reduce(
+        (sum, o) => sum + toSafeNumber(o.comparisonData?.dailyAverage?.change),
+        0,
+      ) / items.length;
+    const totalCurrentPeriod = items.reduce(
+      (sum, o) => sum + toSafeNumber(o.comparisonData?.currentPeriod?.current),
+      0,
+    );
+    const totalPreviousPeriod = items.reduce(
+      (sum, o) => sum + toSafeNumber(o.comparisonData?.currentPeriod?.previous),
+      0,
+    );
+    const totalPeriodChange = totalPreviousPeriod
+      ? ((totalCurrentPeriod - totalPreviousPeriod) / totalPreviousPeriod) * 100
+      : 0;
+
+    return {
+      avgDailyCurrent,
+      avgDailyPrevious,
+      avgDailyChange,
+      totalCurrentPeriod,
+      totalPreviousPeriod,
+      totalPeriodChange,
+    };
+  };
+
   const latestHistoricalEnergyTotal = useMemo(() => {
     for (let i = historicalReadings.length - 1; i >= 0; i -= 1) {
       const value = historicalReadings[i]?.energyTotal;
@@ -535,52 +589,338 @@ export default function ReportsPage() {
     return Number(peak.toFixed(2));
   }, [historicalReadings]);
 
+  const loadAggregatedExportDataset = async () => {
+    if (!outlets.length) {
+      return {
+        aggregatedReadings: [] as HistoricalRow[],
+        aggregatedHourlyUsage: [] as Array<{ hour: string; usage: number }>,
+        outletBreakdown: [] as Array<{
+          outlet: string;
+          kWh: number;
+          devices: number;
+        }>,
+        deviceRows: [] as Array<Record<string, string | number>>,
+        totalEnergy: 0,
+        peakPower: 0,
+      };
+    }
+
+    const metricResponses = await Promise.all(
+      outlets.map((o) =>
+        deviceMetricsApi.getAll({
+          scopeId: o.id,
+          moduleType: "power_meter",
+          from: filters.from,
+          to: filters.to,
+          limit: 5000,
+        }),
+      ),
+    );
+
+    const allMetrics: RawScopeMetric[] = metricResponses.flatMap(
+      (res, index) => {
+        if (!res.success || !res.data) return [];
+        const scopeId = outlets[index]?.id;
+        if (!scopeId) return [];
+        return res.data.map((item) => ({
+          scopeId,
+          timestamp: item.timestamp,
+          deviceId: item.deviceId,
+          metricKey: item.metricKey,
+          metricValue: Number(item.metricValue ?? 0),
+        }));
+      },
+    );
+
+    const latestByHourScopeDeviceMetric = new Map<string, RawScopeMetric>();
+    for (const metric of allMetrics) {
+      const ts = new Date(metric.timestamp);
+      if (Number.isNaN(ts.getTime())) continue;
+      const hourStart = new Date(ts);
+      hourStart.setMinutes(0, 0, 0);
+      const key = `${hourStart.toISOString()}|${metric.scopeId}|${metric.deviceId}|${metric.metricKey}`;
+      const current = latestByHourScopeDeviceMetric.get(key);
+      if (
+        !current ||
+        new Date(metric.timestamp).getTime() >
+          new Date(current.timestamp).getTime()
+      ) {
+        latestByHourScopeDeviceMetric.set(key, metric);
+      }
+    }
+
+    const avgKeys = new Set([
+      "voltage_l1",
+      "voltage_l2",
+      "voltage_l3",
+      "frequency",
+    ]);
+    const hourlyAgg = new Map<
+      string,
+      Map<string, { sum: number; count: number }>
+    >();
+    for (const metric of latestByHourScopeDeviceMetric.values()) {
+      const ts = new Date(metric.timestamp);
+      if (Number.isNaN(ts.getTime())) continue;
+      const hourStart = new Date(ts);
+      hourStart.setMinutes(0, 0, 0);
+      const hourIso = hourStart.toISOString();
+      const metricMap =
+        hourlyAgg.get(hourIso) ??
+        new Map<string, { sum: number; count: number }>();
+      const value = Number(metric.metricValue ?? 0);
+      if (!Number.isFinite(value)) continue;
+      const current = metricMap.get(metric.metricKey) ?? { sum: 0, count: 0 };
+      current.sum += value;
+      current.count += 1;
+      metricMap.set(metric.metricKey, current);
+      hourlyAgg.set(hourIso, metricMap);
+    }
+
+    const toMetricValue = (
+      metricMap: Map<string, { sum: number; count: number }>,
+      metricKey: string,
+    ): number | null => {
+      const agg = metricMap.get(metricKey);
+      if (!agg || agg.count === 0) return null;
+      if (avgKeys.has(metricKey)) {
+        return Number((agg.sum / agg.count).toFixed(2));
+      }
+      return Number(agg.sum.toFixed(2));
+    };
+
+    const fmtTs = (tsIso: string) => {
+      const d = new Date(tsIso);
+      return Number.isNaN(d.getTime())
+        ? tsIso
+        : `${d.toLocaleDateString("id-ID")} ${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} WIB`;
+    };
+
+    const aggregatedReadings: HistoricalRow[] = Array.from(hourlyAgg.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([hourIso, values]) => ({
+        timestampIso: hourIso,
+        waktu: fmtTs(hourIso),
+        voltageL1: toMetricValue(values, "voltage_l1"),
+        voltageL2: toMetricValue(values, "voltage_l2"),
+        voltageL3: toMetricValue(values, "voltage_l3"),
+        currentL1: toMetricValue(values, "current_l1"),
+        currentL2: toMetricValue(values, "current_l2"),
+        currentL3: toMetricValue(values, "current_l3"),
+        currentTotal: toMetricValue(values, "current_total"),
+        powerL1: toMetricValue(values, "power_l1"),
+        powerL2: toMetricValue(values, "power_l2"),
+        powerL3: toMetricValue(values, "power_l3"),
+        powerTotal:
+          toMetricValue(values, "power_total") ??
+          toMetricValue(values, "power"),
+        reactiveL1: toMetricValue(values, "reactive_l1"),
+        reactiveL2: toMetricValue(values, "reactive_l2"),
+        reactiveL3: toMetricValue(values, "reactive_l3"),
+        frequency: toMetricValue(values, "frequency"),
+        energyTotal: toMetricValue(values, "energy_total"),
+      }));
+
+    const aggregatedHourlyUsage = aggregatedReadings.map((row) => ({
+      hour: row.waktu,
+      usage: toSafeNumber(row.energyTotal),
+    }));
+
+    const latestEnergyByScopeDevice = new Map<
+      string,
+      { ts: number; value: number }
+    >();
+    for (const metric of allMetrics) {
+      if (metric.metricKey !== "energy_total") continue;
+      const ts = new Date(metric.timestamp).getTime();
+      if (!Number.isFinite(ts)) continue;
+      const key = `${metric.scopeId}|${metric.deviceId}`;
+      const current = latestEnergyByScopeDevice.get(key);
+      if (!current || ts > current.ts) {
+        latestEnergyByScopeDevice.set(key, {
+          ts,
+          value: toSafeNumber(metric.metricValue),
+        });
+      }
+    }
+
+    const outletBreakdown = outlets
+      .map((o) => {
+        const kWh = o.devices.reduce((sum, d) => {
+          const latest = latestEnergyByScopeDevice.get(`${o.id}|${d.id}`);
+          return sum + (latest?.value ?? 0);
+        }, 0);
+        return {
+          outlet: o.name,
+          kWh: Number(kWh.toFixed(2)),
+          devices: o.devices.length,
+        };
+      })
+      .sort((a, b) => b.kWh - a.kWh);
+
+    const deviceRows = outlets.flatMap((o) =>
+      o.devices.map((d) => ({
+        outlet: o.name,
+        deviceId: d.id,
+        deviceName: d.name,
+        serialNo: d.serialNo,
+        location: d.locationName || "-",
+        locationType: d.locationType || "-",
+        status: d.status,
+        lastSeen: d.lastSeenAt || "-",
+        modules: d.moduleTypes.join(", ") || "-",
+      })),
+    );
+
+    const totalEnergy = (() => {
+      for (let i = aggregatedReadings.length - 1; i >= 0; i -= 1) {
+        const value = aggregatedReadings[i]?.energyTotal;
+        if (value !== null && value !== undefined) return toSafeNumber(value);
+      }
+      return 0;
+    })();
+
+    const peakPower = aggregatedReadings.reduce(
+      (max, row) => Math.max(max, toSafeNumber(row.powerTotal)),
+      0,
+    );
+
+    return {
+      aggregatedReadings,
+      aggregatedHourlyUsage,
+      outletBreakdown,
+      deviceRows,
+      totalEnergy: Number(totalEnergy.toFixed(2)),
+      peakPower: Number(peakPower.toFixed(2)),
+    };
+  };
+
   const handleExportExcel = async () => {
-    if (!outlet) return;
+    if (!outlets.length) return;
     const fmtNum = (v: number | null) =>
       v !== null ? Number(v.toFixed(2)) : "-";
 
+    if (exportMode === "selected") {
+      if (!outlet) return;
+
+      await exportToExcel(
+        `laporan-listrik-${outlet.name}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        [
+          {
+            name: "Info Outlet",
+            rows: [
+              {
+                "Scope / Outlet": outlet.name,
+                Tenant: selectedScopeDetail?.tenant?.name || "-",
+                Region: outlet.region,
+                Kota: outlet.city || "-",
+                Alamat: outlet.address || "-",
+                "Scope Type": selectedScopeDetail?.scopeType || "-",
+                Periode: periodLabel,
+                "Tanggal Cetak": formatReportDate(),
+                "Energy Total kWh (historical terakhir)":
+                  latestHistoricalEnergyTotal,
+                "Peak Power (historical, kW)": peakPowerFromHistorical,
+                "Kapasitas Maks (kW)":
+                  selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "-",
+                "Kapasitas (VA)": selectedEnergyConfig?.capacityVa ?? "-",
+                "Jumlah Device": outlet.devices.length,
+              },
+            ],
+          },
+          {
+            name: "Info Device",
+            rows: outlet.devices.map((device) => ({
+              "Device ID": device.id,
+              "Device Name": device.name,
+              "Serial No": device.serialNo,
+              Lokasi: device.locationName || "-",
+              "Tipe Lokasi": device.locationType || "-",
+              Status: device.status,
+              "Last Seen": device.lastSeenAt || "-",
+              "Module Types": device.moduleTypes.join(", "),
+            })),
+          },
+          {
+            name: "Riwayat Pengukuran",
+            rows: historicalReadings.map((r) => ({
+              Waktu: r.waktu,
+              "Voltage L1 (V)": fmtNum(r.voltageL1),
+              "Voltage L2 (V)": fmtNum(r.voltageL2),
+              "Voltage L3 (V)": fmtNum(r.voltageL3),
+              "Current L1 (A)": fmtNum(r.currentL1),
+              "Current L2 (A)": fmtNum(r.currentL2),
+              "Current L3 (A)": fmtNum(r.currentL3),
+              "Current Total (A)": fmtNum(r.currentTotal),
+              "Power L1 (W)": fmtNum(r.powerL1),
+              "Power L2 (W)": fmtNum(r.powerL2),
+              "Power L3 (W)": fmtNum(r.powerL3),
+              "Power Total (W)": fmtNum(r.powerTotal),
+              "Reactive L1 (VAr)": fmtNum(r.reactiveL1),
+              "Reactive L2 (VAr)": fmtNum(r.reactiveL2),
+              "Reactive L3 (VAr)": fmtNum(r.reactiveL3),
+              "Frequency (Hz)": fmtNum(r.frequency),
+              "Energy Total (kWh)": fmtNum(r.energyTotal),
+            })),
+          },
+          {
+            name: "Penggunaan per Jam",
+            rows: hourlyUsageFromHistorical.map((h) => ({
+              Jam: h.hour,
+              "Energy Total (kWh)": h.usage,
+            })),
+          },
+          {
+            name: "Konsumsi per Bagian",
+            rows: sectionConsumptionFromHistorical.map((s) => ({
+              Bagian: s.name,
+              "Persentase (%)": s.value,
+              kWh: s.kWh,
+            })),
+          },
+        ],
+      );
+      return;
+    }
+
+    const aggregated = await loadAggregatedExportDataset();
+    const {
+      avgDailyCurrent,
+      avgDailyPrevious,
+      avgDailyChange,
+      totalCurrentPeriod,
+      totalPreviousPeriod,
+      totalPeriodChange,
+    } = buildAggregateComparison(outlets);
+
     await exportToExcel(
-      `laporan-listrik-${outlet.name}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      `laporan-listrik-aggregate-${new Date().toISOString().slice(0, 10)}.xlsx`,
       [
         {
-          name: "Info Outlet",
+          name: "Info Aggregate",
           rows: [
             {
-              "Scope / Outlet": outlet.name,
-              Tenant: selectedScopeDetail?.tenant?.name || "-",
-              Region: outlet.region,
-              Kota: outlet.city || "-",
-              Alamat: outlet.address || "-",
-              "Scope Type": selectedScopeDetail?.scopeType || "-",
+              "Jumlah Outlet": outlets.length,
+              "Total Device": outlets.reduce(
+                (sum, o) => sum + o.devices.length,
+                0,
+              ),
               Periode: periodLabel,
               "Tanggal Cetak": formatReportDate(),
-              "Energy Total kWh (historical terakhir)":
-                latestHistoricalEnergyTotal,
-              "Peak Power (historical, kW)": peakPowerFromHistorical,
-              "Kapasitas Maks (kW)":
-                selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "-",
-              "Kapasitas (VA)": selectedEnergyConfig?.capacityVa ?? "-",
-              "Jumlah Device": outlet.devices.length,
+              "Energy Total kWh (historical terakhir)": aggregated.totalEnergy,
+              "Peak Power (historical, kW)": aggregated.peakPower,
+              "Mode Agregasi":
+                "Voltage/Frequency = Average, lainnya = Penjumlahan",
             },
           ],
         },
         {
           name: "Info Device",
-          rows: outlet.devices.map((device) => ({
-            "Device ID": device.id,
-            "Device Name": device.name,
-            "Serial No": device.serialNo,
-            Lokasi: device.locationName || "-",
-            "Tipe Lokasi": device.locationType || "-",
-            Status: device.status,
-            "Last Seen": device.lastSeenAt || "-",
-            "Module Types": device.moduleTypes.join(", "),
-          })),
+          rows: aggregated.deviceRows,
         },
         {
           name: "Riwayat Pengukuran",
-          rows: historicalReadings.map((r) => ({
+          rows: aggregated.aggregatedReadings.map((r) => ({
             Waktu: r.waktu,
             "Voltage L1 (V)": fmtNum(r.voltageL1),
             "Voltage L2 (V)": fmtNum(r.voltageL2),
@@ -602,16 +942,16 @@ export default function ReportsPage() {
         },
         {
           name: "Penggunaan per Jam",
-          rows: hourlyUsageFromHistorical.map((h) => ({
+          rows: aggregated.aggregatedHourlyUsage.map((h) => ({
             Jam: h.hour,
             "Energy Total (kWh)": h.usage,
           })),
         },
         {
-          name: "Konsumsi per Bagian",
-          rows: sectionConsumptionFromHistorical.map((s) => ({
-            Bagian: s.name,
-            "Persentase (%)": s.value,
+          name: "Konsumsi per Outlet",
+          rows: aggregated.outletBreakdown.map((s) => ({
+            Outlet: s.outlet,
+            "Total Device": s.devices,
             kWh: s.kWh,
           })),
         },
@@ -620,27 +960,27 @@ export default function ReportsPage() {
           rows: [
             {
               Metrik: "Rata-rata Harian - Periode Ini",
-              kWh: toSafeNumber(outlet.comparisonData.dailyAverage.current),
+              kWh: Number(avgDailyCurrent.toFixed(2)),
             },
             {
               Metrik: "Rata-rata Harian - Periode Sebelumnya",
-              kWh: toSafeNumber(outlet.comparisonData.dailyAverage.previous),
+              kWh: Number(avgDailyPrevious.toFixed(2)),
             },
             {
               Metrik: "Perubahan Rata-rata Harian (%)",
-              kWh: toSafeNumber(outlet.comparisonData.dailyAverage.change),
+              kWh: Number(avgDailyChange.toFixed(2)),
             },
             {
               Metrik: "Total Periode Ini",
-              kWh: toSafeNumber(outlet.comparisonData.currentPeriod.current),
+              kWh: Number(totalCurrentPeriod.toFixed(2)),
             },
             {
               Metrik: "Total Periode Sebelumnya",
-              kWh: toSafeNumber(outlet.comparisonData.currentPeriod.previous),
+              kWh: Number(totalPreviousPeriod.toFixed(2)),
             },
             {
               Metrik: "Perubahan Total Periode (%)",
-              kWh: toSafeNumber(outlet.comparisonData.currentPeriod.change),
+              kWh: Number(totalPeriodChange.toFixed(2)),
             },
           ],
         },
@@ -649,21 +989,132 @@ export default function ReportsPage() {
   };
 
   const handleExportPdf = async () => {
-    if (!outlet) return;
+    if (!outlets.length) return;
     const fmtNum = (v: number | null) => (v !== null ? v.toFixed(2) : "-");
 
+    if (exportMode === "selected") {
+      if (!outlet) return;
+
+      await exportToPdf({
+        fileName: `laporan-listrik-${outlet.name}-${new Date().toISOString().slice(0, 10)}.pdf`,
+        title: "Laporan Monitoring Listrik",
+        scopeName: outlet.name,
+        tenantName: selectedScopeDetail?.tenant?.name || outlet.region,
+        period: periodLabel,
+        generatedAt: formatReportDate(),
+        summary: [
+          `Energy Total (historical terakhir): ${formatKwh(latestHistoricalEnergyTotal)} kWh`,
+          `Peak (historical): ${formatKwh(peakPowerFromHistorical)} kW | Kapasitas Maks: ${selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "N/A"} kW`,
+          `Kapasitas VA: ${selectedEnergyConfig?.capacityVa ?? "N/A"} | Tenant: ${selectedScopeDetail?.tenant?.name || "-"}`,
+          `Total Data Pengukuran: ${historicalReadings.length} pembacaan`,
+        ],
+        tables: [
+          {
+            title: "Riwayat Pengukuran",
+            columns: [
+              "Waktu",
+              "V L1",
+              "V L2",
+              "V L3",
+              "I L1",
+              "I L2",
+              "I L3",
+              "I Tot",
+              "P L1",
+              "P L2",
+              "P L3",
+              "P Tot",
+              "Q L1",
+              "Q L2",
+              "Q L3",
+              "Hz",
+              "kWh",
+            ],
+            rows: historicalReadings.map((r) => [
+              r.waktu,
+              fmtNum(r.voltageL1),
+              fmtNum(r.voltageL2),
+              fmtNum(r.voltageL3),
+              fmtNum(r.currentL1),
+              fmtNum(r.currentL2),
+              fmtNum(r.currentL3),
+              fmtNum(r.currentTotal),
+              fmtNum(r.powerL1),
+              fmtNum(r.powerL2),
+              fmtNum(r.powerL3),
+              fmtNum(r.powerTotal),
+              fmtNum(r.reactiveL1),
+              fmtNum(r.reactiveL2),
+              fmtNum(r.reactiveL3),
+              fmtNum(r.frequency),
+              fmtNum(r.energyTotal),
+            ]),
+          },
+          {
+            title: "Penggunaan Listrik per Jam",
+            columns: ["Jam", "Energy Total (kWh)"],
+            rows: hourlyUsageFromHistorical.map((h) => [h.hour, h.usage]),
+          },
+          {
+            title: "Konsumsi per Bagian",
+            columns: ["Bagian", "Persentase (%)", "kWh"],
+            rows: sectionConsumptionFromHistorical.map((s) => [
+              s.name,
+              s.value,
+              s.kWh,
+            ]),
+          },
+          {
+            title: "Info Device",
+            columns: [
+              "Device ID",
+              "Nama",
+              "Serial",
+              "Lokasi",
+              "Tipe Lokasi",
+              "Status",
+              "Last Seen",
+              "Modules",
+            ],
+            rows: outlet.devices.map((device) => [
+              device.id,
+              device.name,
+              device.serialNo,
+              device.locationName || "-",
+              device.locationType || "-",
+              device.status,
+              device.lastSeenAt || "-",
+              device.moduleTypes.join(", "),
+            ]),
+          },
+        ],
+      });
+      return;
+    }
+
+    const aggregated = await loadAggregatedExportDataset();
+    const {
+      avgDailyCurrent,
+      avgDailyPrevious,
+      avgDailyChange,
+      totalCurrentPeriod,
+      totalPreviousPeriod,
+      totalPeriodChange,
+    } = buildAggregateComparison(outlets);
+
     await exportToPdf({
-      fileName: `laporan-listrik-${outlet.name}-${new Date().toISOString().slice(0, 10)}.pdf`,
-      title: "Laporan Monitoring Listrik",
-      scopeName: outlet.name,
-      tenantName: selectedScopeDetail?.tenant?.name || outlet.region,
+      fileName: `laporan-listrik-aggregate-${new Date().toISOString().slice(0, 10)}.pdf`,
+      title: "Laporan Monitoring Listrik (Aggregate Outlet)",
+      scopeName: `Semua Outlet (${outlets.length})`,
+      tenantName: "Multi Tenant / Multi Outlet",
       period: periodLabel,
       generatedAt: formatReportDate(),
       summary: [
-        `Energy Total (historical terakhir): ${formatKwh(latestHistoricalEnergyTotal)} kWh`,
-        `Peak (historical): ${formatKwh(peakPowerFromHistorical)} kW | Kapasitas Maks: ${selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "N/A"} kW`,
-        `Kapasitas VA: ${selectedEnergyConfig?.capacityVa ?? "N/A"} | Tenant: ${selectedScopeDetail?.tenant?.name || "-"}`,
-        `Total Data Pengukuran: ${historicalReadings.length} pembacaan`,
+        `Energy Total (historical terakhir): ${formatKwh(aggregated.totalEnergy)} kWh`,
+        `Peak (historical): ${formatKwh(aggregated.peakPower)} kW`,
+        `Jumlah Outlet: ${outlets.length} | Jumlah Device: ${outlets.reduce((sum, o) => sum + o.devices.length, 0)}`,
+        `Mode agregasi: Voltage/Frequency = Average, metrik lain = Penjumlahan`,
+        `Total Data Pengukuran: ${aggregated.aggregatedReadings.length} pembacaan`,
       ],
       tables: [
         {
@@ -687,7 +1138,7 @@ export default function ReportsPage() {
             "Hz",
             "kWh",
           ],
-          rows: historicalReadings.map((r) => [
+          rows: aggregated.aggregatedReadings.map((r) => [
             r.waktu,
             fmtNum(r.voltageL1),
             fmtNum(r.voltageL2),
@@ -710,14 +1161,14 @@ export default function ReportsPage() {
         {
           title: "Penggunaan Listrik per Jam",
           columns: ["Jam", "Energy Total (kWh)"],
-          rows: hourlyUsageFromHistorical.map((h) => [h.hour, h.usage]),
+          rows: aggregated.aggregatedHourlyUsage.map((h) => [h.hour, h.usage]),
         },
         {
-          title: "Konsumsi per Bagian",
-          columns: ["Bagian", "Persentase (%)", "kWh"],
-          rows: sectionConsumptionFromHistorical.map((s) => [
-            s.name,
-            s.value,
+          title: "Konsumsi per Outlet",
+          columns: ["Outlet", "Total Device", "kWh"],
+          rows: aggregated.outletBreakdown.map((s) => [
+            s.outlet,
+            s.devices,
             s.kWh,
           ]),
         },
@@ -733,15 +1184,15 @@ export default function ReportsPage() {
             "Last Seen",
             "Modules",
           ],
-          rows: outlet.devices.map((device) => [
-            device.id,
-            device.name,
-            device.serialNo,
-            device.locationName || "-",
-            device.locationType || "-",
-            device.status,
-            device.lastSeenAt || "-",
-            device.moduleTypes.join(", "),
+          rows: aggregated.deviceRows.map((device) => [
+            String(device.deviceId),
+            String(device.deviceName),
+            String(device.serialNo),
+            String(device.location),
+            String(device.locationType),
+            String(device.status),
+            String(device.lastSeen),
+            String(device.modules),
           ]),
         },
         {
@@ -750,22 +1201,22 @@ export default function ReportsPage() {
           rows: [
             [
               "Rata-rata Harian - Periode Ini",
-              toSafeNumber(outlet.comparisonData.dailyAverage.current),
-              toSafeNumber(outlet.comparisonData.dailyAverage.change),
+              Number(avgDailyCurrent.toFixed(2)),
+              Number(avgDailyChange.toFixed(2)),
             ],
             [
               "Rata-rata Harian - Periode Sebelumnya",
-              toSafeNumber(outlet.comparisonData.dailyAverage.previous),
+              Number(avgDailyPrevious.toFixed(2)),
               "-",
             ],
             [
               "Total Periode Ini",
-              toSafeNumber(outlet.comparisonData.currentPeriod.current),
-              toSafeNumber(outlet.comparisonData.currentPeriod.change),
+              Number(totalCurrentPeriod.toFixed(2)),
+              Number(totalPeriodChange.toFixed(2)),
             ],
             [
               "Total Periode Sebelumnya",
-              toSafeNumber(outlet.comparisonData.currentPeriod.previous),
+              Number(totalPreviousPeriod.toFixed(2)),
               "-",
             ],
           ],
@@ -779,13 +1230,13 @@ export default function ReportsPage() {
   return (
     <PageTransition>
       <motion.div
-        className="space-y-6"
+        className="space-y-4 max-w-7xl mx-auto px-4 pb-6"
         variants={containerVariants}
         initial="hidden"
         animate="visible"
       >
         {error && (
-          <div className="rounded bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -793,40 +1244,68 @@ export default function ReportsPage() {
         {/* Header */}
         <motion.div
           variants={itemVariants}
-          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+          className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-sm"
         >
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
               Laporan &amp; Export
             </h1>
-            <p className="text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Export data monitoring listrik dalam format PDF atau Excel
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[220px_1fr_auto] xl:items-center">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Mode Export
+              </p>
+              <Select
+                value={exportMode}
+                onValueChange={(value) => setExportMode(value as ExportMode)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Mode Export" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="aggregate">
+                    Aggregate Semua Outlet
+                  </SelectItem>
+                  <SelectItem value="selected">Outlet Terpilih</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Outlet Preview
+              </p>
+              <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Pilih Outlet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {outlets.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      <div className="flex items-center gap-2">
+                        <Store className="h-4 w-4" />
+                        <span>{o.name}</span>
+                        <Badge variant="outline" className="ml-2 text-xs">
+                          {o.region}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <EnergyExportActions
               onExportPdf={handleExportPdf}
               onExportExcel={handleExportExcel}
-              disabled={!outlet || loading}
+              disabled={
+                !outlets.length ||
+                loading ||
+                (exportMode === "selected" && !outlet)
+              }
             />
-            <Select value={selectedOutlet} onValueChange={setSelectedOutlet}>
-              <SelectTrigger className="w-[280px]">
-                <SelectValue placeholder="Pilih Outlet" />
-              </SelectTrigger>
-              <SelectContent>
-                {outlets.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    <div className="flex items-center gap-2">
-                      <Store className="h-4 w-4" />
-                      <span>{o.name}</span>
-                      <Badge variant="outline" className="ml-2 text-xs">
-                        {o.region}
-                      </Badge>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </motion.div>
 
@@ -865,7 +1344,7 @@ export default function ReportsPage() {
               variants={itemVariants}
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
             >
-              <Card>
+              <Card className="border-0 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
@@ -882,7 +1361,7 @@ export default function ReportsPage() {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="border-0 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
@@ -902,7 +1381,7 @@ export default function ReportsPage() {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="border-0 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
@@ -919,7 +1398,7 @@ export default function ReportsPage() {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="border-0 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
@@ -945,7 +1424,7 @@ export default function ReportsPage() {
 
             {/* Data Preview: Historical Readings */}
             <motion.div variants={itemVariants}>
-              <Card>
+              <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-3">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
@@ -1023,7 +1502,7 @@ export default function ReportsPage() {
 
                     return (
                       <>
-                        <div className="rounded-md border">
+                        <div className="rounded-lg border bg-card/60">
                           <Table>
                             <TableHeader>
                               <TableRow>
@@ -1096,10 +1575,10 @@ export default function ReportsPage() {
             {/* Data Preview: Hourly + Section + Comparison */}
             <motion.div
               variants={itemVariants}
-              className="grid grid-cols-1 lg:grid-cols-3 gap-4"
+              className="grid grid-cols-1 lg:grid-cols-2 gap-4"
             >
               {/* Hourly Usage */}
-              <Card>
+              <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-sm">
                     <Activity className="h-4 w-4 text-blue-500" />
@@ -1118,14 +1597,27 @@ export default function ReportsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {hourlyUsageFromHistorical.map((h, i) => (
-                          <TableRow key={i}>
-                            <TableCell className="text-xs">{h.hour}</TableCell>
-                            <TableCell className="text-xs text-right tabular-nums">
-                              {h.usage}
+                        {hourlyUsageFromHistorical.length ? (
+                          hourlyUsageFromHistorical.map((h, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="text-xs">
+                                {h.hour}
+                              </TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">
+                                {h.usage}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={2}
+                              className="h-24 text-center text-xs text-muted-foreground"
+                            >
+                              Tidak ada data untuk periode ini
                             </TableCell>
                           </TableRow>
-                        ))}
+                        )}
                       </TableBody>
                     </Table>
                   </div>
@@ -1133,7 +1625,7 @@ export default function ReportsPage() {
               </Card>
 
               {/* Section Consumption */}
-              <Card>
+              <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-sm">
                     <Store className="h-4 w-4 text-emerald-500" />
@@ -1155,29 +1647,40 @@ export default function ReportsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {sectionConsumptionFromHistorical.map((s, i) => (
-                          <TableRow key={i}>
-                            <TableCell className="text-xs">
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className={cn(
-                                    "w-2 h-2 rounded-full",
-                                    SECTION_DOT_CLASSES[
-                                      i % SECTION_DOT_CLASSES.length
-                                    ],
-                                  )}
-                                />
-                                {s.name}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-xs text-right tabular-nums">
-                              {s.value}%
-                            </TableCell>
-                            <TableCell className="text-xs text-right tabular-nums">
-                              {s.kWh}
+                        {sectionConsumptionFromHistorical.length ? (
+                          sectionConsumptionFromHistorical.map((s, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="text-xs">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className={cn(
+                                      "w-2 h-2 rounded-full",
+                                      SECTION_DOT_CLASSES[
+                                        i % SECTION_DOT_CLASSES.length
+                                      ],
+                                    )}
+                                  />
+                                  {s.name}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">
+                                {s.value}%
+                              </TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">
+                                {s.kWh}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={3}
+                              className="h-24 text-center text-xs text-muted-foreground"
+                            >
+                              Tidak ada data untuk periode ini
                             </TableCell>
                           </TableRow>
-                        ))}
+                        )}
                       </TableBody>
                     </Table>
                   </div>

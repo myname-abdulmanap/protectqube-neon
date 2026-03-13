@@ -10,6 +10,7 @@ import {
   tenantsApi,
   type EnergyDashboardFilters,
   type EnergyOverviewData,
+  type EnergyPeakHoursData,
   type EnergyOutletSummary,
   type EnergyOutletDetail,
   type Scope,
@@ -67,13 +68,21 @@ function useApi<T>(key: string | null, fetcher: ApiFn<T>, config?: SWRConfigurat
 
 export function useEnergyOverview(filters?: EnergyDashboardFilters) {
   const key = filters
-    ? `energy-overview:${filters.from || ""}:${filters.to || ""}`
+    ? `energy-overview:${filters.tenantId || "all"}:${filters.scopeId || "all"}:${filters.from || ""}:${filters.to || ""}`
     : null;
 
   return useApi<EnergyOverviewData>(
     key, 
     () => energyDashboardApi.getOverview(filters),
     CACHE_PROFILES.historical, // 5min cache for overview
+  );
+}
+
+export function useEnergyPeakHours() {
+  return useApi<EnergyPeakHoursData>(
+    "energy-peak-hours",
+    () => energyDashboardApi.getPeakHours(),
+    CACHE_PROFILES.historical,
   );
 }
 

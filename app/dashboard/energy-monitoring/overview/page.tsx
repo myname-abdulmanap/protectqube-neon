@@ -1,37 +1,45 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { MapPinned } from "lucide-react";
-import { format, parseISO } from "date-fns";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageTransition } from "@/components/ui/page-transition";
 import {
-  useEnergyOverview,
-  useScopes,
-  useDevices,
-  useDeviceMetrics,
-  useAggregatedMetrics,
-} from "@/lib/use-energy-data";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import {
-  MonthlyEnergyChart,
-  PeakHoursChart,
-  OutletComparisonChart,
   EnergyDistributionDonut,
+  MonthlyEnergyChart,
+  OutletComparisonChart,
   OverviewTrendChart,
+  PeakHoursChart,
 } from "@/components/dashboard/EnergyAnalyticsCharts";
 import {
   TopOutletsList,
   LowOutletsList,
 } from "@/components/dashboard/OutletLists";
 import {
-  ChartDateFilter,
-  createDefaultRange,
+  DateFilter,
+  buildRange,
   type DateRange,
-} from "@/components/dashboard/ChartDateFilter";
+} from "@/components/electricity/detail/DateFilter";
+import type { DateRange as ChartDateRange } from "@/components/dashboard/ChartDateFilter";
 import type { MapOutlet } from "@/components/dashboard/OpenLayersMap";
+
+import {
+  useEnergyOverview,
+  useScopes,
+  useTenants,
+} from "@/lib/use-energy-data";
 
 const OpenLayersMap = dynamic(
   () =>
@@ -41,7 +49,7 @@ const OpenLayersMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-[400px] items-center justify-center rounded-lg bg-muted/30 text-sm text-muted-foreground">
+      <div className="flex h-[320px] items-center justify-center rounded-lg bg-muted/30 text-sm text-muted-foreground">
         Loading map...
       </div>
     ),
@@ -52,6 +60,7 @@ const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
 };
+
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0 },
@@ -61,607 +70,406 @@ type EnergyOverviewPageProps = {
   forcedTenantId?: string;
 };
 
+type FilterValue = "all" | string;
+
 export function EnergyOverviewPage({
   forcedTenantId,
 }: EnergyOverviewPageProps = {}) {
-  const downsample = <T,>(arr: T[], maxPoints: number): T[] => {
-    if (arr.length <= maxPoints) return arr;
-    const step = Math.ceil(arr.length / maxPoints);
-    return arr.filter((_, idx) => idx % step === 0);
-  };
+  const [tenantFilter, setTenantFilter] = useState<FilterValue>(
+    forcedTenantId ?? "all",
+  );
+  const [scopeFilter, setScopeFilter] = useState<FilterValue>("all");
+  const [globalRange, setGlobalRange] = useState<DateRange>(buildRange("30d"));
 
-  // Single global filter for all overview components
-  const [globalRange, setGlobalRange] = useState<DateRange>(createDefaultRange);
+  useEffect(() => {
+    if (forcedTenantId) {
+      setTenantFilter(forcedTenantId);
+      setScopeFilter("all");
+    }
+  }, [forcedTenantId]);
 
-  // ── Build API filters from ranges ──────────────
-  const globalFilters = useMemo(
-    () =>
-      globalRange.preset === "all"
-        ? { from: "2024-01-01T00:00:00.000Z", to: new Date().toISOString() }
-        : { from: globalRange.from, to: globalRange.to },
-    [globalRange],
+  const effectiveTenantId =
+    forcedTenantId ?? (tenantFilter === "all" ? undefined : tenantFilter);
+  const effectiveScopeId = scopeFilter === "all" ? undefined : scopeFilter;
+
+  const { data: tenants } = useTenants();
+  const { data: scopes } = useScopes(effectiveTenantId);
+
+  useEffect(() => {
+    if (!effectiveScopeId || !scopes) return;
+    if (!scopes.some((scope) => scope.id === effectiveScopeId)) {
+      setScopeFilter("all");
+    }
+  }, [effectiveScopeId, scopes]);
+
+  const overviewFilters = useMemo(
+    () => ({
+      from: globalRange.from,
+      to: globalRange.to,
+      ...(effectiveTenantId ? { tenantId: effectiveTenantId } : {}),
+      ...(effectiveScopeId ? { scopeId: effectiveScopeId } : {}),
+    }),
+    [effectiveScopeId, effectiveTenantId, globalRange.from, globalRange.to],
   );
 
-  const metricLimit = useMemo(() => {
-    switch (globalRange.preset) {
-      case "today":
-        return 400;
-      case "yesterday":
-        return 400;
-      default:
-        // For 7d, 30d, all - we'll use aggregated endpoint instead
-        return 500;
-    }
-  }, [globalRange.preset]);
-
-  // Use aggregation for longer ranges
-  const useAggregation = ["7d", "30d", "all"].includes(globalRange.preset);
-  const aggregationInterval = globalRange.preset === "7d" ? "hour" : "day";
-
-  const metricBaseFilters = useMemo(() => {
-    const base: Record<string, string | number> = {
-      moduleType: "power_meter",
-      limit: metricLimit,
-    };
-    if (globalRange.preset !== "all") {
-      base.from = globalRange.from;
-      base.to = globalRange.to;
-    }
-    return base;
-  }, [globalRange, metricLimit]);
-
-  const aggregatedParams = useMemo(() => {
-    if (!useAggregation) return null;
-    return {
-      moduleType: "power_meter",
-      from:
-        globalRange.preset === "all"
-          ? "2024-01-01T00:00:00.000Z"
-          : globalRange.from,
-      to: globalRange.to || new Date().toISOString(),
-      interval: aggregationInterval as "hour" | "day",
-    };
-  }, [useAggregation, globalRange, aggregationInterval]);
-
-  // ── SWR data fetching (cached + deduped) ───────
   const {
     data: overviewData,
     error: overviewError,
     isLoading: loading,
-  } = useEnergyOverview(globalFilters);
-  const { data: scopes } = useScopes(forcedTenantId);
-  const { data: deviceList } = useDevices();
-  const devices = useMemo(() => deviceList || [], [deviceList]);
+  } = useEnergyOverview(overviewFilters);
 
-  // Regular metrics for short ranges (today, yesterday)
-  const { data: energyRaw } = useDeviceMetrics(
-    useMemo(
-      () =>
-        useAggregation
-          ? null
-          : { ...metricBaseFilters, metricKey: "energy_total" },
-      [metricBaseFilters, useAggregation],
-    ),
-  );
-  const { data: voltageRaw } = useDeviceMetrics(
-    useMemo(
-      () =>
-        useAggregation
-          ? null
-          : { ...metricBaseFilters, metricKey: "voltage_l1" },
-      [metricBaseFilters, useAggregation],
-    ),
-  );
-  const { data: currentRaw } = useDeviceMetrics(
-    useMemo(
-      () =>
-        useAggregation
-          ? null
-          : { ...metricBaseFilters, metricKey: "current_total" },
-      [metricBaseFilters, useAggregation],
-    ),
-  );
-  const { data: powerRaw } = useDeviceMetrics(
-    useMemo(
-      () =>
-        useAggregation
-          ? null
-          : { ...metricBaseFilters, metricKey: "power_total" },
-      [metricBaseFilters, useAggregation],
-    ),
-  );
+  const chartDateRange = useMemo<ChartDateRange>(() => {
+    const preset = globalRange.preset === "90d" ? "custom" : globalRange.preset;
+    return {
+      preset,
+      from: globalRange.from,
+      to: globalRange.to,
+      label: overviewData?.range.label ?? "Overview",
+    };
+  }, [
+    globalRange.from,
+    globalRange.preset,
+    globalRange.to,
+    overviewData?.range.label,
+  ]);
 
-  // Aggregated metrics for long ranges (7d, 30d, all)
-  const { data: aggregatedRaw } = useAggregatedMetrics(aggregatedParams);
+  const selectedTenantName = useMemo(() => {
+    if (overviewData?.selection.tenantName)
+      return overviewData.selection.tenantName;
+    if (!effectiveTenantId || !tenants) return "All Tenants";
+    return (
+      tenants.find((tenant) => tenant.id === effectiveTenantId)?.name ??
+      "All Tenants"
+    );
+  }, [effectiveTenantId, overviewData?.selection.tenantName, tenants]);
 
-  const error = overviewError?.message || null;
+  const selectedScopeName = useMemo(() => {
+    if (overviewData?.selection.scopeName)
+      return overviewData.selection.scopeName;
+    if (!effectiveScopeId || !scopes) return "All Outlets";
+    return (
+      scopes.find((scope) => scope.id === effectiveScopeId)?.name ??
+      "All Outlets"
+    );
+  }, [effectiveScopeId, overviewData?.selection.scopeName, scopes]);
 
-  // Helper to extract aggregated data by metricKey
-  const getAggregatedByKey = useCallback(
-    (key: string) => {
-      if (!aggregatedRaw) return [];
-      return aggregatedRaw.filter((m) => m.metricKey === key);
-    },
-    [aggregatedRaw],
-  );
-
-  // ── Peak Hours from power_total: average kW per hour ───────────────────
-  const hourlyMetrics = useMemo(() => {
-    // For aggregated data, use power_total from aggregated endpoint
-    if (useAggregation) {
-      const powerAgg = getAggregatedByKey("power_total");
-      if (!powerAgg.length) return [];
-
-      const hourMap = new Map<string, { sumKw: number; count: number }>();
-      for (let h = 0; h < 24; h++) {
-        hourMap.set(h.toString().padStart(2, "0"), { sumKw: 0, count: 0 });
-      }
-      for (const m of powerAgg) {
-        const hour = format(parseISO(m.timestamp), "HH");
-        const entry = hourMap.get(hour) || { sumKw: 0, count: 0 };
-        entry.sumKw += m.avg;
-        entry.count += 1;
-        hourMap.set(hour, entry);
-      }
-      return Array.from(hourMap.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([hour, entry]) => ({
-          hour: `${hour}:00`,
-          powerKw: Number(
-            (entry.count > 0 ? entry.sumKw / entry.count : 0).toFixed(2),
-          ),
-          samples: entry.count,
-        }));
-    }
-
-    if (!powerRaw) return [];
-    const hourMap = new Map<string, { sumKw: number; count: number }>();
-    for (let h = 0; h < 24; h++) {
-      hourMap.set(h.toString().padStart(2, "0"), { sumKw: 0, count: 0 });
-    }
-    for (const m of powerRaw) {
-      const hour = format(parseISO(m.timestamp), "HH");
-      const entry = hourMap.get(hour) || { sumKw: 0, count: 0 };
-      const valueKw =
-        (m.unit || "").toUpperCase() === "W"
-          ? m.metricValue / 1000
-          : m.metricValue;
-      entry.sumKw += valueKw;
-      entry.count += 1;
-      hourMap.set(hour, entry);
-    }
-    return Array.from(hourMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([hour, entry]) => ({
-        hour: `${hour}:00`,
-        powerKw: Number(
-          (entry.count > 0 ? entry.sumKw / entry.count : 0).toFixed(2),
-        ),
-        samples: entry.count,
-      }));
-  }, [powerRaw, useAggregation, getAggregatedByKey]);
-
-  // ── Transform daily metrics ────────────────────
-  const dailyMetrics = useMemo(() => {
-    if (useAggregation) {
-      const energyAgg = getAggregatedByKey("energy_total");
-      if (!energyAgg.length) return [];
-      return energyAgg.map((m) => ({
-        label: format(parseISO(m.timestamp), "dd MMM"),
-        kWh: Number(m.avg.toFixed(2)),
-      }));
-    }
-
-    if (!energyRaw) return [];
-    const dayMap = new Map<string, number>();
-    for (const m of energyRaw) {
-      const day = format(parseISO(m.timestamp), "dd MMM");
-      dayMap.set(day, (dayMap.get(day) || 0) + m.metricValue);
-    }
-    const points = Array.from(dayMap.entries()).map(([label, kWh]) => ({
-      label,
-      kWh: Number(kWh.toFixed(2)),
-    }));
-    return downsample(points, 240);
-  }, [energyRaw, useAggregation, getAggregatedByKey]);
-
-  const voltageData = useMemo(() => {
-    if (useAggregation) {
-      const voltageAgg = getAggregatedByKey("voltage_l1");
-      if (!voltageAgg.length) return [];
-      return voltageAgg.map((m) => ({
-        label: format(parseISO(m.timestamp), "dd MMM HH:00"),
-        value: Number(m.avg.toFixed(1)),
-      }));
-    }
-
-    if (!voltageRaw) return [];
-    const map = new Map<string, { sum: number; count: number }>();
-    for (const m of voltageRaw) {
-      const key = format(parseISO(m.timestamp), "dd MMM HH:00");
-      const entry = map.get(key) || { sum: 0, count: 0 };
-      entry.sum += m.metricValue;
-      entry.count += 1;
-      map.set(key, entry);
-    }
-    const points = Array.from(map.entries()).map(([label, { sum, count }]) => ({
-      label,
-      value: Number((sum / count).toFixed(1)),
-    }));
-    return downsample(points, 300);
-  }, [voltageRaw, useAggregation, getAggregatedByKey]);
-
-  const currentData = useMemo(() => {
-    if (useAggregation) {
-      const currentAgg = getAggregatedByKey("current_total");
-      if (!currentAgg.length) return [];
-      return currentAgg.map((m) => ({
-        label: format(parseISO(m.timestamp), "dd MMM HH:00"),
-        value: Number(m.avg.toFixed(2)),
-      }));
-    }
-
-    if (!currentRaw) return [];
-    const map = new Map<string, { sum: number; count: number }>();
-    for (const m of currentRaw) {
-      const key = format(parseISO(m.timestamp), "dd MMM HH:00");
-      const entry = map.get(key) || { sum: 0, count: 0 };
-      entry.sum += m.metricValue;
-      entry.count += 1;
-      map.set(key, entry);
-    }
-    const points = Array.from(map.entries()).map(([label, { sum, count }]) => ({
-      label,
-      value: Number((sum / count).toFixed(2)),
-    }));
-    return downsample(points, 300);
-  }, [currentRaw, useAggregation, getAggregatedByKey]);
-
-  const powerData = useMemo(() => {
-    if (useAggregation) {
-      const powerAgg = getAggregatedByKey("power_total");
-      if (!powerAgg.length) return [];
-      return powerAgg.map((m) => ({
-        label: format(parseISO(m.timestamp), "dd MMM HH:00"),
-        value: Number(m.avg.toFixed(2)),
-      }));
-    }
-
-    if (!powerRaw) return [];
-    const map = new Map<string, { sum: number; count: number }>();
-    for (const m of powerRaw) {
-      const key = format(parseISO(m.timestamp), "dd MMM HH:00");
-      const entry = map.get(key) || { sum: 0, count: 0 };
-      entry.sum += m.metricValue;
-      entry.count += 1;
-      map.set(key, entry);
-    }
-    const points = Array.from(map.entries()).map(([label, { sum, count }]) => ({
-      label,
-      value: Number((sum / count).toFixed(2)),
-    }));
-    return downsample(points, 300);
-  }, [powerRaw, useAggregation, getAggregatedByKey]);
-
-  // Derived data
-  const tenantScopeIds = useMemo(() => {
-    if (!forcedTenantId || !scopes) return null;
-    return new Set(scopes.map((s) => s.id));
-  }, [scopes, forcedTenantId]);
-
-  const filteredOutlets = useMemo(() => {
+  const mapOutlets = useMemo<MapOutlet[]>(() => {
     if (!overviewData) return [];
-    if (!tenantScopeIds) return overviewData.outletLocations;
-    return overviewData.outletLocations.filter((o) => tenantScopeIds.has(o.id));
-  }, [overviewData, tenantScopeIds]);
+    return overviewData.outletLocations.map((outlet) => ({
+      id: outlet.id,
+      name: outlet.name,
+      address: `${outlet.address ? `${outlet.address}, ` : ""}${outlet.region}`,
+      totalEnergy: outlet.usage,
+      lat: outlet.lat ?? -7.25,
+      lng: outlet.lng ?? 110.0,
+      online: outlet.devicesOnline > 0,
+      devices: outlet.devices,
+    }));
+  }, [overviewData]);
 
-  const filteredDevices = useMemo(() => {
-    if (!tenantScopeIds) return devices;
-    return devices.filter((d) => tenantScopeIds.has(d.scopeId));
-  }, [devices, tenantScopeIds]);
-
-  // Summary numbers
-  const totalEnergy = useMemo(
-    () => filteredOutlets.reduce((sum, o) => sum + o.usage, 0),
-    [filteredOutlets],
-  );
-  const totalOutlets = filteredOutlets.length;
-  const devicesOnline = useMemo(
+  const regionData = overviewData?.regionData ?? [];
+  const comparisonData = useMemo(
     () =>
-      filteredDevices.filter((d) => {
-        const normalized = (d.deviceStatus || d.status || "").toLowerCase();
-        return normalized === "online";
-      }).length,
-    [filteredDevices],
-  );
-  const devicesOffline = useMemo(
-    () => filteredDevices.length - devicesOnline,
-    [filteredDevices, devicesOnline],
+      (overviewData?.outletLocations ?? []).map((outlet) => ({
+        name: outlet.name,
+        kWh: Number(outlet.usage.toFixed(2)),
+      })),
+    [overviewData?.outletLocations],
   );
 
-  // Map outlets with region + address (all outlets with coordinates)
-  const mapOutlets: MapOutlet[] = useMemo(() => {
-    // Show all outlets or just those with coords - try to include all but prioritize those with coords
-    return filteredOutlets
-      .map((outlet) => {
-        const outletDevices = filteredDevices.filter(
-          (d) => d.scopeId === outlet.id,
-        );
-        const hasOnlineDevice = outletDevices.some(
-          (d) => (d.deviceStatus || d.status || "").toLowerCase() === "online",
-        );
-        return {
-          id: outlet.id,
+  const peakOutletData = useMemo(
+    () =>
+      [...(overviewData?.outletLocations ?? [])]
+        .sort((a, b) => b.usage - a.usage)
+        .slice(0, 10)
+        .map((outlet) => ({
           name: outlet.name,
-          address: `${outlet.address ? outlet.address + ", " : ""}${outlet.region || "Unknown"}`,
-          totalEnergy: outlet.usage,
-          // Use device coordinates when available; fallback to scope coordinates.
-          lat:
-            outletDevices.length > 0
-              ? Number(
-                  (
-                    outletDevices
-                      .filter(
-                        (d) =>
-                          Number.isFinite(d.latitude) &&
-                          Number.isFinite(d.longitude),
-                      )
-                      .reduce((sum, d) => sum + Number(d.latitude), 0) /
-                    Math.max(
-                      1,
-                      outletDevices.filter(
-                        (d) =>
-                          Number.isFinite(d.latitude) &&
-                          Number.isFinite(d.longitude),
-                      ).length,
-                    )
-                  ).toFixed(6),
-                ) ||
-                outlet.lat ||
-                -7.25
-              : outlet.lat || -7.25,
-          lng:
-            outletDevices.length > 0
-              ? Number(
-                  (
-                    outletDevices
-                      .filter(
-                        (d) =>
-                          Number.isFinite(d.latitude) &&
-                          Number.isFinite(d.longitude),
-                      )
-                      .reduce((sum, d) => sum + Number(d.longitude), 0) /
-                    Math.max(
-                      1,
-                      outletDevices.filter(
-                        (d) =>
-                          Number.isFinite(d.latitude) &&
-                          Number.isFinite(d.longitude),
-                      ).length,
-                    )
-                  ).toFixed(6),
-                ) ||
-                outlet.lng ||
-                110.0
-              : outlet.lng || 110.0,
-          online: hasOnlineDevice,
-          devices: outletDevices.map((d) => ({
-            id: d.id,
-            name: d.name,
-            online:
-              (d.deviceStatus || d.status || "").toLowerCase() === "online",
-          })),
+          region: outlet.region,
+          kWh: Number(outlet.usage.toFixed(2)),
+        })),
+    [overviewData?.outletLocations],
+  );
+
+  const lowOutletData = useMemo(
+    () =>
+      [...(overviewData?.outletLocations ?? [])]
+        .sort((a, b) => a.usage - b.usage)
+        .slice(0, 10)
+        .map((outlet) => ({
+          name: outlet.name,
+          region: outlet.region,
+          kWh: Number(outlet.usage.toFixed(2)),
+        })),
+    [overviewData?.outletLocations],
+  );
+
+  const donutData = useMemo(
+    () =>
+      regionData
+        .slice(0, 8)
+        .map((item) => ({ name: item.region, kWh: item.kWh })),
+    [regionData],
+  );
+
+  const localizedTrendSeries = useMemo(() => {
+    const localize = <T extends { timestamp: string; label: string }>(
+      rows: T[],
+    ) => {
+      if (!rows.length) return rows;
+
+      const getJakartaParts = (date: Date) => {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Jakarta",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          hour12: false,
+        }).formatToParts(date);
+
+        const get = (type: string) =>
+          parts.find((part) => part.type === type)?.value ?? "00";
+
+        return {
+          year: get("year"),
+          month: get("month"),
+          day: get("day"),
+          hour: get("hour"),
         };
-      })
-      .sort((a, b) => b.totalEnergy - a.totalEnergy);
-  }, [filteredOutlets, filteredDevices]);
+      };
 
-  // Region energy for bar chart
-  const regionData = useMemo(() => {
-    if (!overviewData) return [];
-    if (!tenantScopeIds) return overviewData.regionData;
-    const regionMap = new Map<string, number>();
-    for (const o of filteredOutlets) {
-      const key = o.region || "Unknown";
-      regionMap.set(key, (regionMap.get(key) || 0) + o.usage);
-    }
-    return Array.from(regionMap.entries()).map(([region, kWh]) => ({
-      region,
-      kWh: Number(kWh.toFixed(2)),
-    }));
-  }, [overviewData, tenantScopeIds, filteredOutlets]);
+      const parsed = rows
+        .map((row) => new Date(row.timestamp))
+        .filter((d) => !Number.isNaN(d.getTime()));
 
-  // Peak energy per outlet (top 10)
-  const peakOutletData = useMemo(() => {
-    return [...filteredOutlets]
-      .sort((a, b) => b.usage - a.usage)
-      .slice(0, 10)
-      .map((o) => ({
-        name: o.name,
-        region: o.region || "Unknown",
-        kWh: Number(o.usage.toFixed(2)),
-      }));
-  }, [filteredOutlets]);
+      const first = parsed[0];
+      const last = parsed[parsed.length - 1];
+      const firstKey = first
+        ? (() => {
+            const p = getJakartaParts(first);
+            return `${p.year}-${p.month}-${p.day}`;
+          })()
+        : null;
+      const lastKey = last
+        ? (() => {
+            const p = getJakartaParts(last);
+            return `${p.year}-${p.month}-${p.day}`;
+          })()
+        : null;
+      const spansDays = !!firstKey && !!lastKey && firstKey !== lastKey;
 
-  // Low energy per outlet (bottom 10)
-  const lowOutletData = useMemo(() => {
-    return [...filteredOutlets]
-      .sort((a, b) => a.usage - b.usage)
-      .slice(0, 10)
-      .map((o) => ({
-        name: o.name,
-        region: o.region || "Unknown",
-        kWh: Number(o.usage.toFixed(2)),
-      }));
-  }, [filteredOutlets]);
+      return rows.map((row) => {
+        const d = new Date(row.timestamp);
+        if (Number.isNaN(d.getTime())) return row;
 
-  // Outlet comparison (all outlets)
-  const comparisonData = useMemo(() => {
-    return [...filteredOutlets]
-      .sort((a, b) => b.usage - a.usage)
-      .map((o) => ({ name: o.name, kWh: Number(o.usage.toFixed(2)) }));
-  }, [filteredOutlets]);
+        const p = getJakartaParts(d);
+        const hh = p.hour;
+        const label = spansDays ? `${p.day}/${p.month} ${hh}:00` : `${hh}:00`;
 
-  // Energy distribution for donut (top 8 regions)
-  const donutData = useMemo(() => {
-    return regionData.slice(0, 8).map((r) => ({ name: r.region, kWh: r.kWh }));
-  }, [regionData]);
+        return { ...row, label };
+      });
+    };
 
-  // ── Render ─────────────────────────────────────
+    return {
+      energy: localize(overviewData?.trendSeries.energy ?? []),
+      power: localize(overviewData?.trendSeries.power ?? []),
+      voltage: localize(overviewData?.trendSeries.voltage ?? []),
+      current: localize(overviewData?.trendSeries.current ?? []),
+    };
+  }, [
+    overviewData?.trendSeries.current,
+    overviewData?.trendSeries.energy,
+    overviewData?.trendSeries.power,
+    overviewData?.trendSeries.voltage,
+  ]);
+
+  const errorMessage =
+    overviewError instanceof Error ? overviewError.message : null;
+
   return (
     <PageTransition>
       <motion.div
-        className="space-y-3 p-0"
+        className="space-y-4 max-w-7xl mx-auto px-4"
         initial="hidden"
         animate="visible"
         variants={containerVariants}
       >
         <motion.div
           variants={itemVariants}
-          className="flex items-center justify-between rounded-lg border bg-card px-4 py-3"
+          className="flex flex-col gap-3 rounded-lg border bg-card px-5 py-4 xl:flex-row xl:items-center xl:justify-between"
         >
           <div>
-            <h2 className="text-base font-semibold">Dashboard Overview</h2>
+            <h2 className="text-lg font-semibold">Dashboard Overview</h2>
             <p className="text-sm text-muted-foreground">
-              Overview keseluruhan outlet dan pemakaian energi. Gunakan filter
-              tanggal untuk analisis lebih detail.
+              Overview keseluruhan outlet dan pemakaian energi.
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {selectedTenantName} • {selectedScopeName}
             </p>
           </div>
-          <ChartDateFilter value={globalRange} onChange={setGlobalRange} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={forcedTenantId ?? tenantFilter}
+              onValueChange={(value) => {
+                if (forcedTenantId) return;
+                setTenantFilter(value);
+                setScopeFilter("all");
+              }}
+              disabled={Boolean(forcedTenantId)}
+            >
+              <SelectTrigger className="h-9 min-w-[180px] bg-background">
+                <SelectValue placeholder="Select tenant" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tenants</SelectItem>
+                {(tenants ?? []).map((tenant) => (
+                  <SelectItem key={tenant.id} value={tenant.id}>
+                    {tenant.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={scopeFilter} onValueChange={setScopeFilter}>
+              <SelectTrigger className="h-9 min-w-[190px] bg-background">
+                <SelectValue placeholder="Select outlet" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Outlets</SelectItem>
+                {(scopes ?? []).map((scope) => (
+                  <SelectItem key={scope.id} value={scope.id}>
+                    {scope.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <DateFilter value={globalRange} onChange={setGlobalRange} />
+          </div>
         </motion.div>
 
-        {error && (
+        {errorMessage && (
           <motion.div
             variants={itemVariants}
             className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           >
-            {error}
+            {errorMessage}
           </motion.div>
         )}
 
-        {/* Summary Cards */}
         <motion.div variants={itemVariants}>
           <SummaryCards
-            totalEnergy={totalEnergy}
-            totalOutlets={totalOutlets}
-            devicesOnline={devicesOnline}
-            devicesOffline={devicesOffline}
+            totalEnergy={overviewData?.globalKpi.totalEnergy ?? 0}
+            totalOutlets={overviewData?.globalKpi.activeOutlets ?? 0}
+            devicesOnline={overviewData?.globalKpi.devicesOnline ?? 0}
+            devicesOffline={overviewData?.globalKpi.devicesOffline ?? 0}
             loading={loading}
           />
         </motion.div>
 
-        {/* Main Content Grid: LEFT charts | RIGHT map */}
-        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-3">
-          {/* ── LEFT COLUMN ── */}
-          <div className="min-w-0 space-y-3">
-            {/* Energy by Region */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[3fr_2fr]">
+          <div className="min-w-0 space-y-4">
             <motion.div variants={itemVariants}>
               <MonthlyEnergyChart
                 data={regionData}
-                dateRange={globalRange}
-                onDateChange={setGlobalRange}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
               />
             </motion.div>
 
-            {/* Outlet Comparison */}
             <motion.div variants={itemVariants}>
               <OutletComparisonChart
                 data={comparisonData}
-                dateRange={globalRange}
-                onDateChange={setGlobalRange}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
               />
             </motion.div>
 
-            {/* Top Outlets + Low Outlets (LISTS) */}
             <motion.div
               variants={itemVariants}
-              className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2"
             >
               <TopOutletsList
                 data={peakOutletData}
-                dateRange={globalRange}
-                onDateChange={setGlobalRange}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
               />
               <LowOutletsList
                 data={lowOutletData}
-                dateRange={globalRange}
-                onDateChange={setGlobalRange}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
               />
             </motion.div>
 
-            {/* Peak Hours (full width) */}
             <motion.div variants={itemVariants}>
               <PeakHoursChart
-                data={hourlyMetrics}
-                dateRange={globalRange}
-                onDateChange={setGlobalRange}
+                data={overviewData?.peakHours ?? []}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
-                totalDevices={filteredDevices.length}
-                devicesOnline={devicesOnline}
+                totalDevices={
+                  (overviewData?.globalKpi.devicesOnline ?? 0) +
+                  (overviewData?.globalKpi.devicesOffline ?? 0)
+                }
+                devicesOnline={overviewData?.globalKpi.devicesOnline ?? 0}
               />
             </motion.div>
           </div>
 
-          {/* ── RIGHT COLUMN ── */}
-          <div className="min-w-0 space-y-3">
-            {/* Outlet Map with Region and Address Info */}
+          <div className="min-w-0 space-y-4">
             <motion.div variants={itemVariants}>
               <Card className="border-0 shadow-sm overflow-hidden">
-                <CardHeader className="px-4 pt-3 pb-1">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CardHeader className="px-4 pt-4 pb-2">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <MapPinned className="h-4 w-4" />
                     Outlet Map
                   </CardTitle>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Lokasi outlet yang terdaftar. Klik pin untuk detail.
                   </p>
                 </CardHeader>
                 <CardContent className="p-3 pt-2">
-                  <OpenLayersMap outlets={mapOutlets} className="h-[280px]" />
+                  <OpenLayersMap outlets={mapOutlets} className="h-[320px]" />
                   <div className="mt-2 flex items-center gap-4 text-xs">
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
                       <span className="text-green-600 font-medium">
-                        {devicesOnline} Online
+                        {overviewData?.globalKpi.devicesOnline ?? 0} Online
                       </span>
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
                       <span className="text-red-500 font-medium">
-                        {devicesOffline} Offline
+                        {overviewData?.globalKpi.devicesOffline ?? 0} Offline
                       </span>
                     </span>
                     <span className="text-muted-foreground ml-auto">
-                      {totalOutlets} outlet total
+                      {overviewData?.globalKpi.activeOutlets ?? 0} outlet total
                     </span>
                   </div>
                 </CardContent>
               </Card>
             </motion.div>
 
-            {/* Energy Distribution Donut */}
             <motion.div variants={itemVariants}>
               <EnergyDistributionDonut data={donutData} loading={loading} />
             </motion.div>
 
-            {/* Trend chart (like electricity detail) */}
             <motion.div variants={itemVariants}>
               <OverviewTrendChart
-                energyData={dailyMetrics}
-                voltageData={voltageData}
-                currentData={currentData}
-                powerData={powerData}
-                dateRange={globalRange}
-                onDateChange={setGlobalRange}
+                energyData={localizedTrendSeries.energy}
+                voltageData={localizedTrendSeries.voltage}
+                currentData={localizedTrendSeries.current}
+                powerData={localizedTrendSeries.power}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
               />

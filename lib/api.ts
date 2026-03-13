@@ -161,6 +161,8 @@ export interface Device {
 	serialNo: string;
 	locationName: string | null;
 	locationType: string | null;
+	latitude: number | null;
+	longitude: number | null;
 	firmwareVersion: string | null;
 	status: string;
 	deviceStatus: string | null;
@@ -287,11 +289,25 @@ export interface EnergyOverviewData {
 		isSingleDay: boolean;
 		label: string;
 	};
+	selection: {
+		tenantId: string | null;
+		tenantName: string | null;
+		scopeId: string | null;
+		scopeName: string | null;
+		scopeCount: number;
+		isAggregated: boolean;
+	};
 	globalKpi: {
 		totalEnergy: number;
 		totalCost: number;
 		activeOutlets: number;
 		alertOutlets: number;
+		devicesOnline: number;
+		devicesOffline: number;
+		avgVoltage: number;
+		avgCurrent: number;
+		avgPower: number;
+		peakPower: number;
 	};
 	regionData: Array<{
 		region: string;
@@ -302,6 +318,8 @@ export interface EnergyOverviewData {
 	outletLocations: Array<{
 		id: string;
 		name: string;
+		tenantId: string;
+		tenantName: string;
 		region: string;
 		city: string | null;
 		province: string | null;
@@ -311,6 +329,43 @@ export interface EnergyOverviewData {
 		status: string;
 		usage: number;
 		cost: number;
+		devicesOnline: number;
+		devicesOffline: number;
+		devices: Array<{ id: string; name: string; online: boolean }>;
+	}>;
+	peakHours: Array<{
+		hour: string;
+		powerKw: number;
+		samples: number;
+	}>;
+	trendSeries: {
+		energy: Array<{ timestamp: string; label: string; kWh: number }>;
+		power: Array<{ timestamp: string; label: string; value: number }>;
+		voltage: Array<{ timestamp: string; label: string; value: number }>;
+		current: Array<{ timestamp: string; label: string; value: number }>;
+	};
+}
+
+export interface EnergyPeakHoursData {
+	generatedAt: string;
+	scopeCount: number;
+	summary: {
+		peakHour: string | null;
+		peakPowerKw: number;
+		averagePowerKw: number;
+		totalSamples: number;
+	};
+	chart: Array<{
+		hour: string;
+		powerKw: number;
+		samples: number;
+	}>;
+	table: Array<{
+		rank: number;
+		hour: string;
+		powerKw: number;
+		samples: number;
+		percentOfPeak: number;
 	}>;
 }
 
@@ -414,6 +469,8 @@ export interface EnergyDashboardFilters {
 	date?: string;
 	from?: string;
 	to?: string;
+	tenantId?: string;
+	scopeId?: string;
 }
 
 export interface LoginResponse {
@@ -747,6 +804,8 @@ export const devicesApi = {
 		serialNo: string;
 		locationName?: string;
 		locationType?: string;
+		latitude?: number | null;
+		longitude?: number | null;
 		firmwareVersion?: string;
 		status?: string;
 		isActive?: boolean;
@@ -762,6 +821,8 @@ export const devicesApi = {
 			serialNo?: string;
 			locationName?: string | null;
 			locationType?: string | null;
+			latitude?: number | null;
+			longitude?: number | null;
 			firmwareVersion?: string;
 			status?: string;
 			deviceStatus?: string | null;
@@ -889,6 +950,7 @@ export const deviceMetricsApi = {
 	getAll: async (filters?: {
 		deviceId?: string;
 		scopeId?: string;
+		scopeIds?: string[];
 		moduleType?: string;
 		metricKey?: string;
 		from?: string;
@@ -896,6 +958,66 @@ export const deviceMetricsApi = {
 		limit?: number;
 	}): Promise<ApiResponse<DeviceMetric[]>> => {
 		const response = await apiClient.get<ApiResponse<DeviceMetric[]>>('/device-metrics', { params: filters });
+		return response.data;
+	},
+	getLatest: async (
+		scopeId: string,
+		moduleType?: string,
+	): Promise<
+		ApiResponse<
+			Array<{
+				deviceId: string;
+				scopeId: string;
+				moduleType: string;
+				metricKey: string;
+				metricValue: number;
+				unit: string | null;
+				timestamp: string;
+			}>
+		>
+	> => {
+		const response = await apiClient.get('/device-metrics/latest', {
+			params: { scopeId, ...(moduleType ? { moduleType } : {}) },
+		});
+		return response.data;
+	},
+	getAggregated: async (params: {
+		scopeId?: string;
+		moduleType?: string;
+		from: string;
+		to: string;
+		interval?: 'hour' | 'day';
+	}): Promise<ApiResponse<Array<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }>>> => {
+		const response = await apiClient.get('/device-metrics/aggregated', { params });
+		return response.data;
+	},
+	getPaginated: async (params: {
+		scopeId: string;
+		moduleType?: string;
+		from?: string;
+		to?: string;
+		page?: number;
+		pageSize?: number;
+	}): Promise<ApiResponse<DeviceMetric[]> & { total: number; page: number; pageSize: number; totalPages: number }> => {
+		const response = await apiClient.get('/device-metrics/paginated', { params });
+		return response.data;
+	},
+	getPaginatedGrouped: async (params: {
+		scopeId: string;
+		moduleType?: string;
+		from?: string;
+		to?: string;
+		page?: number;
+		pageSize?: number;
+	}): Promise<
+		ApiResponse<Array<{ timestamp: string; metricKey: string; metricValue: number }>> & {
+			total: number;
+			page: number;
+			pageSize: number;
+			totalPages: number;
+		}
+	> => {
+		const response = await apiClient.get('/device-metrics/paginated-grouped', { params });
 		return response.data;
 	},
 	create: async (data: {
@@ -1053,6 +1175,10 @@ export const energyDashboardApi = {
 	getOverview: async (filters?: EnergyDashboardFilters): Promise<ApiResponse<EnergyOverviewData>> => {
 		const params = filters || {};
 		const response = await apiClient.get<ApiResponse<EnergyOverviewData>>('/energy-dashboard/overview', { params });
+		return response.data;
+	},
+	getPeakHours: async (): Promise<ApiResponse<EnergyPeakHoursData>> => {
+		const response = await apiClient.get<ApiResponse<EnergyPeakHoursData>>('/energy-dashboard/peak-hours');
 		return response.data;
 	},
 	getOutlets: async (filters?: EnergyDashboardFilters): Promise<ApiResponse<EnergyOutletSummary[]>> => {
