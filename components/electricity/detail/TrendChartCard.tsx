@@ -150,7 +150,20 @@ export function TrendChartCard({ timeSeries, analytics, loadedFrom, loadedTo }: 
 		return Math.ceil(n / 15);
 	})();
 
-	const peakHourLabel = analytics.peakHour !== null ? `${String(analytics.peakHour).padStart(2, '0')}:00` : null;
+	const peakHourLabel = useMemo(() => {
+		if (!analytics.peakHour) return null;
+		try {
+			const d = new Date(analytics.peakHour);
+			const wib = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+			const day = String(wib.getUTCDate()).padStart(2, '0');
+			const mon = wib.toLocaleString('id-ID', { month: 'short', timeZone: 'UTC' });
+			const hh = String(wib.getUTCHours()).padStart(2, '0');
+			const mm = String(wib.getUTCMinutes()).padStart(2, '0');
+			return `${day} ${mon} ${hh}:${mm}`;
+		} catch {
+			return null;
+		}
+	}, [analytics.peakHour]);
 
 	return (
 		<Card className='border-0 shadow-sm lg:col-span-2'>
@@ -252,11 +265,11 @@ export function TrendChartCard({ timeSeries, analytics, loadedFrom, loadedTo }: 
 							<div className='w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse' />
 							<span className='text-muted-foreground'>Peak Hour:</span>
 							<span className='font-bold text-orange-500'>{peakHourLabel}</span>
-							<span className='text-xs text-muted-foreground'>({analytics.peakHourAvgKwh} kWh avg)</span>
+							<span className='text-xs text-muted-foreground'>({analytics.peakHourAvgKwh} kW peak)</span>
 						</div>
 						<div className='flex items-center gap-1.5 text-xs'>
 							<span className='text-muted-foreground'>Avg/hr:</span>
-							<span className='font-semibold'>{analytics.overallAvgKwhPerHour} kWh</span>
+							<span className='font-semibold'>{analytics.overallAvgKwhPerHour} kWh/min</span>
 						</div>
 					</div>
 				)}
