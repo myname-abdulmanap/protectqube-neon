@@ -794,6 +794,30 @@ export function PeakHoursChart({
     return presetLabels[dateRange.preset] || dateRange.preset;
   }, [dateRange.preset]);
 
+  const customFilterLabel = useMemo(() => {
+    if (dateRange.preset !== "custom" || !dateRange.from || !dateRange.to) {
+      return null;
+    }
+
+    const from = new Date(dateRange.from);
+    const to = new Date(dateRange.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return null;
+    }
+
+    const fmt = new Intl.DateTimeFormat("id-ID", {
+      timeZone: "Asia/Jakarta",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+
+    return `${fmt.format(from)} - ${fmt.format(to)} WIB`;
+  }, [dateRange.from, dateRange.preset, dateRange.to]);
+
   return (
     <Card className="border-0 shadow-sm">
       <CardHeader className="flex flex-row items-start justify-between pb-1 px-4 pt-3">
@@ -918,8 +942,12 @@ export function PeakHoursChart({
                 </div>
                 <div>
                   <p className="text-muted-foreground mb-1">Periode</p>
-                  <p className="font-semibold text-base">{dateLabel}</p>
-                  <p className="text-muted-foreground">Filter aktif</p>
+                  <p className="font-semibold text-base">
+                    {dateRange.preset === "custom" ? "Custom" : dateLabel}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {customFilterLabel ?? "Filter aktif"}
+                  </p>
                 </div>
                 {showDeviceSummary ? (
                   <div>

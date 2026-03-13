@@ -458,6 +458,21 @@ export interface EnergyOutletDetail {
 		startAt: string;
 		initialKwh: number;
 	} | null;
+	analytics?: {
+		peakPowerKw?: number;
+		peakPowerAt?: string | null;
+		avgPowerKw?: number;
+		avgVoltageV?: number;
+		avgCurrentA?: number;
+		avgPfSigma?: number;
+		totalEnergyKwh?: number;
+		totalKvarh?: number;
+		peakHour?: number | null;
+		peakHourAvgKw?: number;
+		overallAvgKwPerHour?: number;
+		peakHourAvgKwh?: number;
+		overallAvgKwhPerHour?: number;
+	};
 }
 
 export interface HistoryRow {

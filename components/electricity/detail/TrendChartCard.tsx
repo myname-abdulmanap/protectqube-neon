@@ -141,8 +141,13 @@ function aggregateSeries(
 
     const key = perHour ? `${y}-${mo}-${dd} ${hh}` : `${y}-${mo}-${dd}`;
 
+    const normalizedValue =
+      metricKey === "power_total" && Number(r.metricValue) > 1000
+        ? Number(r.metricValue) / 1000
+        : Number(r.metricValue);
+
     const cur = buckets.get(key) ?? { sum: 0, count: 0 };
-    cur.sum += r.metricValue;
+    cur.sum += normalizedValue;
     cur.count += 1;
     buckets.set(key, cur);
   }
@@ -189,6 +194,19 @@ export function TrendChartCard({
     if (n <= 96) return 6;
     return Math.ceil(n / 15);
   })();
+
+  const metricExplanation = useMemo(() => {
+    if (metric === "energy") {
+      return "Trend Energy menampilkan nilai energy_total per bucket waktu pada periode aktif. Untuk range sampai 2 hari ditampilkan per jam, di atas itu diringkas per hari.";
+    }
+    if (metric === "power") {
+      return "Trend Power menampilkan rata-rata power_total per bucket waktu pada periode aktif. Nilai power yang tersimpan dalam W dinormalisasi menjadi kW sebelum ditampilkan.";
+    }
+    if (metric === "voltage") {
+      return "Trend Voltage menampilkan rata-rata voltage_l1 per bucket waktu pada periode aktif.";
+    }
+    return "Trend Current menampilkan rata-rata current_total per bucket waktu pada periode aktif.";
+  }, [metric]);
 
   return (
     <Card className="border-0 shadow-sm lg:col-span-2">
@@ -240,78 +258,91 @@ export function TrendChartCard({
             No data available for this period
           </div>
         ) : (
-          <div
-            ref={scrollRef}
-            className="overflow-x-auto pb-1"
-            style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
-          >
-            <div style={{ minWidth: `${chartMinWidth}px` }}>
-              <ChartContainer
-                config={{
-                  value: {
-                    label: `${cfg.label} (${cfg.unit})`,
-                    color: cfg.color,
-                  },
-                }}
-                className={`${metric !== "energy" ? "sm:h-92.5" : "sm:h-81.25"} h-60 w-full`}
-              >
-                <AreaChart
-                  data={chartData}
-                  margin={{ top: 10, right: 8, bottom: 0, left: -5 }}
+          <>
+            <div
+              ref={scrollRef}
+              className="overflow-x-auto pb-1"
+              style={
+                { WebkitOverflowScrolling: "touch" } as React.CSSProperties
+              }
+            >
+              <div style={{ minWidth: `${chartMinWidth}px` }}>
+                <ChartContainer
+                  config={{
+                    value: {
+                      label: `${cfg.label} (${cfg.unit})`,
+                      color: cfg.color,
+                    },
+                  }}
+                  className={`${metric !== "energy" ? "sm:h-92.5" : "sm:h-81.25"} h-60 w-full`}
                 >
-                  <defs>
-                    <linearGradient
-                      id={`grad-${metric}`}
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="0%"
-                        stopColor={cfg.color}
-                        stopOpacity={0.35}
-                      />
-                      <stop
-                        offset="100%"
-                        stopColor={cfg.color}
-                        stopOpacity={0}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke="hsl(var(--border))"
-                    opacity={0.3}
-                  />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval={xAxisInterval}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={48}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke={cfg.color}
-                    strokeWidth={2.5}
-                    fill={`url(#grad-${metric})`}
-                    dot={false}
-                    connectNulls={false}
-                  />
-                </AreaChart>
-              </ChartContainer>
+                  <AreaChart
+                    data={chartData}
+                    margin={{ top: 10, right: 8, bottom: 0, left: -5 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id={`grad-${metric}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor={cfg.color}
+                          stopOpacity={0.35}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={cfg.color}
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="hsl(var(--border))"
+                      opacity={0.3}
+                    />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval={xAxisInterval}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={48}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={cfg.color}
+                      strokeWidth={2.5}
+                      fill={`url(#grad-${metric})`}
+                      dot={false}
+                      connectNulls={false}
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              </div>
             </div>
-          </div>
+            <div className="mt-3 border-t border-border/40 pt-3 text-[11px] leading-relaxed text-muted-foreground">
+              <p>{metricExplanation}</p>
+              <p className="mt-1">
+                Bucket aktif: {perHour ? "per jam" : "per hari"}. Rentang data:{" "}
+                {loadedFrom && loadedTo
+                  ? `${new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(loadedFrom))} - ${new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(loadedTo))} WIB`
+                  : "-"}
+              </p>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

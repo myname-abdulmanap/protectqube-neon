@@ -11,6 +11,7 @@ import { PageTransition } from "@/components/ui/page-transition";
 import { RealtimePowerCard } from "@/components/electricity/detail/RealtimePowerCard";
 import { PowerMeterCard } from "@/components/electricity/detail/PowerMeterCard";
 import { TrendChartCard } from "@/components/electricity/detail/TrendChartCard";
+import { PeakPowerChartCard } from "@/components/electricity/detail/PeakPowerChartCard";
 import { AnalyticsCard } from "@/components/electricity/detail/AnalyticsCard";
 import { HistoryTableCard } from "@/components/electricity/detail/HistoryTableCard";
 import { OutletProfileCard } from "@/components/electricity/detail/OutletProfileCard";
@@ -60,6 +61,7 @@ export interface OutletDetailPayload {
   }>;
   analytics: {
     peakPowerKw: number;
+    peakPowerAt: string | null;
     avgPowerKw: number;
     avgVoltageV: number;
     avgCurrentA: number;
@@ -67,6 +69,8 @@ export interface OutletDetailPayload {
     totalEnergyKwh: number;
     totalKvarh: number;
     peakHour: number | null;
+    peakHourAvgKw: number;
+    overallAvgKwPerHour: number;
     peakHourAvgKwh: number;
     overallAvgKwhPerHour: number;
   };
@@ -85,6 +89,9 @@ export interface OutletDetailPayload {
     moduleTypes: string[];
   }>;
 }
+
+const normalizePowerToKw = (value: number) =>
+  Number.isFinite(value) && value > 1000 ? value / 1000 : value;
 
 function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
   type ExtendedRaw = EnergyOutletDetail & {
@@ -122,11 +129,17 @@ function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
     timeSeries: (ext.timeSeries ?? []).map((r) => ({
       timestamp: r.timestamp,
       metricKey: r.metricKey,
-      metricValue: Number(r.metricValue ?? 0),
+      metricValue:
+        r.metricKey === "power_total"
+          ? normalizePowerToKw(Number(r.metricValue ?? 0))
+          : Number(r.metricValue ?? 0),
     })),
     analytics: {
-      peakPowerKw: Number(ext.analytics?.peakPowerKw ?? raw.peakPower ?? 0),
-      avgPowerKw: Number(ext.analytics?.avgPowerKw ?? 0),
+      peakPowerKw: normalizePowerToKw(
+        Number(ext.analytics?.peakPowerKw ?? raw.peakPower ?? 0),
+      ),
+      peakPowerAt: ext.analytics?.peakPowerAt ?? null,
+      avgPowerKw: normalizePowerToKw(Number(ext.analytics?.avgPowerKw ?? 0)),
       avgVoltageV: Number(ext.analytics?.avgVoltageV ?? 0),
       avgCurrentA: Number(ext.analytics?.avgCurrentA ?? 0),
       avgPfSigma: Number(ext.analytics?.avgPfSigma ?? 0),
@@ -135,6 +148,14 @@ function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
       ),
       totalKvarh: Number(ext.analytics?.totalKvarh ?? 0),
       peakHour: ext.analytics?.peakHour ?? null,
+      peakHourAvgKw: Number(
+        ext.analytics?.peakHourAvgKw ?? ext.analytics?.peakHourAvgKwh ?? 0,
+      ),
+      overallAvgKwPerHour: Number(
+        ext.analytics?.overallAvgKwPerHour ??
+          ext.analytics?.overallAvgKwhPerHour ??
+          0,
+      ),
       peakHourAvgKwh: Number(ext.analytics?.peakHourAvgKwh ?? 0),
       overallAvgKwhPerHour: Number(ext.analytics?.overallAvgKwhPerHour ?? 0),
     },
@@ -193,13 +214,6 @@ const applyStartPointOffset = (
   );
 };
 
-type ExportMetricRow = {
-  timestamp: string;
-  deviceId: string;
-  metricKey: string;
-  metricValue: number;
-};
-
 type ExportHistoricalRow = {
   timestamp: string;
   label: string;
@@ -227,68 +241,30 @@ const normalizeExportPeriod = (period: ExportPeriod) => {
   };
 };
 
-const buildHourlyExportRows = (
-  metrics: ExportMetricRow[],
+const buildHourlyExportRowsFromAggregated = (
+  rows: Array<{
+    timestamp: string;
+    metricKey: string;
+    avg: number;
+  }>,
 ): ExportHistoricalRow[] => {
-  const latestPerHourDeviceMetric = new Map<string, ExportMetricRow>();
-
-  for (const metric of metrics) {
-    const ts = new Date(metric.timestamp);
-    if (Number.isNaN(ts.getTime())) continue;
-    const hourStart = new Date(ts);
-    hourStart.setMinutes(0, 0, 0);
-    const key = `${hourStart.toISOString()}|${metric.deviceId}|${metric.metricKey}`;
-    const current = latestPerHourDeviceMetric.get(key);
-    if (
-      !current ||
-      new Date(metric.timestamp).getTime() >
-        new Date(current.timestamp).getTime()
-    ) {
-      latestPerHourDeviceMetric.set(key, metric);
-    }
-  }
-
-  const hourMap = new Map<
-    string,
-    Map<string, { sum: number; count: number }>
-  >();
-  for (const metric of latestPerHourDeviceMetric.values()) {
-    const ts = new Date(metric.timestamp);
-    if (Number.isNaN(ts.getTime())) continue;
-    const hourStart = new Date(ts);
-    hourStart.setMinutes(0, 0, 0);
-    const hourIso = hourStart.toISOString();
-    const metricMap =
-      hourMap.get(hourIso) ?? new Map<string, { sum: number; count: number }>();
-    const prev = metricMap.get(metric.metricKey) ?? { sum: 0, count: 0 };
-    prev.sum += Number(metric.metricValue ?? 0);
-    prev.count += 1;
-    metricMap.set(metric.metricKey, prev);
+  const hourMap = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    const hourIso = new Date(row.timestamp).toISOString();
+    const metricMap = hourMap.get(hourIso) ?? new Map<string, number>();
+    metricMap.set(row.metricKey, Number(row.avg ?? 0));
     hourMap.set(hourIso, metricMap);
   }
 
-  const averageKeys = new Set([
-    "voltage_l1",
-    "voltage_l2",
-    "voltage_l3",
-    "pf_sigma",
-  ]);
-  const pick = (
-    metricMap: Map<string, { sum: number; count: number }>,
-    key: string,
-  ): number | null => {
-    const agg = metricMap.get(key);
-    if (!agg || agg.count === 0) return null;
-    const value = averageKeys.has(key) ? agg.sum / agg.count : agg.sum;
-    return Number(value.toFixed(2));
+  const pick = (metricMap: Map<string, number>, key: string): number | null => {
+    const value = metricMap.get(key);
+    return value === undefined ? null : Number(value.toFixed(2));
   };
 
   return Array.from(hourMap.keys())
     .sort((a, b) => a.localeCompare(b))
     .map((hourIso) => {
-      const m =
-        hourMap.get(hourIso) ??
-        new Map<string, { sum: number; count: number }>();
+      const m = hourMap.get(hourIso) ?? new Map<string, number>();
       const d = new Date(hourIso);
       const label = `${d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })} ${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
       return {
@@ -298,7 +274,9 @@ const buildHourlyExportRows = (
         voltageL2: pick(m, "voltage_l2"),
         voltageL3: pick(m, "voltage_l3"),
         currentTotal: pick(m, "current_total"),
-        powerTotal: pick(m, "power_total") ?? pick(m, "power"),
+        powerTotal: normalizePowerToKw(
+          pick(m, "power_total") ?? pick(m, "power") ?? 0,
+        ),
         energyTotal: pick(m, "energy_total"),
         pfSigma: pick(m, "pf_sigma"),
       };
@@ -513,25 +491,23 @@ export default function ElectricityOutletDetailPage() {
       toIso,
       label: periodLabel,
     } = normalizeExportPeriod(period);
-    const metricsRes = await deviceMetricsApi.getAll({
+    const metricsRes = await deviceMetricsApi.getAggregated({
       scopeId,
       moduleType: "power_meter",
       from: fromIso,
       to: toIso,
-      limit: 50_000,
+      interval: "hour",
     });
 
-    const rawMetrics: ExportMetricRow[] =
+    const trendRows = buildHourlyExportRowsFromAggregated(
       metricsRes.success && metricsRes.data
         ? metricsRes.data.map((item) => ({
             timestamp: item.timestamp,
-            deviceId: item.deviceId,
             metricKey: item.metricKey,
-            metricValue: Number(item.metricValue ?? 0),
+            avg: item.avg,
           }))
-        : [];
-
-    const trendRows = buildHourlyExportRows(rawMetrics).map((row) => ({
+        : [],
+    ).map((row) => ({
       ...row,
       energyTotal:
         row.energyTotal !== null
@@ -788,7 +764,11 @@ export default function ElectricityOutletDetailPage() {
               </p>
               {detail?.startingPoint && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Starting point: {new Date(detail.startingPoint.startAt).toLocaleString("id-ID")} WIB, awal {detail.startingPoint.initialKwh} kWh
+                  Starting point:{" "}
+                  {new Date(detail.startingPoint.startAt).toLocaleString(
+                    "id-ID",
+                  )}{" "}
+                  WIB, awal {detail.startingPoint.initialKwh} kWh
                 </p>
               )}
             </div>
@@ -826,11 +806,18 @@ export default function ElectricityOutletDetailPage() {
                 isLoading={dataLoading}
                 label={overlayLabel}
               />
-              <TrendChartCard
-                timeSeries={timeSeries}
-                loadedFrom={loadedFrom}
-                loadedTo={loadedTo}
-              />
+              <div className="space-y-4">
+                <PeakPowerChartCard
+                  timeSeries={timeSeries}
+                  loadedFrom={loadedFrom}
+                  loadedTo={loadedTo}
+                />
+                <TrendChartCard
+                  timeSeries={timeSeries}
+                  loadedFrom={loadedFrom}
+                  loadedTo={loadedTo}
+                />
+              </div>
             </div>
             <div className="relative">
               <DataLoadingOverlay

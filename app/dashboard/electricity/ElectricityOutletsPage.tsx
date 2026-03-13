@@ -73,6 +73,22 @@ const getLatestMetricsByKey = (metrics: MetricItem[]) => {
   return latestByKey;
 };
 
+const applyStartPointOffset = (
+  rawValue: number,
+  startPoint: { startAt: string; initialKwh: number } | null,
+  timestamp?: string,
+) => {
+  if (!startPoint) return rawValue;
+  const startAt = new Date(startPoint.startAt);
+  if (!Number.isNaN(startAt.getTime()) && timestamp) {
+    const metricTs = new Date(timestamp);
+    if (!Number.isNaN(metricTs.getTime()) && metricTs < startAt) {
+      return 0;
+    }
+  }
+  return Math.max(0, rawValue - Number(startPoint.initialKwh ?? 0));
+};
+
 export default function ElectricityOutletsPage() {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -127,7 +143,7 @@ export default function ElectricityOutletsPage() {
             Number(latestByKey.get(key)?.metricValue ?? 0);
 
           const energyMetric = latestByKey.get("energy_total");
-          const energyMonth = energyMetric
+          const rawEnergy = energyMetric
             ? energyMetric.unit === "Wh"
               ? energyMetric.metricValue / 1000
               : energyMetric.metricValue
@@ -139,6 +155,21 @@ export default function ElectricityOutletsPage() {
             configResponse.data.length > 0
               ? configResponse.data[0]
               : null;
+
+          const startPoint =
+            latestConfig?.config?.startPoint?.startAt &&
+            typeof latestConfig?.config?.startPoint?.initialKwh === "number"
+              ? {
+                  startAt: latestConfig.config.startPoint.startAt,
+                  initialKwh: Number(latestConfig.config.startPoint.initialKwh),
+                }
+              : null;
+
+          const energyMonth = applyStartPointOffset(
+            rawEnergy,
+            startPoint,
+            energyMetric?.timestamp,
+          );
 
           return {
             scopeId: summary.scopeId,

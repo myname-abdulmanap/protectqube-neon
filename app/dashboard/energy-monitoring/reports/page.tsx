@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo, startTransition } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  startTransition,
+} from "react";
 import { motion } from "framer-motion";
 import {
   FileText,
@@ -292,21 +298,35 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!outlet) return;
+    if (!filters.from || !filters.to) return;
+    const outletId = outlet.id;
+    const filterFrom = filters.from;
+    const filterTo = filters.to;
 
     const loadData = async () => {
-      const [metricResponse, scopeResponse, configResponse] = await Promise.all(
-        [
-          deviceMetricsApi.getAll({
-            scopeId: outlet.id,
-            moduleType: "power_meter",
-            from: filters.from,
-            to: filters.to,
-            limit: 5000,
-          }),
-          scopesApi.getById(outlet.id),
-          energyConfigsApi.getAll(outlet.id),
-        ],
-      );
+      const [
+        metricResponse,
+        aggregatedResponse,
+        scopeResponse,
+        configResponse,
+      ] = await Promise.all([
+        deviceMetricsApi.getAll({
+          scopeId: outletId,
+          moduleType: "power_meter",
+          from: filterFrom,
+          to: filterTo,
+          limit: 50000,
+        }),
+        deviceMetricsApi.getAggregated({
+          scopeId: outletId,
+          moduleType: "power_meter",
+          from: filterFrom,
+          to: filterTo,
+          interval: "hour",
+        }),
+        scopesApi.getById(outletId),
+        energyConfigsApi.getAll(outletId),
+      ]);
 
       let activeStartPoint: { startAt: string; initialKwh: number } | null =
         null;
@@ -347,34 +367,27 @@ export default function ReportsPage() {
       if (metricResponse.success && metricResponse.data) {
         setRawScopeMetrics(
           metricResponse.data.map((item) => ({
-            scopeId: outlet.id,
+            scopeId: outletId,
             timestamp: item.timestamp,
             deviceId: item.deviceId,
             metricKey: item.metricKey,
             metricValue: Number(item.metricValue ?? 0),
           })),
         );
+      } else {
+        setRawScopeMetrics([]);
+      }
 
-        const latestByHourDeviceMetric = new Map<
-          string,
-          (typeof metricResponse.data)[number]
-        >();
-        for (const metric of metricResponse.data) {
-          const ts = new Date(metric.timestamp);
-          if (Number.isNaN(ts.getTime())) continue;
-
-          const hourStart = new Date(ts);
-          hourStart.setMinutes(0, 0, 0);
-          const key = `${hourStart.toISOString()}|${metric.deviceId}|${metric.metricKey}`;
-
-          const current = latestByHourDeviceMetric.get(key);
-          if (
-            !current ||
-            new Date(metric.timestamp).getTime() >
-              new Date(current.timestamp).getTime()
-          ) {
-            latestByHourDeviceMetric.set(key, metric);
-          }
+      if (aggregatedResponse.success && aggregatedResponse.data) {
+        const hourlyAgg = new Map<string, Map<string, number>>();
+        for (const point of aggregatedResponse.data) {
+          const tsIso = new Date(point.timestamp).toISOString();
+          const metricMap = hourlyAgg.get(tsIso) ?? new Map<string, number>();
+          metricMap.set(
+            point.metricKey,
+            Number(toSafeNumber(point.avg).toFixed(2)),
+          );
+          hourlyAgg.set(tsIso, metricMap);
         }
 
         const fmtTs = (tsIso: string) => {
@@ -384,51 +397,12 @@ export default function ReportsPage() {
             : `${d.toLocaleDateString("id-ID")} ${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} WIB`;
         };
 
-        const avgKeys = new Set([
-          "voltage_l1",
-          "voltage_l2",
-          "voltage_l3",
-          "frequency",
-        ]);
-        const hourlyAgg = new Map<
-          string,
-          Map<string, { sum: number; count: number }>
-        >();
-
-        for (const metric of latestByHourDeviceMetric.values()) {
-          const ts = new Date(metric.timestamp);
-          if (Number.isNaN(ts.getTime())) continue;
-          const hourStart = new Date(ts);
-          hourStart.setMinutes(0, 0, 0);
-          const hourIso = hourStart.toISOString();
-
-          if (!hourlyAgg.has(hourIso)) {
-            hourlyAgg.set(hourIso, new Map());
-          }
-
-          const value = Number(metric.metricValue ?? 0);
-          if (!Number.isFinite(value)) continue;
-
-          const metricAgg = hourlyAgg.get(hourIso)!;
-          const current = metricAgg.get(metric.metricKey) ?? {
-            sum: 0,
-            count: 0,
-          };
-          current.sum += value;
-          current.count += 1;
-          metricAgg.set(metric.metricKey, current);
-        }
-
-        const toMetricValue = (
-          metricMap: Map<string, { sum: number; count: number }>,
-          metricKey: string,
+        const pick = (
+          metricMap: Map<string, number>,
+          key: string,
         ): number | null => {
-          const agg = metricMap.get(metricKey);
-          if (!agg || agg.count === 0) return null;
-          if (avgKeys.has(metricKey)) {
-            return Number((agg.sum / agg.count).toFixed(2));
-          }
-          return Number(agg.sum.toFixed(2));
+          const val = metricMap.get(key);
+          return val === undefined ? null : Number(val.toFixed(2));
         };
 
         setHistoricalReadings(
@@ -437,36 +411,29 @@ export default function ReportsPage() {
             .map(([hourIso, values]) => ({
               timestampIso: hourIso,
               waktu: fmtTs(hourIso),
-              voltageL1: toMetricValue(values, "voltage_l1"),
-              voltageL2: toMetricValue(values, "voltage_l2"),
-              voltageL3: toMetricValue(values, "voltage_l3"),
-              currentL1: toMetricValue(values, "current_l1"),
-              currentL2: toMetricValue(values, "current_l2"),
-              currentL3: toMetricValue(values, "current_l3"),
-              currentTotal: toMetricValue(values, "current_total"),
-              powerL1: toMetricValue(values, "power_l1"),
-              powerL2: toMetricValue(values, "power_l2"),
-              powerL3: toMetricValue(values, "power_l3"),
-              powerTotal:
-                toMetricValue(values, "power_total") ??
-                toMetricValue(values, "power"),
-              reactiveL1: toMetricValue(values, "reactive_l1"),
-              reactiveL2: toMetricValue(values, "reactive_l2"),
-              reactiveL3: toMetricValue(values, "reactive_l3"),
-              frequency: toMetricValue(values, "frequency"),
+              voltageL1: pick(values, "voltage_l1"),
+              voltageL2: pick(values, "voltage_l2"),
+              voltageL3: pick(values, "voltage_l3"),
+              currentL1: pick(values, "current_l1"),
+              currentL2: pick(values, "current_l2"),
+              currentL3: pick(values, "current_l3"),
+              currentTotal: pick(values, "current_total"),
+              powerL1: pick(values, "power_l1"),
+              powerL2: pick(values, "power_l2"),
+              powerL3: pick(values, "power_l3"),
+              powerTotal: pick(values, "power_total") ?? pick(values, "power"),
+              reactiveL1: pick(values, "reactive_l1"),
+              reactiveL2: pick(values, "reactive_l2"),
+              reactiveL3: pick(values, "reactive_l3"),
+              frequency: pick(values, "frequency"),
               energyTotal: (() => {
-                const raw = toMetricValue(values, "energy_total");
+                const raw = pick(values, "energy_total");
                 if (raw === null) return null;
-                return applyStartPointOffset(
-                  raw,
-                  activeStartPoint,
-                  hourIso,
-                );
+                return applyStartPointOffset(raw, activeStartPoint, hourIso);
               })(),
             })),
         );
       } else {
-        setRawScopeMetrics([]);
         setHistoricalReadings([]);
       }
     };
@@ -475,27 +442,36 @@ export default function ReportsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outlet?.id, filters]);
 
+  useEffect(() => {
+    setTablePage(0);
+  }, [outlet?.id, filters.from, filters.to]);
+
   const toSafeNumber = (value: unknown) => {
     const parsed =
       typeof value === "number" ? value : Number(value ?? Number.NaN);
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const applyStartPointOffset = (
-    rawValue: number,
-    startPoint: { startAt: string; initialKwh: number } | null,
-    timestampIso?: string,
-  ) => {
-    if (!startPoint) return Number(rawValue.toFixed(2));
-    const startAt = new Date(startPoint.startAt);
-    if (!Number.isNaN(startAt.getTime()) && timestampIso) {
-      const ts = new Date(timestampIso);
-      if (!Number.isNaN(ts.getTime()) && ts < startAt) {
-        return 0;
+  const applyStartPointOffset = useCallback(
+    (
+      rawValue: number,
+      startPoint: { startAt: string; initialKwh: number } | null,
+      timestampIso?: string,
+    ) => {
+      if (!startPoint) return Number(rawValue.toFixed(2));
+      const startAt = new Date(startPoint.startAt);
+      if (!Number.isNaN(startAt.getTime()) && timestampIso) {
+        const ts = new Date(timestampIso);
+        if (!Number.isNaN(ts.getTime()) && ts < startAt) {
+          return 0;
+        }
       }
-    }
-    return Number(Math.max(0, rawValue - toSafeNumber(startPoint.initialKwh)).toFixed(2));
-  };
+      return Number(
+        Math.max(0, rawValue - toSafeNumber(startPoint.initialKwh)).toFixed(2),
+      );
+    },
+    [],
+  );
 
   const formatKwh = (value: number) =>
     new Intl.NumberFormat("id-ID", {
@@ -506,8 +482,8 @@ export default function ReportsPage() {
   const formatReportDate = () =>
     `${new Date().toLocaleDateString("id-ID", { year: "numeric", month: "long", day: "numeric" })} ${new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false })} WIB`;
 
-  const buildAggregateComparison = (items: OutletView[]) => {
-    if (!items.length) {
+  const loadAggregateComparisonFromOverview = useCallback(async () => {
+    if (!filters.from || !filters.to) {
       return {
         avgDailyCurrent: 0,
         avgDailyPrevious: 0,
@@ -518,30 +494,62 @@ export default function ReportsPage() {
       };
     }
 
-    const avgDailyCurrent =
-      items.reduce(
-        (sum, o) => sum + toSafeNumber(o.comparisonData?.dailyAverage?.current),
-        0,
-      ) / items.length;
-    const avgDailyPrevious =
-      items.reduce(
-        (sum, o) =>
-          sum + toSafeNumber(o.comparisonData?.dailyAverage?.previous),
-        0,
-      ) / items.length;
-    const avgDailyChange =
-      items.reduce(
-        (sum, o) => sum + toSafeNumber(o.comparisonData?.dailyAverage?.change),
-        0,
-      ) / items.length;
-    const totalCurrentPeriod = items.reduce(
-      (sum, o) => sum + toSafeNumber(o.comparisonData?.currentPeriod?.current),
-      0,
+    const currentFrom = new Date(filters.from);
+    const currentTo = new Date(filters.to);
+    if (
+      Number.isNaN(currentFrom.getTime()) ||
+      Number.isNaN(currentTo.getTime())
+    ) {
+      return {
+        avgDailyCurrent: 0,
+        avgDailyPrevious: 0,
+        avgDailyChange: 0,
+        totalCurrentPeriod: 0,
+        totalPreviousPeriod: 0,
+        totalPeriodChange: 0,
+      };
+    }
+
+    const durationMs = Math.max(1, currentTo.getTime() - currentFrom.getTime());
+    const previousTo = new Date(currentFrom.getTime());
+    const previousFrom = new Date(currentFrom.getTime() - durationMs);
+
+    const [currentOverview, previousOverview] = await Promise.all([
+      energyDashboardApi.getOverview({
+        from: currentFrom.toISOString(),
+        to: currentTo.toISOString(),
+      }),
+      energyDashboardApi.getOverview({
+        from: previousFrom.toISOString(),
+        to: previousTo.toISOString(),
+      }),
+    ]);
+
+    const totalCurrentPeriod = toSafeNumber(
+      currentOverview.data?.globalKpi?.totalEnergy,
     );
-    const totalPreviousPeriod = items.reduce(
-      (sum, o) => sum + toSafeNumber(o.comparisonData?.currentPeriod?.previous),
-      0,
+    const totalPreviousPeriod = toSafeNumber(
+      previousOverview.data?.globalKpi?.totalEnergy,
     );
+
+    const currentDays = Math.max(
+      1,
+      Math.ceil(
+        (currentTo.getTime() - currentFrom.getTime()) / (24 * 60 * 60 * 1000),
+      ),
+    );
+    const previousDays = Math.max(
+      1,
+      Math.ceil(
+        (previousTo.getTime() - previousFrom.getTime()) / (24 * 60 * 60 * 1000),
+      ),
+    );
+
+    const avgDailyCurrent = totalCurrentPeriod / currentDays;
+    const avgDailyPrevious = totalPreviousPeriod / previousDays;
+    const avgDailyChange = avgDailyPrevious
+      ? ((avgDailyCurrent - avgDailyPrevious) / avgDailyPrevious) * 100
+      : 0;
     const totalPeriodChange = totalPreviousPeriod
       ? ((totalCurrentPeriod - totalPreviousPeriod) / totalPreviousPeriod) * 100
       : 0;
@@ -554,7 +562,7 @@ export default function ReportsPage() {
       totalPreviousPeriod,
       totalPeriodChange,
     };
-  };
+  }, [filters.from, filters.to]);
 
   const latestHistoricalEnergyTotal = useMemo(() => {
     for (let i = historicalReadings.length - 1; i >= 0; i -= 1) {
@@ -595,28 +603,51 @@ export default function ReportsPage() {
     }
 
     const sectionMap = new Map<string, number>();
+    let latestEnergyTimestamp = 0;
     for (const device of outlet.devices) {
       const locationName =
         device.locationName || device.locationType || "Uncategorized";
-      const latestEnergy = latestEnergyByDevice.get(device.id)?.value || 0;
+      const latestEnergyEntry = latestEnergyByDevice.get(device.id);
+      const latestEnergy = latestEnergyEntry?.value || 0;
+      latestEnergyTimestamp = Math.max(
+        latestEnergyTimestamp,
+        latestEnergyEntry?.timestamp ?? 0,
+      );
       sectionMap.set(
         locationName,
         toSafeNumber((sectionMap.get(locationName) || 0) + latestEnergy),
       );
     }
 
-    const total = Array.from(sectionMap.values()).reduce(
+    const rawTotal = Array.from(sectionMap.values()).reduce(
       (sum, v) => sum + v,
       0,
     );
+    const adjustedTotal = applyStartPointOffset(
+      rawTotal,
+      selectedEnergyConfig?.startPoint ?? null,
+      latestEnergyTimestamp
+        ? new Date(latestEnergyTimestamp).toISOString()
+        : undefined,
+    );
+
     return Array.from(sectionMap.entries())
-      .map(([name, kWh]) => ({
-        name,
-        kWh: Number(kWh.toFixed(2)),
-        value: total > 0 ? Number(((kWh / total) * 100).toFixed(2)) : 0,
-      }))
+      .map(([name, rawKwh]) => {
+        const ratio = rawTotal > 0 ? rawKwh / rawTotal : 0;
+        const adjustedKwh = adjustedTotal * ratio;
+        return {
+          name,
+          kWh: Number(adjustedKwh.toFixed(2)),
+          value: adjustedTotal > 0 ? Number((ratio * 100).toFixed(2)) : 0,
+        };
+      })
       .sort((a, b) => b.kWh - a.kWh);
-  }, [outlet, rawScopeMetrics]);
+  }, [
+    outlet,
+    rawScopeMetrics,
+    selectedEnergyConfig?.startPoint,
+    applyStartPointOffset,
+  ]);
 
   const peakPowerFromHistorical = useMemo(() => {
     let peak = 0;
@@ -646,17 +677,31 @@ export default function ReportsPage() {
       };
     }
 
-    const metricResponses = await Promise.all(
-      outlets.map((o) =>
-        deviceMetricsApi.getAll({
-          scopeId: o.id,
-          moduleType: "power_meter",
-          from: filters.from,
-          to: filters.to,
-          limit: 5000,
-        }),
-      ),
-    );
+    if (!filters.from || !filters.to) {
+      return {
+        aggregatedReadings: [] as HistoricalRow[],
+        aggregatedHourlyUsage: [] as Array<{ hour: string; usage: number }>,
+        outletBreakdown: [] as Array<{
+          outlet: string;
+          kWh: number;
+          devices: number;
+        }>,
+        deviceRows: [] as Array<Record<string, string | number>>,
+        totalEnergy: 0,
+        peakPower: 0,
+        scopeStartPointMap: new Map<
+          string,
+          { startAt: string; initialKwh: number }
+        >(),
+      };
+    }
+
+    const aggregatedMetricsResponse = await deviceMetricsApi.getAggregated({
+      moduleType: "power_meter",
+      from: filters.from,
+      to: filters.to,
+      interval: "hour",
+    });
 
     const configResponses = await Promise.all(
       outlets.map((o) => energyConfigsApi.getAll(o.id)),
@@ -682,76 +727,22 @@ export default function ReportsPage() {
       }
     });
 
-    const allMetrics: RawScopeMetric[] = metricResponses.flatMap(
-      (res, index) => {
-        if (!res.success || !res.data) return [];
-        const scopeId = outlets[index]?.id;
-        if (!scopeId) return [];
-        return res.data.map((item) => ({
-          scopeId,
-          timestamp: item.timestamp,
-          deviceId: item.deviceId,
-          metricKey: item.metricKey,
-          metricValue: Number(item.metricValue ?? 0),
-        }));
-      },
-    );
-
-    const latestByHourScopeDeviceMetric = new Map<string, RawScopeMetric>();
-    for (const metric of allMetrics) {
-      const ts = new Date(metric.timestamp);
-      if (Number.isNaN(ts.getTime())) continue;
-      const hourStart = new Date(ts);
-      hourStart.setMinutes(0, 0, 0);
-      const key = `${hourStart.toISOString()}|${metric.scopeId}|${metric.deviceId}|${metric.metricKey}`;
-      const current = latestByHourScopeDeviceMetric.get(key);
-      if (
-        !current ||
-        new Date(metric.timestamp).getTime() >
-          new Date(current.timestamp).getTime()
-      ) {
-        latestByHourScopeDeviceMetric.set(key, metric);
+    const hourlyAgg = new Map<string, Map<string, number>>();
+    if (aggregatedMetricsResponse.success && aggregatedMetricsResponse.data) {
+      for (const row of aggregatedMetricsResponse.data) {
+        const tsIso = new Date(row.timestamp).toISOString();
+        const metricMap = hourlyAgg.get(tsIso) ?? new Map<string, number>();
+        metricMap.set(row.metricKey, Number(toSafeNumber(row.avg).toFixed(2)));
+        hourlyAgg.set(tsIso, metricMap);
       }
-    }
-
-    const avgKeys = new Set([
-      "voltage_l1",
-      "voltage_l2",
-      "voltage_l3",
-      "frequency",
-    ]);
-    const hourlyAgg = new Map<
-      string,
-      Map<string, { sum: number; count: number }>
-    >();
-    for (const metric of latestByHourScopeDeviceMetric.values()) {
-      const ts = new Date(metric.timestamp);
-      if (Number.isNaN(ts.getTime())) continue;
-      const hourStart = new Date(ts);
-      hourStart.setMinutes(0, 0, 0);
-      const hourIso = hourStart.toISOString();
-      const metricMap =
-        hourlyAgg.get(hourIso) ??
-        new Map<string, { sum: number; count: number }>();
-      const value = Number(metric.metricValue ?? 0);
-      if (!Number.isFinite(value)) continue;
-      const current = metricMap.get(metric.metricKey) ?? { sum: 0, count: 0 };
-      current.sum += value;
-      current.count += 1;
-      metricMap.set(metric.metricKey, current);
-      hourlyAgg.set(hourIso, metricMap);
     }
 
     const toMetricValue = (
-      metricMap: Map<string, { sum: number; count: number }>,
+      metricMap: Map<string, number>,
       metricKey: string,
     ): number | null => {
-      const agg = metricMap.get(metricKey);
-      if (!agg || agg.count === 0) return null;
-      if (avgKeys.has(metricKey)) {
-        return Number((agg.sum / agg.count).toFixed(2));
-      }
-      return Number(agg.sum.toFixed(2));
+      const value = metricMap.get(metricKey);
+      return value === undefined ? null : Number(value.toFixed(2));
     };
 
     const fmtTs = (tsIso: string) => {
@@ -803,30 +794,9 @@ export default function ReportsPage() {
       usage: toSafeNumber(row.energyTotal),
     }));
 
-    const latestEnergyByScopeDevice = new Map<
-      string,
-      { ts: number; value: number }
-    >();
-    for (const metric of allMetrics) {
-      if (metric.metricKey !== "energy_total") continue;
-      const ts = new Date(metric.timestamp).getTime();
-      if (!Number.isFinite(ts)) continue;
-      const key = `${metric.scopeId}|${metric.deviceId}`;
-      const current = latestEnergyByScopeDevice.get(key);
-      if (!current || ts > current.ts) {
-        latestEnergyByScopeDevice.set(key, {
-          ts,
-          value: toSafeNumber(metric.metricValue),
-        });
-      }
-    }
-
     const outletBreakdown = outlets
       .map((o) => {
-        const kWh = o.devices.reduce((sum, d) => {
-          const latest = latestEnergyByScopeDevice.get(`${o.id}|${d.id}`);
-          return sum + (latest?.value ?? 0);
-        }, 0);
+        const kWh = toSafeNumber(o.kpiData?.totalUsage);
         return {
           outlet: o.name,
           kWh: Number(kWh.toFixed(2)),
@@ -977,7 +947,7 @@ export default function ReportsPage() {
       totalCurrentPeriod,
       totalPreviousPeriod,
       totalPeriodChange,
-    } = buildAggregateComparison(outlets);
+    } = await loadAggregateComparisonFromOverview();
 
     await exportToExcel(
       `laporan-listrik-aggregate-${new Date().toISOString().slice(0, 10)}.xlsx`,
@@ -1191,7 +1161,7 @@ export default function ReportsPage() {
       totalCurrentPeriod,
       totalPreviousPeriod,
       totalPeriodChange,
-    } = buildAggregateComparison(outlets);
+    } = await loadAggregateComparisonFromOverview();
 
     await exportToPdf({
       fileName: `laporan-listrik-aggregate-${new Date().toISOString().slice(0, 10)}.pdf`,
