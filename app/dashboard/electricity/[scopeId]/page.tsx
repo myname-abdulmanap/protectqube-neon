@@ -685,7 +685,6 @@ export default function ElectricityOutletDetailPage() {
 						/>
 					</motion.div>
 				)}
-
 				{detail && (
 					<motion.div variants={itemVariant}>
 						<OutletProfileCard detail={detail} />

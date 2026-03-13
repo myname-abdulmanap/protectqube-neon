@@ -146,7 +146,7 @@ export function DateFilter({ value, onChange, size = 'sm' }: DateFilterProps) {
 					variant='outline'
 					size='sm'
 					className={cn(
-						'h-7 gap-1.5 border-0 bg-muted/50 font-normal cursor-pointer',
+						'h-9 gap-2 border-0 bg-muted/50 font-normal cursor-pointer',
 						isXs ? 'text-xs px-2' : 'text-sm px-3',
 					)}
 				>
