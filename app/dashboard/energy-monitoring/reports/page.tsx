@@ -205,6 +205,7 @@ export default function ReportsPage() {
   const [selectedEnergyConfig, setSelectedEnergyConfig] = useState<{
     maxLoadKw: number | null;
     capacityVa: number | null;
+    startPoint: { startAt: string; initialKwh: number } | null;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -307,6 +308,9 @@ export default function ReportsPage() {
         ],
       );
 
+      let activeStartPoint: { startAt: string; initialKwh: number } | null =
+        null;
+
       if (scopeResponse.success && scopeResponse.data) {
         setSelectedScopeDetail(scopeResponse.data);
       } else {
@@ -323,9 +327,18 @@ export default function ReportsPage() {
             new Date(b.validFrom).getTime() - new Date(a.validFrom).getTime(),
         );
         const latestConfig = sortedConfigs[0];
+        const startPoint = latestConfig.config?.startPoint;
+        activeStartPoint =
+          startPoint?.startAt && typeof startPoint.initialKwh === "number"
+            ? {
+                startAt: startPoint.startAt,
+                initialKwh: Number(startPoint.initialKwh),
+              }
+            : null;
         setSelectedEnergyConfig({
           maxLoadKw: latestConfig.maxLoadKw ?? null,
           capacityVa: latestConfig.capacityVa ?? null,
+          startPoint: activeStartPoint,
         });
       } else {
         setSelectedEnergyConfig(null);
@@ -441,7 +454,15 @@ export default function ReportsPage() {
               reactiveL2: toMetricValue(values, "reactive_l2"),
               reactiveL3: toMetricValue(values, "reactive_l3"),
               frequency: toMetricValue(values, "frequency"),
-              energyTotal: toMetricValue(values, "energy_total"),
+              energyTotal: (() => {
+                const raw = toMetricValue(values, "energy_total");
+                if (raw === null) return null;
+                return applyStartPointOffset(
+                  raw,
+                  activeStartPoint,
+                  hourIso,
+                );
+              })(),
             })),
         );
       } else {
@@ -458,6 +479,22 @@ export default function ReportsPage() {
     const parsed =
       typeof value === "number" ? value : Number(value ?? Number.NaN);
     return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const applyStartPointOffset = (
+    rawValue: number,
+    startPoint: { startAt: string; initialKwh: number } | null,
+    timestampIso?: string,
+  ) => {
+    if (!startPoint) return Number(rawValue.toFixed(2));
+    const startAt = new Date(startPoint.startAt);
+    if (!Number.isNaN(startAt.getTime()) && timestampIso) {
+      const ts = new Date(timestampIso);
+      if (!Number.isNaN(ts.getTime()) && ts < startAt) {
+        return 0;
+      }
+    }
+    return Number(Math.max(0, rawValue - toSafeNumber(startPoint.initialKwh)).toFixed(2));
   };
 
   const formatKwh = (value: number) =>
@@ -602,6 +639,10 @@ export default function ReportsPage() {
         deviceRows: [] as Array<Record<string, string | number>>,
         totalEnergy: 0,
         peakPower: 0,
+        scopeStartPointMap: new Map<
+          string,
+          { startAt: string; initialKwh: number }
+        >(),
       };
     }
 
@@ -616,6 +657,30 @@ export default function ReportsPage() {
         }),
       ),
     );
+
+    const configResponses = await Promise.all(
+      outlets.map((o) => energyConfigsApi.getAll(o.id)),
+    );
+
+    const scopeStartPointMap = new Map<
+      string,
+      { startAt: string; initialKwh: number }
+    >();
+    configResponses.forEach((res, index) => {
+      const scopeId = outlets[index]?.id;
+      if (!scopeId || !res.success || !res.data?.length) return;
+      const latestConfig = [...res.data].sort(
+        (a, b) =>
+          new Date(b.validFrom).getTime() - new Date(a.validFrom).getTime(),
+      )[0];
+      const sp = latestConfig?.config?.startPoint;
+      if (sp?.startAt && typeof sp.initialKwh === "number") {
+        scopeStartPointMap.set(scopeId, {
+          startAt: sp.startAt,
+          initialKwh: Number(sp.initialKwh),
+        });
+      }
+    });
 
     const allMetrics: RawScopeMetric[] = metricResponses.flatMap(
       (res, index) => {
@@ -718,7 +783,19 @@ export default function ReportsPage() {
         reactiveL2: toMetricValue(values, "reactive_l2"),
         reactiveL3: toMetricValue(values, "reactive_l3"),
         frequency: toMetricValue(values, "frequency"),
-        energyTotal: toMetricValue(values, "energy_total"),
+        energyTotal: (() => {
+          const raw = toMetricValue(values, "energy_total");
+          if (raw === null) return null;
+          const offset = Array.from(scopeStartPointMap.values()).reduce(
+            (sum, sp) =>
+              sum +
+              (new Date(hourIso) >= new Date(sp.startAt)
+                ? toSafeNumber(sp.initialKwh)
+                : 0),
+            0,
+          );
+          return Number(Math.max(0, raw - offset).toFixed(2));
+        })(),
       }));
 
     const aggregatedHourlyUsage = aggregatedReadings.map((row) => ({
@@ -792,6 +869,7 @@ export default function ReportsPage() {
       deviceRows,
       totalEnergy: Number(totalEnergy.toFixed(2)),
       peakPower: Number(peakPower.toFixed(2)),
+      scopeStartPointMap,
     };
   };
 
@@ -824,6 +902,14 @@ export default function ReportsPage() {
                 "Kapasitas Maks (kW)":
                   selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "-",
                 "Kapasitas (VA)": selectedEnergyConfig?.capacityVa ?? "-",
+                "Starting Point": selectedEnergyConfig?.startPoint
+                  ? new Date(
+                      selectedEnergyConfig.startPoint.startAt,
+                    ).toLocaleString("id-ID")
+                  : "-",
+                "Initial kWh": selectedEnergyConfig?.startPoint
+                  ? selectedEnergyConfig.startPoint.initialKwh
+                  : "-",
                 "Jumlah Device": outlet.devices.length,
               },
             ],
@@ -911,6 +997,8 @@ export default function ReportsPage() {
               "Peak Power (historical, kW)": aggregated.peakPower,
               "Mode Agregasi":
                 "Voltage/Frequency = Average, lainnya = Penjumlahan",
+              "Outlet dengan Starting Point":
+                aggregated.scopeStartPointMap.size,
             },
           ],
         },
@@ -1005,6 +1093,9 @@ export default function ReportsPage() {
         summary: [
           `Energy Total (historical terakhir): ${formatKwh(latestHistoricalEnergyTotal)} kWh`,
           `Peak (historical): ${formatKwh(peakPowerFromHistorical)} kW | Kapasitas Maks: ${selectedEnergyConfig?.maxLoadKw ?? outlet.maxLoad ?? "N/A"} kW`,
+          selectedEnergyConfig?.startPoint
+            ? `Starting Point: ${new Date(selectedEnergyConfig.startPoint.startAt).toLocaleString("id-ID")} WIB, Initial ${selectedEnergyConfig.startPoint.initialKwh} kWh`
+            : "Starting Point: -",
           `Kapasitas VA: ${selectedEnergyConfig?.capacityVa ?? "N/A"} | Tenant: ${selectedScopeDetail?.tenant?.name || "-"}`,
           `Total Data Pengukuran: ${historicalReadings.length} pembacaan`,
         ],
@@ -1114,6 +1205,7 @@ export default function ReportsPage() {
         `Peak (historical): ${formatKwh(aggregated.peakPower)} kW`,
         `Jumlah Outlet: ${outlets.length} | Jumlah Device: ${outlets.reduce((sum, o) => sum + o.devices.length, 0)}`,
         `Mode agregasi: Voltage/Frequency = Average, metrik lain = Penjumlahan`,
+        `Outlet dengan starting point: ${aggregated.scopeStartPointMap.size}`,
         `Total Data Pengukuran: ${aggregated.aggregatedReadings.length} pembacaan`,
       ],
       tables: [

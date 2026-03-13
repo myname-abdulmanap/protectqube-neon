@@ -70,6 +70,10 @@ export interface OutletDetailPayload {
     peakHourAvgKwh: number;
     overallAvgKwhPerHour: number;
   };
+  startingPoint: {
+    startAt: string;
+    initialKwh: number;
+  } | null;
   devices: Array<{
     id: string;
     name: string;
@@ -96,6 +100,7 @@ function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
     analytics?: Partial<OutletDetailPayload["analytics"]>;
     capacityVa?: number | null;
     maxLoadKw?: number | null;
+    startingPoint?: OutletDetailPayload["startingPoint"];
   };
   const ext = raw as ExtendedRaw;
   return {
@@ -133,6 +138,7 @@ function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
       peakHourAvgKwh: Number(ext.analytics?.peakHourAvgKwh ?? 0),
       overallAvgKwhPerHour: Number(ext.analytics?.overallAvgKwhPerHour ?? 0),
     },
+    startingPoint: ext.startingPoint ?? null,
     devices: (raw.devices ?? []).map((d) => ({
       id: d.id,
       name: d.name,
@@ -166,6 +172,26 @@ function mv(
 ): number {
   return metrics[key]?.value ?? 0;
 }
+
+const applyStartPointOffset = (
+  rawValue: number,
+  startingPoint: OutletDetailPayload["startingPoint"],
+  timestamp?: string,
+) => {
+  if (!startingPoint) return Number(rawValue.toFixed(2));
+
+  const startAt = new Date(startingPoint.startAt);
+  if (!Number.isNaN(startAt.getTime()) && timestamp) {
+    const metricTs = new Date(timestamp);
+    if (!Number.isNaN(metricTs.getTime()) && metricTs < startAt) {
+      return 0;
+    }
+  }
+
+  return Number(
+    Math.max(0, rawValue - Number(startingPoint.initialKwh ?? 0)).toFixed(2),
+  );
+};
 
 type ExportMetricRow = {
   timestamp: string;
@@ -468,11 +494,17 @@ export default function ElectricityOutletDetailPage() {
       pfB: roundN(g("pf_b"), 3),
       pfC: roundN(g("pf_c"), 3),
       pfSigma: roundN(g("pf_sigma"), 3),
-      energyTotal: roundN(g("energy_total")),
+      energyTotal: roundN(
+        applyStartPointOffset(
+          g("energy_total"),
+          detail?.startingPoint ?? null,
+          latestMetrics["energy_total"]?.timestamp,
+        ),
+      ),
       kvarh: roundN(g("kvarh")),
       frequency: roundN(g("frequency"), 1),
     };
-  }, [latestMetrics]);
+  }, [detail?.startingPoint, latestMetrics]);
 
   const handleExport = async (format: ExportFormat, period: ExportPeriod) => {
     if (!detail) return;
@@ -499,7 +531,17 @@ export default function ElectricityOutletDetailPage() {
           }))
         : [];
 
-    const trendRows = buildHourlyExportRows(rawMetrics);
+    const trendRows = buildHourlyExportRows(rawMetrics).map((row) => ({
+      ...row,
+      energyTotal:
+        row.energyTotal !== null
+          ? applyStartPointOffset(
+              row.energyTotal,
+              detail.startingPoint,
+              row.timestamp,
+            )
+          : null,
+    }));
     const analytics = buildExportAnalytics(trendRows);
     const historicalRows = trendRows.map((row) => ({
       timestamp: row.label,
@@ -537,6 +579,12 @@ export default function ElectricityOutletDetailPage() {
               period: periodLabel,
               capacityVa: detail.capacityVa ?? "-",
               devices: detail.devices.length,
+              startingPoint: detail.startingPoint
+                ? new Date(detail.startingPoint.startAt).toLocaleString("id-ID")
+                : "-",
+              initialKwh: detail.startingPoint
+                ? detail.startingPoint.initialKwh
+                : "-",
             },
           ],
         },
@@ -575,6 +623,9 @@ export default function ElectricityOutletDetailPage() {
           `Outlet: ${detail.name} | Region: ${detail.region ?? "-"}`,
           `Capacity: ${detail.capacityVa ? `${formatCompactNumber(detail.capacityVa)} VA` : "-"}`,
           `Devices: ${detail.devices.length}`,
+          detail.startingPoint
+            ? `Starting Point: ${new Date(detail.startingPoint.startAt).toLocaleString("id-ID")} WIB, Initial ${detail.startingPoint.initialKwh} kWh`
+            : "Starting Point: -",
           `Peak Power: ${analytics.peakPowerKw} kW (${analytics.peakAt})`,
           `Avg Power: ${analytics.avgPowerKw} kW | Avg Voltage: ${analytics.avgVoltageV} V | Avg Current: ${analytics.avgCurrentA} A`,
         ],
@@ -735,6 +786,11 @@ export default function ElectricityOutletDetailPage() {
               <p className="text-sm text-muted-foreground">
                 {detail?.address ?? detail?.region ?? ""}
               </p>
+              {detail?.startingPoint && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Starting point: {new Date(detail.startingPoint.startAt).toLocaleString("id-ID")} WIB, awal {detail.startingPoint.initialKwh} kWh
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

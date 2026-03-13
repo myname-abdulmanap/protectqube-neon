@@ -22,6 +22,11 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered");
+  const callbackUrlRaw = searchParams.get("callbackUrl");
+  const callbackUrl =
+    callbackUrlRaw && callbackUrlRaw.startsWith("/")
+      ? callbackUrlRaw
+      : "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -46,7 +51,13 @@ function LoginForm() {
 
     if (result.success) {
       setSuccess("Login berhasil! Mengalihkan ke dashboard...");
-      router.push("/dashboard");
+      router.replace(callbackUrl);
+      // Fallback for edge cases where app-router navigation is interrupted.
+      setTimeout(() => {
+        if (typeof window !== "undefined") {
+          window.location.assign(callbackUrl);
+        }
+      }, 600);
     } else {
       let errorMessage = result.error || "Login gagal";
       if (errorMessage.includes("Invalid email or password")) {

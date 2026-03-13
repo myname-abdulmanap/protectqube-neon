@@ -306,6 +306,14 @@ export function EnergyOverviewPage({
             <p className="text-xs text-muted-foreground mt-1">
               {selectedTenantName} • {selectedScopeName}
             </p>
+            {overviewData?.startingPoint?.items?.[0] && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Starting point: {new Date(overviewData.startingPoint.items[0].startAt).toLocaleString("id-ID")} WIB, awal {overviewData.startingPoint.items[0].initialKwh} kWh
+                {overviewData.startingPoint.appliedScopes > 1
+                  ? ` (${overviewData.startingPoint.appliedScopes} outlet)`
+                  : ""}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select

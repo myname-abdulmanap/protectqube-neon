@@ -53,6 +53,8 @@ export default function EnergyConfigsPage() {
     maxLoadKw: "",
     capacityVa: "",
     upperLimitKwh: "",
+    startPointStartAt: "",
+    startPointInitialKwh: "",
     validFrom: "",
   });
 
@@ -86,6 +88,8 @@ export default function EnergyConfigsPage() {
       maxLoadKw: "",
       capacityVa: "",
       upperLimitKwh: "",
+      startPointStartAt: "",
+      startPointInitialKwh: "",
       validFrom: "",
     });
     setEditingId(null);
@@ -103,6 +107,13 @@ export default function EnergyConfigsPage() {
       maxLoadKw: c.maxLoadKw ? String(c.maxLoadKw) : "",
       capacityVa: c.capacityVa ? String(c.capacityVa) : "",
       upperLimitKwh: c.upperLimitKwh ? String(c.upperLimitKwh) : "",
+      startPointStartAt: c.config?.startPoint?.startAt
+        ? new Date(c.config.startPoint.startAt).toISOString().slice(0, 16)
+        : "",
+      startPointInitialKwh:
+        c.config?.startPoint?.initialKwh !== undefined
+          ? String(c.config.startPoint.initialKwh)
+          : "",
       validFrom: c.validFrom
         ? new Date(c.validFrom).toISOString().slice(0, 16)
         : "",
@@ -121,6 +132,15 @@ export default function EnergyConfigsPage() {
         upperLimitKwh: form.upperLimitKwh
           ? parseFloat(form.upperLimitKwh)
           : undefined,
+        config:
+          form.startPointStartAt && form.startPointInitialKwh
+            ? {
+                startPoint: {
+                  startAt: new Date(form.startPointStartAt).toISOString(),
+                  initialKwh: parseFloat(form.startPointInitialKwh),
+                },
+              }
+            : undefined,
         validFrom: form.validFrom
           ? new Date(form.validFrom).toISOString()
           : new Date().toISOString(),
@@ -207,6 +227,7 @@ export default function EnergyConfigsPage() {
                 <TableHead className="text-xs">Kapasitas kW</TableHead>
                 <TableHead className="text-xs">Kapasitas VA</TableHead>
                 <TableHead className="text-xs">Kapasitas kWh</TableHead>
+                <TableHead className="text-xs">Starting Point</TableHead>
                 <TableHead className="text-xs">Valid From</TableHead>
                 <TableHead className="text-xs">Created</TableHead>
                 <TableHead className="text-xs w-[80px]">Actions</TableHead>
@@ -216,7 +237,7 @@ export default function EnergyConfigsPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="text-center text-xs text-muted-foreground"
                   >
                     Loading...
@@ -225,7 +246,7 @@ export default function EnergyConfigsPage() {
               ) : configs.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="text-center text-xs text-muted-foreground"
                   >
                     No configs
@@ -248,6 +269,11 @@ export default function EnergyConfigsPage() {
                     </TableCell>
                     <TableCell className="text-xs">
                       {c.upperLimitKwh ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {c.config?.startPoint
+                        ? `${new Date(c.config.startPoint.startAt).toLocaleString("id-ID")} / ${c.config.startPoint.initialKwh} kWh`
+                        : "-"}
                     </TableCell>
                     <TableCell className="text-xs">
                       {c.validFrom
@@ -388,6 +414,32 @@ export default function EnergyConfigsPage() {
                   }
                   className="h-8 text-xs"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Starting Point Datetime</Label>
+                  <Input
+                    type="datetime-local"
+                    value={form.startPointStartAt}
+                    onChange={(e) =>
+                      setForm({ ...form, startPointStartAt: e.target.value })
+                    }
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Initial kWh</Label>
+                  <Input
+                    type="number"
+                    step="0.0001"
+                    value={form.startPointInitialKwh}
+                    onChange={(e) =>
+                      setForm({ ...form, startPointInitialKwh: e.target.value })
+                    }
+                    placeholder="365.7645"
+                    className="h-8 text-xs"
+                  />
+                </div>
               </div>
             </div>
           </div>

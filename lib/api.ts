@@ -271,6 +271,12 @@ export interface AlertAction {
 export interface EnergyConfig {
 	id: string;
 	scopeId: string;
+	config?: {
+		startPoint?: {
+			startAt: string;
+			initialKwh: number;
+		};
+	};
 	pricePerKwh: number;
 	maxLoadKw: number | null;
 	capacityVa: number | null;
@@ -343,6 +349,14 @@ export interface EnergyOverviewData {
 		power: Array<{ timestamp: string; label: string; value: number }>;
 		voltage: Array<{ timestamp: string; label: string; value: number }>;
 		current: Array<{ timestamp: string; label: string; value: number }>;
+	};
+	startingPoint: {
+		appliedScopes: number;
+		items: Array<{
+			scopeId: string;
+			startAt: string;
+			initialKwh: number;
+		}>;
 	};
 }
 
@@ -440,6 +454,10 @@ export interface EnergyOutletDetail {
 		deviceName: string;
 		powerKw: number;
 	}>;
+	startingPoint?: {
+		startAt: string;
+		initialKwh: number;
+	} | null;
 }
 
 export interface HistoryRow {
@@ -1147,6 +1165,12 @@ export const energyConfigsApi = {
 		maxLoadKw?: number;
 		capacityVa?: number;
 		upperLimitKwh?: number;
+		config?: {
+			startPoint?: {
+				startAt: string;
+				initialKwh: number;
+			};
+		};
 		validFrom: string;
 	}): Promise<ApiResponse<EnergyConfig>> => {
 		const response = await apiClient.post<ApiResponse<EnergyConfig>>('/energy-configs', data);
@@ -1159,6 +1183,12 @@ export const energyConfigsApi = {
 			maxLoadKw?: number;
 			capacityVa?: number;
 			upperLimitKwh?: number;
+			config?: {
+				startPoint?: {
+					startAt: string;
+					initialKwh: number;
+				};
+			};
 			validFrom?: string;
 		},
 	): Promise<ApiResponse<EnergyConfig>> => {
