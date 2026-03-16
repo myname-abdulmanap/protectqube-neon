@@ -738,8 +738,12 @@ export function OverviewTrendChart({
 // 5. Peak Hours (Bar - hourly consumption)
 // ──────────────────────────────────────────────
 
-const peakHoursConfig: ChartConfig = {
-  powerKw: { label: "Avg Power (kW)", color: "hsl(199, 89%, 48%)" },
+const peakHoursConfigKw: ChartConfig = {
+  powerKw: { label: "Peak Power (kW)", color: "hsl(199, 89%, 48%)" },
+};
+
+const hourlyEnergyConfig: ChartConfig = {
+  kWh: { label: "Energy (kWh)", color: "hsl(24, 95%, 53%)" },
 };
 
 interface HourlyUsage {
@@ -757,6 +761,20 @@ interface PeakHoursProps {
   showDeviceSummary?: boolean;
   totalDevices?: number;
   devicesOnline?: number;
+}
+
+interface HourlyEnergyUsage {
+  hour: string;
+  kWh: number;
+  samples: number;
+}
+
+interface HourlyEnergyConsumptionProps {
+  data: HourlyEnergyUsage[];
+  dateRange: DateRange;
+  onDateChange: (r: DateRange) => void;
+  loading?: boolean;
+  showDateFilter?: boolean;
 }
 
 export function PeakHoursChart({
@@ -823,10 +841,10 @@ export function PeakHoursChart({
       <CardHeader className="flex flex-row items-start justify-between pb-1 px-4 pt-3">
         <div>
           <CardTitle className="text-base font-semibold">
-            Peak Hours (Avg Power)
+            Peak Hourly Power
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Rata-rata daya listrik per jam dari metrik power_total (kW).
+            Menampilkan nilai daya tertinggi (MAX kW) pada setiap jam.
           </p>
         </div>
         {showDateFilter && (
@@ -841,7 +859,7 @@ export function PeakHoursChart({
             <ZoomPanChart data={data} yAxisLabel="Daya (kW)" xAxisLabel="Jam">
               {(slicedData) => (
                 <ChartContainer
-                  config={peakHoursConfig}
+                  config={peakHoursConfigKw}
                   className="h-[300px] w-full"
                 >
                   <BarChart
@@ -894,7 +912,7 @@ export function PeakHoursChart({
                         <ChartTooltipContent
                           formatter={(value) => [
                             `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kW`,
-                            "Avg Power",
+                            "Peak Power",
                           ]}
                         />
                       }
@@ -917,7 +935,7 @@ export function PeakHoursChart({
               >
                 <div>
                   <p className="text-muted-foreground mb-1">Peak Hour</p>
-                  <p className="font-semibold text-base text-orange-600">
+                  <p className="font-semibold text-base text-blue-600">
                     {maxHourData.hour !== "-"
                       ? `${maxHourData.hour} - ${String(Number(maxHourData.hour.slice(0, 2)) + 1).padStart(2, "0")}:00`
                       : "-"}
@@ -931,12 +949,12 @@ export function PeakHoursChart({
                   </p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground mb-1">Avg</p>
+                  <p className="text-muted-foreground mb-1">Avg Peak</p>
                   <p className="font-semibold text-base">
                     {avgKw.toLocaleString("id-ID", {
                       maximumFractionDigits: 2,
                     })}{" "}
-                    kW/hr
+                    kW/jam
                   </p>
                   <p className="text-muted-foreground">Rata-rata per jam</p>
                 </div>
@@ -967,6 +985,195 @@ export function PeakHoursChart({
                     </div>
                   </div>
                 ) : null}
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function HourlyEnergyConsumptionChart({
+  data,
+  dateRange,
+  onDateChange,
+  loading,
+  showDateFilter = true,
+}: HourlyEnergyConsumptionProps) {
+  const peakHourData = useMemo(() => {
+    if (!data.length) return { hour: "-", kWh: 0 };
+    const top = data.reduce((best, point) =>
+      point.kWh > best.kWh ? point : best,
+    );
+    return { hour: top.hour, kWh: top.kWh };
+  }, [data]);
+
+  const avgKwh = useMemo(() => {
+    if (!data.length) return 0;
+    const total = data.reduce((sum, p) => sum + p.kWh, 0);
+    return Number((total / data.length).toFixed(2));
+  }, [data]);
+
+  const formatHourIntervalFromBucket = useCallback((hour: string) => {
+    const endHour = Number(hour.slice(0, 2));
+    if (!Number.isFinite(endHour)) return hour;
+    const startHour = (endHour + 23) % 24;
+    return `${String(startHour).padStart(2, "0")}:00 - ${String(endHour).padStart(2, "0")}:00`;
+  }, []);
+
+  const plotData = useMemo(
+    () =>
+      data.map((point) => ({
+        ...point,
+        hourRange: formatHourIntervalFromBucket(point.hour),
+      })),
+    [data, formatHourIntervalFromBucket],
+  );
+
+  const dateLabel = useMemo(() => {
+    const presetLabels: Record<string, string> = {
+      today: "Hari ini",
+      yesterday: "Kemarin",
+      "7d": "7 hari terakhir",
+      "30d": "30 hari terakhir",
+      all: "Semua data",
+    };
+    return presetLabels[dateRange.preset] || dateRange.preset;
+  }, [dateRange.preset]);
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="flex flex-row items-start justify-between pb-1 px-4 pt-3">
+        <div>
+          <CardTitle className="text-base font-semibold">
+            Hourly Energy Consumption
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Total konsumsi energi (kWh) pada setiap jam.
+          </p>
+        </div>
+        {showDateFilter && (
+          <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
+        )}
+      </CardHeader>
+      <CardContent className="px-3 pb-3 pt-2">
+        {loading ? (
+          <Placeholder />
+        ) : (
+          <>
+            <ZoomPanChart
+              data={plotData}
+              yAxisLabel="Energi (kWh)"
+              xAxisLabel="Jam"
+            >
+              {(slicedData) => (
+                <ChartContainer
+                  config={hourlyEnergyConfig}
+                  className="h-[300px] w-full"
+                >
+                  <BarChart
+                    data={slicedData}
+                    margin={{ top: 5, right: 10, bottom: 8, left: -8 }}
+                    barCategoryGap="26%"
+                  >
+                    <defs>
+                      <linearGradient
+                        id="fillHourlyEnergy"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="hsl(24, 95%, 53%)"
+                          stopOpacity={0.9}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="hsl(24, 95%, 53%)"
+                          stopOpacity={0.3}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="hourRange"
+                      tick={{ fontSize: 9, fontWeight: 500 }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={14}
+                      tickMargin={4}
+                      height={28}
+                      tickFormatter={(value) =>
+                        String(value).replace(":00 - ", "-")
+                      }
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={50}
+                    />
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value) => [
+                            `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kWh`,
+                            "Energy Consumption",
+                          ]}
+                        />
+                      }
+                    />
+                    <Bar
+                      dataKey="kWh"
+                      fill="url(#fillHourlyEnergy)"
+                      radius={[3, 3, 0, 0]}
+                      maxBarSize={18}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </ZoomPanChart>
+
+            <div className="mt-3 pt-3 border-t border-border/50">
+              <div className="grid grid-cols-3 gap-4 text-xs">
+                <div>
+                  <p className="text-muted-foreground mb-1">
+                    Peak Consumption Hour
+                  </p>
+                  <p className="font-semibold text-base text-orange-600">
+                    {peakHourData.hour !== "-"
+                      ? formatHourIntervalFromBucket(peakHourData.hour)
+                      : "-"}
+                  </p>
+                  <p className="text-muted-foreground">
+                    (
+                    {peakHourData.kWh.toLocaleString("id-ID", {
+                      maximumFractionDigits: 2,
+                    })}{" "}
+                    kWh)
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-1">Avg Consumption</p>
+                  <p className="font-semibold text-base">
+                    {avgKwh.toLocaleString("id-ID", {
+                      maximumFractionDigits: 2,
+                    })}{" "}
+                    kWh/jam
+                  </p>
+                  <p className="text-muted-foreground">Rata-rata per jam</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-1">Periode</p>
+                  <p className="font-semibold text-base">
+                    {dateRange.preset === "custom" ? "Custom" : dateLabel}
+                  </p>
+                  <p className="text-muted-foreground">Filter aktif</p>
+                </div>
               </div>
             </div>
           </>

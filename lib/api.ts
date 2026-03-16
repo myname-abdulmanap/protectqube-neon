@@ -344,6 +344,11 @@ export interface EnergyOverviewData {
 		powerKw: number;
 		samples: number;
 	}>;
+	hourlyEnergy: Array<{
+		hour: string;
+		kWh: number;
+		samples: number;
+	}>;
 	trendSeries: {
 		energy: Array<{ timestamp: string; label: string; kWh: number }>;
 		power: Array<{ timestamp: string; label: string; value: number }>;

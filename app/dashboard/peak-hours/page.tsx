@@ -137,7 +137,7 @@ export default function PeakHoursPage() {
                         <TableHead className="w-14">Rank</TableHead>
                         <TableHead>Hour (WIB)</TableHead>
                         <TableHead className="text-right">
-                          Avg Power (kW)
+                          Peak Power (kW)
                         </TableHead>
                         <TableHead className="text-right">Samples</TableHead>
                         <TableHead className="text-right">% of Peak</TableHead>

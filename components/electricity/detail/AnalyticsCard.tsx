@@ -77,8 +77,8 @@ function StatRow({
 
 export function AnalyticsCard({ analytics, devices }: AnalyticsCardProps) {
   const safeDevices = devices;
-  const peakHourAvgKw = Number(
-    analytics.peakHourAvgKw ?? analytics.peakHourAvgKwh ?? 0,
+  const peakHourAvgKwh = Number(
+    analytics.peakHourAvgKwh ?? analytics.peakHourAvgKw ?? 0,
   );
 
   const donutData = useMemo(() => {
@@ -118,7 +118,7 @@ export function AnalyticsCard({ analytics, devices }: AnalyticsCardProps) {
           />
           <p className="-mt-1 mb-2 text-[11px] leading-relaxed text-muted-foreground">
             Jam rata-rata tertinggi berdasarkan profil per jam selama periode
-            aktif. Nilai jam puncak: {f(peakHourAvgKw)} kW.
+            aktif. Nilai jam puncak: {f(peakHourAvgKwh)} kWh.
           </p>
           <StatRow
             label="Avg Power"

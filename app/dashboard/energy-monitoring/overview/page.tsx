@@ -18,6 +18,7 @@ import {
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import {
   EnergyDistributionDonut,
+  HourlyEnergyConsumptionChart,
   MonthlyEnergyChart,
   OutletComparisonChart,
   OverviewTrendChart,
@@ -206,7 +207,10 @@ export function EnergyOverviewPage({
         const currentScopeId = scopeIds[index];
         if (!response.success || !response.data || !currentScopeId) return;
 
-        const localPerDay = new Map<string, { value: number; timestamp: string }>();
+        const localPerDay = new Map<
+          string,
+          { value: number; timestamp: string }
+        >();
 
         for (const item of response.data) {
           if (item.metricKey !== "energy_total") continue;
@@ -502,7 +506,11 @@ export function EnergyOverviewPage({
             </p>
             {overviewData?.startingPoint?.items?.[0] && (
               <p className="text-xs text-muted-foreground mt-1">
-                Starting point: {new Date(overviewData.startingPoint.items[0].startAt).toLocaleString("id-ID")} WIB, awal {overviewData.startingPoint.items[0].initialKwh} kWh
+                Starting point:{" "}
+                {new Date(
+                  overviewData.startingPoint.items[0].startAt,
+                ).toLocaleString("id-ID")}{" "}
+                WIB, awal {overviewData.startingPoint.items[0].initialKwh} kWh
                 {overviewData.startingPoint.appliedScopes > 1
                   ? ` (${overviewData.startingPoint.appliedScopes} outlet)`
                   : ""}
@@ -621,6 +629,16 @@ export function EnergyOverviewPage({
                   (overviewData?.globalKpi.devicesOffline ?? 0)
                 }
                 devicesOnline={overviewData?.globalKpi.devicesOnline ?? 0}
+              />
+            </motion.div>
+
+            <motion.div variants={itemVariants}>
+              <HourlyEnergyConsumptionChart
+                data={overviewData?.hourlyEnergy ?? []}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
+                loading={loading}
+                showDateFilter={false}
               />
             </motion.div>
           </div>

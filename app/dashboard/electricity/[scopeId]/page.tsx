@@ -459,7 +459,10 @@ export default function ElectricityOutletDetailPage() {
           return;
         }
 
-        const midnightByDay = new Map<string, { value: number; timestamp: string }>();
+        const midnightByDay = new Map<
+          string,
+          { value: number; timestamp: string }
+        >();
 
         for (const item of res.data) {
           if (item.metricKey !== "energy_total") continue;

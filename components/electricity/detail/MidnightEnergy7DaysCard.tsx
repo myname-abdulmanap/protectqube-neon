@@ -52,90 +52,90 @@ export function MidnightEnergy7DaysCard({
     [points],
   );
 
-  const tableData = useMemo(
-    () => {
-      const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
-        weekday: "long",
-        timeZone: "Asia/Jakarta",
-      });
-      const weekdayFormatterShortEn = new Intl.DateTimeFormat("en-US", {
-        weekday: "short",
-        timeZone: "Asia/Jakarta",
-      });
-      const getDayNameFromKey = (dayKey: string) =>
-        weekdayFormatterLong.format(new Date(`${dayKey}T00:00:00+07:00`));
-      const getWeekdayEnFromKey = (dayKey: string) =>
-        weekdayFormatterShortEn.format(new Date(`${dayKey}T00:00:00+07:00`));
+  const tableData = useMemo(() => {
+    const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
+      weekday: "long",
+      timeZone: "Asia/Jakarta",
+    });
+    const weekdayFormatterShortEn = new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      timeZone: "Asia/Jakarta",
+    });
+    const getDayNameFromKey = (dayKey: string) =>
+      weekdayFormatterLong.format(new Date(`${dayKey}T00:00:00+07:00`));
+    const getWeekdayEnFromKey = (dayKey: string) =>
+      weekdayFormatterShortEn.format(new Date(`${dayKey}T00:00:00+07:00`));
 
-      const rows = points.map((point, index) => {
-        const currentEnergy = point.energyKwh;
-        const currentWeekday = getWeekdayEnFromKey(point.key);
+    const rows = points.map((point, index) => {
+      const currentEnergy = point.energyKwh;
+      const currentWeekday = getWeekdayEnFromKey(point.key);
 
-        if (currentEnergy === null) {
-          return {
-            ...point,
-            consumptionTransitionLabel: point.transitionLabel,
-            totalPemakaianKwh: null,
-          };
-        }
-
-        // Weekend handling: Sabtu-Minggu and Minggu-Senin are merged into Sabtu-Senin.
-        // Sunday row is left empty, and Monday uses Saturday as its previous reading.
-        if (currentWeekday === "Sun") {
-          return {
-            ...point,
-            consumptionTransitionLabel: point.transitionLabel,
-            totalPemakaianKwh: null,
-          };
-        }
-
-        let previousIndex = index - 1;
-        while (previousIndex >= 0 && points[previousIndex]?.energyKwh === null) {
-          previousIndex -= 1;
-        }
-
-        if (currentWeekday === "Mon") {
-          while (
-            previousIndex >= 0 &&
-            getWeekdayEnFromKey(points[previousIndex].key) === "Sun"
-          ) {
-            previousIndex -= 1;
-            while (previousIndex >= 0 && points[previousIndex]?.energyKwh === null) {
-              previousIndex -= 1;
-            }
-          }
-        }
-
-        if (previousIndex < 0) {
-          return {
-            ...point,
-            consumptionTransitionLabel: point.transitionLabel,
-            totalPemakaianKwh: null,
-          };
-        }
-
-        const previousPoint = points[previousIndex];
-        const previousEnergy = previousPoint?.energyKwh;
-
-        if (previousEnergy === null || previousEnergy === undefined) {
-          return {
-            ...point,
-            consumptionTransitionLabel: point.transitionLabel,
-            totalPemakaianKwh: null,
-          };
-        }
-
+      if (currentEnergy === null) {
         return {
           ...point,
-          consumptionTransitionLabel: `${getDayNameFromKey(previousPoint.key)} - ${getDayNameFromKey(point.key)}`,
-          totalPemakaianKwh: Number((currentEnergy - previousEnergy).toFixed(2)),
+          consumptionTransitionLabel: point.transitionLabel,
+          totalPemakaianKwh: null,
         };
-      });
+      }
 
-      return rows.filter((row) => getWeekdayEnFromKey(row.key) !== "Sun");
-    },
-    [points],
-  );
+      // Weekend handling: Sabtu-Minggu and Minggu-Senin are merged into Sabtu-Senin.
+      // Sunday row is left empty, and Monday uses Saturday as its previous reading.
+      if (currentWeekday === "Sun") {
+        return {
+          ...point,
+          consumptionTransitionLabel: point.transitionLabel,
+          totalPemakaianKwh: null,
+        };
+      }
+
+      let previousIndex = index - 1;
+      while (previousIndex >= 0 && points[previousIndex]?.energyKwh === null) {
+        previousIndex -= 1;
+      }
+
+      if (currentWeekday === "Mon") {
+        while (
+          previousIndex >= 0 &&
+          getWeekdayEnFromKey(points[previousIndex].key) === "Sun"
+        ) {
+          previousIndex -= 1;
+          while (
+            previousIndex >= 0 &&
+            points[previousIndex]?.energyKwh === null
+          ) {
+            previousIndex -= 1;
+          }
+        }
+      }
+
+      if (previousIndex < 0) {
+        return {
+          ...point,
+          consumptionTransitionLabel: point.transitionLabel,
+          totalPemakaianKwh: null,
+        };
+      }
+
+      const previousPoint = points[previousIndex];
+      const previousEnergy = previousPoint?.energyKwh;
+
+      if (previousEnergy === null || previousEnergy === undefined) {
+        return {
+          ...point,
+          consumptionTransitionLabel: point.transitionLabel,
+          totalPemakaianKwh: null,
+        };
+      }
+
+      return {
+        ...point,
+        consumptionTransitionLabel: `${getDayNameFromKey(previousPoint.key)} - ${getDayNameFromKey(point.key)}`,
+        totalPemakaianKwh: Number((currentEnergy - previousEnergy).toFixed(2)),
+      };
+    });
+
+    return rows.filter((row) => getWeekdayEnFromKey(row.key) !== "Sun");
+  }, [points]);
 
   const hasAnyData = points.some((point) => point.energyKwh !== null);
 
@@ -174,7 +174,11 @@ export function MidnightEnergy7DaysCard({
               data={chartData}
               margin={{ top: 8, right: 8, bottom: 0, left: -12 }}
             >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                opacity={0.2}
+              />
               <XAxis
                 dataKey="label"
                 tick={{ fontSize: 10 }}
@@ -198,7 +202,10 @@ export function MidnightEnergy7DaysCard({
                       };
 
                       if (!payload.hasData) {
-                        return ["Tidak ada data 00:00", `${payload.fullDay}, ${payload.dateLabel}`];
+                        return [
+                          "Tidak ada data 00:00",
+                          `${payload.fullDay}, ${payload.dateLabel}`,
+                        ];
                       }
 
                       return [
@@ -231,7 +238,9 @@ export function MidnightEnergy7DaysCard({
             <TableBody>
               {tableData.map((point) => (
                 <TableRow key={point.key}>
-                  <TableCell className="font-medium">{point.consumptionTransitionLabel}</TableCell>
+                  <TableCell className="font-medium">
+                    {point.consumptionTransitionLabel}
+                  </TableCell>
                   <TableCell>{point.dateLabel}</TableCell>
                   <TableCell className="text-right">
                     {point.energyKwh === null
