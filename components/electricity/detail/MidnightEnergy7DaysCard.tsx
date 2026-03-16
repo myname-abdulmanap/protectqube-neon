@@ -35,6 +35,11 @@ export function MidnightEnergy7DaysCard({
   points,
   loading = false,
 }: MidnightEnergy7DaysCardProps) {
+  const formatKwh = (value: number) =>
+    `${value.toLocaleString("id-ID", {
+      maximumFractionDigits: 2,
+    })} kWh`;
+
   const chartData = useMemo(
     () =>
       points.map((point) => ({
@@ -44,6 +49,91 @@ export function MidnightEnergy7DaysCard({
         value: Number((point.energyKwh ?? 0).toFixed(2)),
         hasData: point.energyKwh !== null,
       })),
+    [points],
+  );
+
+  const tableData = useMemo(
+    () => {
+      const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
+        weekday: "long",
+        timeZone: "Asia/Jakarta",
+      });
+      const weekdayFormatterShortEn = new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        timeZone: "Asia/Jakarta",
+      });
+      const getDayNameFromKey = (dayKey: string) =>
+        weekdayFormatterLong.format(new Date(`${dayKey}T00:00:00+07:00`));
+      const getWeekdayEnFromKey = (dayKey: string) =>
+        weekdayFormatterShortEn.format(new Date(`${dayKey}T00:00:00+07:00`));
+
+      const rows = points.map((point, index) => {
+        const currentEnergy = point.energyKwh;
+        const currentWeekday = getWeekdayEnFromKey(point.key);
+
+        if (currentEnergy === null) {
+          return {
+            ...point,
+            consumptionTransitionLabel: point.transitionLabel,
+            totalPemakaianKwh: null,
+          };
+        }
+
+        // Weekend handling: Sabtu-Minggu and Minggu-Senin are merged into Sabtu-Senin.
+        // Sunday row is left empty, and Monday uses Saturday as its previous reading.
+        if (currentWeekday === "Sun") {
+          return {
+            ...point,
+            consumptionTransitionLabel: point.transitionLabel,
+            totalPemakaianKwh: null,
+          };
+        }
+
+        let previousIndex = index - 1;
+        while (previousIndex >= 0 && points[previousIndex]?.energyKwh === null) {
+          previousIndex -= 1;
+        }
+
+        if (currentWeekday === "Mon") {
+          while (
+            previousIndex >= 0 &&
+            getWeekdayEnFromKey(points[previousIndex].key) === "Sun"
+          ) {
+            previousIndex -= 1;
+            while (previousIndex >= 0 && points[previousIndex]?.energyKwh === null) {
+              previousIndex -= 1;
+            }
+          }
+        }
+
+        if (previousIndex < 0) {
+          return {
+            ...point,
+            consumptionTransitionLabel: point.transitionLabel,
+            totalPemakaianKwh: null,
+          };
+        }
+
+        const previousPoint = points[previousIndex];
+        const previousEnergy = previousPoint?.energyKwh;
+
+        if (previousEnergy === null || previousEnergy === undefined) {
+          return {
+            ...point,
+            consumptionTransitionLabel: point.transitionLabel,
+            totalPemakaianKwh: null,
+          };
+        }
+
+        return {
+          ...point,
+          consumptionTransitionLabel: `${getDayNameFromKey(previousPoint.key)} - ${getDayNameFromKey(point.key)}`,
+          totalPemakaianKwh: Number((currentEnergy - previousEnergy).toFixed(2)),
+        };
+      });
+
+      return rows.filter((row) => getWeekdayEnFromKey(row.key) !== "Sun");
+    },
     [points],
   );
 
@@ -112,9 +202,7 @@ export function MidnightEnergy7DaysCard({
                       }
 
                       return [
-                        `${Number(value).toLocaleString("id-ID", {
-                          maximumFractionDigits: 2,
-                        })} kWh`,
+                        formatKwh(Number(value)),
                         `${payload.fullDay}, ${payload.dateLabel}`,
                       ];
                     }}
@@ -137,19 +225,23 @@ export function MidnightEnergy7DaysCard({
                 <TableHead>Transisi Hari</TableHead>
                 <TableHead>Tanggal</TableHead>
                 <TableHead className="text-right">Energy 00:00</TableHead>
+                <TableHead className="text-right">Total Pemakaian</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {points.map((point) => (
+              {tableData.map((point) => (
                 <TableRow key={point.key}>
-                  <TableCell className="font-medium">{point.transitionLabel}</TableCell>
+                  <TableCell className="font-medium">{point.consumptionTransitionLabel}</TableCell>
                   <TableCell>{point.dateLabel}</TableCell>
                   <TableCell className="text-right">
                     {point.energyKwh === null
                       ? "-"
-                      : `${point.energyKwh.toLocaleString("id-ID", {
-                          maximumFractionDigits: 2,
-                        })} kWh`}
+                      : formatKwh(point.energyKwh)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {point.totalPemakaianKwh === null
+                      ? "-"
+                      : formatKwh(point.totalPemakaianKwh)}
                   </TableCell>
                 </TableRow>
               ))}

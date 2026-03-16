@@ -210,6 +210,7 @@ export function EnergyOverviewPage({
 
         for (const item of response.data) {
           if (item.metricKey !== "energy_total") continue;
+
           const ts = new Date(item.timestamp);
           if (Number.isNaN(ts.getTime())) continue;
 
@@ -218,10 +219,10 @@ export function EnergyOverviewPage({
 
           const dayKey = `${p.year}-${p.month}-${p.day}`;
           const current = localPerDay.get(dayKey);
-          if (current && new Date(current.timestamp) >= ts) continue;
+          if (current && new Date(current.timestamp) <= ts) continue;
 
           localPerDay.set(dayKey, {
-            value: Number(Number(item.avg ?? 0).toFixed(2)),
+            value: Number(Number(item.min ?? item.avg ?? 0).toFixed(2)),
             timestamp: item.timestamp,
           });
         }
@@ -425,6 +426,12 @@ export function EnergyOverviewPage({
         .map((row) => new Date(row.timestamp))
         .filter((d) => !Number.isNaN(d.getTime()));
 
+      const uniqueHours = new Set(
+        parsed.map((date) => getJakartaParts(date).hour),
+      );
+      const isDailyBucketSeries =
+        uniqueHours.size === 1 && uniqueHours.has("00");
+
       const first = parsed[0];
       const last = parsed[parsed.length - 1];
       const firstKey = first
@@ -447,7 +454,11 @@ export function EnergyOverviewPage({
 
         const p = getJakartaParts(d);
         const hh = p.hour;
-        const label = spansDays ? `${p.day}/${p.month} ${hh}:00` : `${hh}:00`;
+        const label = isDailyBucketSeries
+          ? `${p.day}/${p.month}`
+          : spansDays
+            ? `${p.day}/${p.month} ${hh}:00`
+            : `${hh}:00`;
 
         return { ...row, label };
       });

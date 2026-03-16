@@ -472,10 +472,10 @@ export default function ElectricityOutletDetailPage() {
 
           const dayKey = `${parts.year}-${parts.month}-${parts.day}`;
           const current = midnightByDay.get(dayKey);
-          if (current && new Date(current.timestamp) >= ts) continue;
+          if (current && new Date(current.timestamp) <= ts) continue;
 
           const adjusted = applyStartPointOffset(
-            Number(item.avg ?? 0),
+            Number(item.min ?? item.avg ?? 0),
             startingPoint,
             item.timestamp,
           );
