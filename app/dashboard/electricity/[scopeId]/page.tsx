@@ -12,6 +12,10 @@ import { RealtimePowerCard } from "@/components/electricity/detail/RealtimePower
 import { PowerMeterCard } from "@/components/electricity/detail/PowerMeterCard";
 import { TrendChartCard } from "@/components/electricity/detail/TrendChartCard";
 import { PeakPowerChartCard } from "@/components/electricity/detail/PeakPowerChartCard";
+import {
+  MidnightEnergy7DaysCard,
+  type MidnightEnergyPoint,
+} from "@/components/electricity/detail/MidnightEnergy7DaysCard";
 import { AnalyticsCard } from "@/components/electricity/detail/AnalyticsCard";
 import { HistoryTableCard } from "@/components/electricity/detail/HistoryTableCard";
 import { OutletProfileCard } from "@/components/electricity/detail/OutletProfileCard";
@@ -92,6 +96,74 @@ export interface OutletDetailPayload {
 
 const normalizePowerToKw = (value: number) =>
   Number.isFinite(value) && value > 1000 ? value / 1000 : value;
+
+const DISPLAY_TIMEZONE = "Asia/Jakarta";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const getJakartaDateTimeParts = (value: string | Date) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DISPLAY_TIMEZONE,
+    weekday: "long",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+
+  return {
+    weekday: get("weekday"),
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+  };
+};
+
+const buildLast7DayKeys = (referenceDate: Date = new Date()) => {
+  const keys: string[] = [];
+  for (let i = 6; i >= 0; i -= 1) {
+    const d = new Date(referenceDate.getTime() - i * DAY_MS);
+    const parts = getJakartaDateTimeParts(d);
+    keys.push(`${parts.year}-${parts.month}-${parts.day}`);
+  }
+  return keys;
+};
+
+const buildMidnightEnergyPoints = (
+  values: Map<string, number>,
+  referenceDate: Date = new Date(),
+): MidnightEnergyPoint[] => {
+  const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    timeZone: DISPLAY_TIMEZONE,
+  });
+  const weekdayFormatterShort = new Intl.DateTimeFormat("id-ID", {
+    weekday: "short",
+    timeZone: DISPLAY_TIMEZONE,
+  });
+  const dateFormatter = new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    timeZone: DISPLAY_TIMEZONE,
+  });
+
+  return buildLast7DayKeys(referenceDate).map((dayKey) => {
+    const currentDay = new Date(`${dayKey}T00:00:00+07:00`);
+    const previousDay = new Date(currentDay.getTime() - DAY_MS);
+    return {
+      key: dayKey,
+      transitionLabel: `${weekdayFormatterLong.format(previousDay)} - ${weekdayFormatterLong.format(currentDay)}`,
+      shortLabel: `${weekdayFormatterShort.format(previousDay)}-${weekdayFormatterShort.format(currentDay)}`,
+      dateLabel: `${dateFormatter.format(currentDay)} 00:00`,
+      energyKwh: values.get(dayKey) ?? null,
+    };
+  });
+};
 
 function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
   type ExtendedRaw = EnergyOutletDetail & {
@@ -345,6 +417,10 @@ export default function ElectricityOutletDetailPage() {
   const [dataLoading, setDataLoading] = useState(false);
   const [loadedFrom, setLoadedFrom] = useState("");
   const [loadedTo, setLoadedTo] = useState("");
+  const [midnightEnergyPoints, setMidnightEnergyPoints] = useState<
+    MidnightEnergyPoint[]
+  >(() => buildMidnightEnergyPoints(new Map<string, number>()));
+  const [midnightEnergyLoading, setMidnightEnergyLoading] = useState(false);
 
   const [latestMetrics, setLatestMetrics] = useState<
     OutletDetailPayload["latestMetrics"]
@@ -362,6 +438,66 @@ export default function ElectricityOutletDetailPage() {
     if (!isMounted || !realtimeLastUpdated) return true;
     return Date.now() - new Date(realtimeLastUpdated).getTime() > 5 * 60 * 1000;
   }, [isMounted, realtimeLastUpdated]);
+
+  const fetchMidnightEnergy7Days = useCallback(
+    async (startingPoint: OutletDetailPayload["startingPoint"]) => {
+      setMidnightEnergyLoading(true);
+      const now = new Date();
+      const fromDate = new Date(now.getTime() - 8 * DAY_MS);
+
+      try {
+        const res = await deviceMetricsApi.getAggregated({
+          scopeId,
+          moduleType: "power_meter",
+          from: fromDate.toISOString(),
+          to: now.toISOString(),
+          interval: "hour",
+        });
+
+        if (!res.success || !res.data) {
+          setMidnightEnergyPoints(buildMidnightEnergyPoints(new Map(), now));
+          return;
+        }
+
+        const midnightByDay = new Map<string, { value: number; timestamp: string }>();
+
+        for (const item of res.data) {
+          if (item.metricKey !== "energy_total") continue;
+
+          const ts = new Date(item.timestamp);
+          if (Number.isNaN(ts.getTime())) continue;
+
+          const parts = getJakartaDateTimeParts(ts);
+          if (parts.hour !== "00") continue;
+
+          const dayKey = `${parts.year}-${parts.month}-${parts.day}`;
+          const current = midnightByDay.get(dayKey);
+          if (current && new Date(current.timestamp) >= ts) continue;
+
+          const adjusted = applyStartPointOffset(
+            Number(item.avg ?? 0),
+            startingPoint,
+            item.timestamp,
+          );
+
+          midnightByDay.set(dayKey, {
+            value: Number(adjusted.toFixed(2)),
+            timestamp: item.timestamp,
+          });
+        }
+
+        const values = new Map<string, number>();
+        midnightByDay.forEach((entry, key) => values.set(key, entry.value));
+
+        setMidnightEnergyPoints(buildMidnightEnergyPoints(values, now));
+      } catch {
+        setMidnightEnergyPoints(buildMidnightEnergyPoints(new Map(), now));
+      } finally {
+        setMidnightEnergyLoading(false);
+      }
+    },
+    [scopeId],
+  );
 
   const fetchForRange = useCallback(
     async (range: DateRange, isInitial = false) => {
@@ -384,6 +520,7 @@ export default function ElectricityOutletDetailPage() {
         setAnalyticsData(payload.analytics);
         setLoadedFrom(range.from);
         setLoadedTo(range.to);
+        void fetchMidnightEnergy7Days(payload.startingPoint);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Error loading outlet");
       } finally {
@@ -391,7 +528,7 @@ export default function ElectricityOutletDetailPage() {
         isInitial ? setLoading(false) : setDataLoading(false);
       }
     },
-    [scopeId],
+    [fetchMidnightEnergy7Days, scopeId],
   );
 
   useEffect(() => {
@@ -816,6 +953,10 @@ export default function ElectricityOutletDetailPage() {
                   timeSeries={timeSeries}
                   loadedFrom={loadedFrom}
                   loadedTo={loadedTo}
+                />
+                <MidnightEnergy7DaysCard
+                  points={midnightEnergyPoints}
+                  loading={midnightEnergyLoading}
                 />
               </div>
             </div>

@@ -1,0 +1,168 @@
+"use client";
+
+import { useMemo } from "react";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Activity } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+export type OverviewMidnightPoint = {
+  key: string;
+  transitionLabel: string;
+  shortLabel: string;
+  dateLabel: string;
+  energyKwh: number | null;
+  contributingOutlets: number;
+};
+
+interface MidnightEnergyOverviewCardProps {
+  points: OverviewMidnightPoint[];
+  loading?: boolean;
+  titleSuffix?: string;
+}
+
+export function MidnightEnergyOverviewCard({
+  points,
+  loading = false,
+  titleSuffix,
+}: MidnightEnergyOverviewCardProps) {
+  const chartData = useMemo(
+    () =>
+      points.map((point) => ({
+        label: point.shortLabel,
+        fullDay: point.transitionLabel,
+        dateLabel: point.dateLabel,
+        value: Number((point.energyKwh ?? 0).toFixed(2)),
+        hasData: point.energyKwh !== null,
+      })),
+    [points],
+  );
+
+  const hasAnyData = points.some((point) => point.energyKwh !== null);
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="px-4 py-4 pb-1">
+        <CardTitle className="text-base font-semibold flex items-center gap-2">
+          <Activity className="h-4 w-4 text-orange-500" />
+          Energy 00:00 (7 Hari)
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          {titleSuffix
+            ? `${titleSuffix}. `
+            : ""}
+          Nilai diambil pada transisi hari jam 00:00 WIB.
+        </p>
+      </CardHeader>
+
+      <CardContent className="px-4 pb-4 pt-2 space-y-3">
+        {loading ? (
+          <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
+            Memuat data midnight...
+          </div>
+        ) : !hasAnyData ? (
+          <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
+            Data jam 00:00 belum tersedia
+          </div>
+        ) : (
+          <ChartContainer
+            config={{
+              value: {
+                label: "Energy (kWh)",
+                color: "hsl(24, 95%, 53%)",
+              },
+            }}
+            className="h-48 w-full"
+          >
+            <BarChart
+              data={chartData}
+              margin={{ top: 8, right: 8, bottom: 0, left: -12 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    formatter={(value, _name, item) => {
+                      const payload = item.payload as {
+                        hasData: boolean;
+                        fullDay: string;
+                        dateLabel: string;
+                      };
+
+                      if (!payload.hasData) {
+                        return ["Tidak ada data 00:00", `${payload.fullDay}, ${payload.dateLabel}`];
+                      }
+
+                      return [
+                        `${Number(value).toLocaleString("id-ID", {
+                          maximumFractionDigits: 2,
+                        })} kWh`,
+                        `${payload.fullDay}, ${payload.dateLabel}`,
+                      ];
+                    }}
+                  />
+                }
+              />
+              <Bar
+                dataKey="value"
+                fill="hsl(24, 95%, 53%)"
+                radius={[6, 6, 0, 0]}
+              />
+            </BarChart>
+          </ChartContainer>
+        )}
+
+        <div className="rounded-md border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Transisi Hari</TableHead>
+                <TableHead>Tanggal</TableHead>
+                <TableHead className="text-right">kWh 00:00</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {points.map((point) => (
+                <TableRow key={point.key}>
+                  <TableCell className="font-medium">{point.transitionLabel}</TableCell>
+                  <TableCell>{point.dateLabel}</TableCell>
+                  <TableCell className="text-right">
+                    {point.energyKwh === null
+                      ? "-"
+                      : `${point.energyKwh.toLocaleString("id-ID", {
+                          maximumFractionDigits: 2,
+                        })} kWh`}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

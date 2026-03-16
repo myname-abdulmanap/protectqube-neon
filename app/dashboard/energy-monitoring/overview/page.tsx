@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { MapPinned } from "lucide-react";
@@ -40,6 +40,11 @@ import {
   useScopes,
   useTenants,
 } from "@/lib/use-energy-data";
+import { deviceMetricsApi } from "@/lib/api";
+import {
+  MidnightEnergyOverviewCard,
+  type OverviewMidnightPoint,
+} from "@/components/dashboard/MidnightEnergyOverviewCard";
 
 const OpenLayersMap = dynamic(
   () =>
@@ -66,6 +71,72 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
+const DISPLAY_TIMEZONE = "Asia/Jakarta";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const getJakartaDateTimeParts = (value: string | Date) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DISPLAY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+  };
+};
+
+const buildLast7DayKeys = (referenceDate: Date = new Date()) => {
+  const keys: string[] = [];
+  for (let i = 6; i >= 0; i -= 1) {
+    const d = new Date(referenceDate.getTime() - i * DAY_MS);
+    const p = getJakartaDateTimeParts(d);
+    keys.push(`${p.year}-${p.month}-${p.day}`);
+  }
+  return keys;
+};
+
+const buildEmptyMidnightPoints = (
+  referenceDate: Date = new Date(),
+): OverviewMidnightPoint[] => {
+  const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    timeZone: DISPLAY_TIMEZONE,
+  });
+  const weekdayFormatterShort = new Intl.DateTimeFormat("id-ID", {
+    weekday: "short",
+    timeZone: DISPLAY_TIMEZONE,
+  });
+  const dateFormatter = new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    timeZone: DISPLAY_TIMEZONE,
+  });
+
+  return buildLast7DayKeys(referenceDate).map((dayKey) => {
+    const currentDay = new Date(`${dayKey}T00:00:00+07:00`);
+    const previousDay = new Date(currentDay.getTime() - DAY_MS);
+    return {
+      key: dayKey,
+      transitionLabel: `${weekdayFormatterLong.format(previousDay)} - ${weekdayFormatterLong.format(currentDay)}`,
+      shortLabel: `${weekdayFormatterShort.format(previousDay)}-${weekdayFormatterShort.format(currentDay)}`,
+      dateLabel: `${dateFormatter.format(currentDay)} 00:00`,
+      energyKwh: null,
+      contributingOutlets: 0,
+    };
+  });
+};
+
 type EnergyOverviewPageProps = {
   forcedTenantId?: string;
 };
@@ -80,6 +151,10 @@ export function EnergyOverviewPage({
   );
   const [scopeFilter, setScopeFilter] = useState<FilterValue>("all");
   const [globalRange, setGlobalRange] = useState<DateRange>(buildRange("30d"));
+  const [midnightPoints, setMidnightPoints] = useState<OverviewMidnightPoint[]>(
+    () => buildEmptyMidnightPoints(),
+  );
+  const [midnightLoading, setMidnightLoading] = useState(false);
 
   useEffect(() => {
     if (forcedTenantId) {
@@ -94,6 +169,114 @@ export function EnergyOverviewPage({
 
   const { data: tenants } = useTenants();
   const { data: scopes } = useScopes(effectiveTenantId);
+
+  const fetchMidnightSeries = useCallback(async () => {
+    const now = new Date();
+    const from = new Date(now.getTime() - 8 * DAY_MS);
+
+    const scopeIds = effectiveScopeId
+      ? [effectiveScopeId]
+      : (scopes ?? []).map((scope) => scope.id);
+
+    if (!scopeIds.length) {
+      setMidnightPoints(buildEmptyMidnightPoints(now));
+      return;
+    }
+
+    setMidnightLoading(true);
+    try {
+      const responses = await Promise.all(
+        scopeIds.map((scopeId) =>
+          deviceMetricsApi.getAggregated({
+            scopeId,
+            moduleType: "power_meter",
+            from: from.toISOString(),
+            to: now.toISOString(),
+            interval: "hour",
+          }),
+        ),
+      );
+
+      const perDayTotal = new Map<
+        string,
+        { sum: number; scopeIds: Set<string> }
+      >();
+
+      responses.forEach((response, index) => {
+        const currentScopeId = scopeIds[index];
+        if (!response.success || !response.data || !currentScopeId) return;
+
+        const localPerDay = new Map<string, { value: number; timestamp: string }>();
+
+        for (const item of response.data) {
+          if (item.metricKey !== "energy_total") continue;
+          const ts = new Date(item.timestamp);
+          if (Number.isNaN(ts.getTime())) continue;
+
+          const p = getJakartaDateTimeParts(ts);
+          if (p.hour !== "00") continue;
+
+          const dayKey = `${p.year}-${p.month}-${p.day}`;
+          const current = localPerDay.get(dayKey);
+          if (current && new Date(current.timestamp) >= ts) continue;
+
+          localPerDay.set(dayKey, {
+            value: Number(Number(item.avg ?? 0).toFixed(2)),
+            timestamp: item.timestamp,
+          });
+        }
+
+        localPerDay.forEach((entry, dayKey) => {
+          const aggregate = perDayTotal.get(dayKey) ?? {
+            sum: 0,
+            scopeIds: new Set<string>(),
+          };
+          aggregate.sum += entry.value;
+          aggregate.scopeIds.add(currentScopeId);
+          perDayTotal.set(dayKey, aggregate);
+        });
+      });
+
+      const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
+        weekday: "long",
+        timeZone: DISPLAY_TIMEZONE,
+      });
+      const weekdayFormatterShort = new Intl.DateTimeFormat("id-ID", {
+        weekday: "short",
+        timeZone: DISPLAY_TIMEZONE,
+      });
+      const dateFormatter = new Intl.DateTimeFormat("id-ID", {
+        day: "2-digit",
+        month: "short",
+        timeZone: DISPLAY_TIMEZONE,
+      });
+
+      const points = buildLast7DayKeys(now).map((dayKey) => {
+        const currentDay = new Date(`${dayKey}T00:00:00+07:00`);
+        const previousDay = new Date(currentDay.getTime() - DAY_MS);
+        const aggregate = perDayTotal.get(dayKey);
+
+        return {
+          key: dayKey,
+          transitionLabel: `${weekdayFormatterLong.format(previousDay)} - ${weekdayFormatterLong.format(currentDay)}`,
+          shortLabel: `${weekdayFormatterShort.format(previousDay)}-${weekdayFormatterShort.format(currentDay)}`,
+          dateLabel: `${dateFormatter.format(currentDay)} 00:00`,
+          energyKwh: aggregate ? Number(aggregate.sum.toFixed(2)) : null,
+          contributingOutlets: aggregate?.scopeIds.size ?? 0,
+        };
+      });
+
+      setMidnightPoints(points);
+    } catch {
+      setMidnightPoints(buildEmptyMidnightPoints(now));
+    } finally {
+      setMidnightLoading(false);
+    }
+  }, [effectiveScopeId, scopes]);
+
+  useEffect(() => {
+    void fetchMidnightSeries();
+  }, [fetchMidnightSeries]);
 
   useEffect(() => {
     if (!effectiveScopeId || !scopes) return;
@@ -480,6 +663,18 @@ export function EnergyOverviewPage({
                 onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
+              />
+            </motion.div>
+
+            <motion.div variants={itemVariants}>
+              <MidnightEnergyOverviewCard
+                points={midnightPoints}
+                loading={midnightLoading}
+                titleSuffix={
+                  effectiveScopeId
+                    ? `Outlet: ${selectedScopeName}`
+                    : `Campuran seluruh outlet${effectiveTenantId ? ` tenant ${selectedTenantName}` : ""}`
+                }
               />
             </motion.div>
           </div>
