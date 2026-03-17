@@ -20,8 +20,8 @@ import {
   EnergyDistributionDonut,
   HourlyEnergyConsumptionChart,
   MonthlyEnergyChart,
+  MonthlyEnergyUsageChart,
   OutletComparisonChart,
-  OverviewTrendChart,
   PeakHoursChart,
 } from "@/components/dashboard/EnergyAnalyticsCharts";
 import {
@@ -97,15 +97,21 @@ const getJakartaDateTimeParts = (value: string | Date) => {
   };
 };
 
-const buildLast7DayKeys = (referenceDate: Date = new Date()) => {
+const buildLastDayKeys = (
+  referenceDate: Date = new Date(),
+  totalDays: number,
+) => {
   const keys: string[] = [];
-  for (let i = 6; i >= 0; i -= 1) {
+  for (let i = totalDays - 1; i >= 0; i -= 1) {
     const d = new Date(referenceDate.getTime() - i * DAY_MS);
     const p = getJakartaDateTimeParts(d);
     keys.push(`${p.year}-${p.month}-${p.day}`);
   }
   return keys;
 };
+
+const buildLast7DayKeys = (referenceDate: Date = new Date()) =>
+  buildLastDayKeys(referenceDate, 7);
 
 const buildEmptyMidnightPoints = (
   referenceDate: Date = new Date(),
@@ -131,7 +137,7 @@ const buildEmptyMidnightPoints = (
       key: dayKey,
       transitionLabel: `${weekdayFormatterLong.format(previousDay)} - ${weekdayFormatterLong.format(currentDay)}`,
       shortLabel: `${weekdayFormatterShort.format(previousDay)}-${weekdayFormatterShort.format(currentDay)}`,
-      dateLabel: `${dateFormatter.format(currentDay)} 00:00`,
+      dateLabel: dateFormatter.format(currentDay),
       energyKwh: null,
       contributingOutlets: 0,
     };
@@ -174,6 +180,7 @@ export function EnergyOverviewPage({
   const fetchMidnightSeries = useCallback(async () => {
     const now = new Date();
     const from = new Date(now.getTime() - 8 * DAY_MS);
+    const midnightDayKeys = buildLastDayKeys(now, 8);
 
     const scopeIds = effectiveScopeId
       ? [effectiveScopeId]
@@ -198,7 +205,7 @@ export function EnergyOverviewPage({
         ),
       );
 
-      const perDayTotal = new Map<
+      const perDayReadings = new Map<
         string,
         { sum: number; scopeIds: Set<string> }
       >();
@@ -206,11 +213,6 @@ export function EnergyOverviewPage({
       responses.forEach((response, index) => {
         const currentScopeId = scopeIds[index];
         if (!response.success || !response.data || !currentScopeId) return;
-
-        const localPerDay = new Map<
-          string,
-          { value: number; timestamp: string }
-        >();
 
         for (const item of response.data) {
           if (item.metricKey !== "energy_total") continue;
@@ -222,24 +224,16 @@ export function EnergyOverviewPage({
           if (p.hour !== "00") continue;
 
           const dayKey = `${p.year}-${p.month}-${p.day}`;
-          const current = localPerDay.get(dayKey);
-          if (current && new Date(current.timestamp) <= ts) continue;
+          if (!midnightDayKeys.includes(dayKey)) continue;
 
-          localPerDay.set(dayKey, {
-            value: Number(Number(item.min ?? item.avg ?? 0).toFixed(2)),
-            timestamp: item.timestamp,
-          });
-        }
-
-        localPerDay.forEach((entry, dayKey) => {
-          const aggregate = perDayTotal.get(dayKey) ?? {
+          const aggregate = perDayReadings.get(dayKey) ?? {
             sum: 0,
             scopeIds: new Set<string>(),
           };
-          aggregate.sum += entry.value;
+          aggregate.sum += Number((item.min ?? item.avg ?? 0).toFixed(2));
           aggregate.scopeIds.add(currentScopeId);
-          perDayTotal.set(dayKey, aggregate);
-        });
+          perDayReadings.set(dayKey, aggregate);
+        }
       });
 
       const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
@@ -256,18 +250,18 @@ export function EnergyOverviewPage({
         timeZone: DISPLAY_TIMEZONE,
       });
 
-      const points = buildLast7DayKeys(now).map((dayKey) => {
+      const points = midnightDayKeys.map((dayKey) => {
         const currentDay = new Date(`${dayKey}T00:00:00+07:00`);
         const previousDay = new Date(currentDay.getTime() - DAY_MS);
-        const aggregate = perDayTotal.get(dayKey);
+        const reading = perDayReadings.get(dayKey);
 
         return {
           key: dayKey,
           transitionLabel: `${weekdayFormatterLong.format(previousDay)} - ${weekdayFormatterLong.format(currentDay)}`,
           shortLabel: `${weekdayFormatterShort.format(previousDay)}-${weekdayFormatterShort.format(currentDay)}`,
-          dateLabel: `${dateFormatter.format(currentDay)} 00:00`,
-          energyKwh: aggregate ? Number(aggregate.sum.toFixed(2)) : null,
-          contributingOutlets: aggregate?.scopeIds.size ?? 0,
+          dateLabel: dateFormatter.format(currentDay),
+          energyKwh: reading ? Number(reading.sum.toFixed(2)) : null,
+          contributingOutlets: reading?.scopeIds.size ?? 0,
         };
       });
 
@@ -398,88 +392,6 @@ export function EnergyOverviewPage({
         .map((item) => ({ name: item.region, kWh: item.kWh })),
     [regionData],
   );
-
-  const localizedTrendSeries = useMemo(() => {
-    const localize = <T extends { timestamp: string; label: string }>(
-      rows: T[],
-    ) => {
-      if (!rows.length) return rows;
-
-      const getJakartaParts = (date: Date) => {
-        const parts = new Intl.DateTimeFormat("en-CA", {
-          timeZone: "Asia/Jakarta",
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          hour12: false,
-        }).formatToParts(date);
-
-        const get = (type: string) =>
-          parts.find((part) => part.type === type)?.value ?? "00";
-
-        return {
-          year: get("year"),
-          month: get("month"),
-          day: get("day"),
-          hour: get("hour"),
-        };
-      };
-
-      const parsed = rows
-        .map((row) => new Date(row.timestamp))
-        .filter((d) => !Number.isNaN(d.getTime()));
-
-      const uniqueHours = new Set(
-        parsed.map((date) => getJakartaParts(date).hour),
-      );
-      const isDailyBucketSeries =
-        uniqueHours.size === 1 && uniqueHours.has("00");
-
-      const first = parsed[0];
-      const last = parsed[parsed.length - 1];
-      const firstKey = first
-        ? (() => {
-            const p = getJakartaParts(first);
-            return `${p.year}-${p.month}-${p.day}`;
-          })()
-        : null;
-      const lastKey = last
-        ? (() => {
-            const p = getJakartaParts(last);
-            return `${p.year}-${p.month}-${p.day}`;
-          })()
-        : null;
-      const spansDays = !!firstKey && !!lastKey && firstKey !== lastKey;
-
-      return rows.map((row) => {
-        const d = new Date(row.timestamp);
-        if (Number.isNaN(d.getTime())) return row;
-
-        const p = getJakartaParts(d);
-        const hh = p.hour;
-        const label = isDailyBucketSeries
-          ? `${p.day}/${p.month}`
-          : spansDays
-            ? `${p.day}/${p.month} ${hh}:00`
-            : `${hh}:00`;
-
-        return { ...row, label };
-      });
-    };
-
-    return {
-      energy: localize(overviewData?.trendSeries.energy ?? []),
-      power: localize(overviewData?.trendSeries.power ?? []),
-      voltage: localize(overviewData?.trendSeries.voltage ?? []),
-      current: localize(overviewData?.trendSeries.current ?? []),
-    };
-  }, [
-    overviewData?.trendSeries.current,
-    overviewData?.trendSeries.energy,
-    overviewData?.trendSeries.power,
-    overviewData?.trendSeries.voltage,
-  ]);
 
   const errorMessage =
     overviewError instanceof Error ? overviewError.message : null;
@@ -682,18 +594,15 @@ export function EnergyOverviewPage({
               <EnergyDistributionDonut data={donutData} loading={loading} />
             </motion.div>
 
-            <motion.div variants={itemVariants}>
-              <OverviewTrendChart
-                energyData={localizedTrendSeries.energy}
-                voltageData={localizedTrendSeries.voltage}
-                currentData={localizedTrendSeries.current}
-                powerData={localizedTrendSeries.power}
+            {/* <motion.div variants={itemVariants}>
+              <MonthlyEnergyUsageChart
+                data={overviewData?.monthlyEnergyUse ?? []}
                 dateRange={chartDateRange}
                 onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
               />
-            </motion.div>
+            </motion.div> */}
 
             <motion.div variants={itemVariants}>
               <MidnightEnergyOverviewCard

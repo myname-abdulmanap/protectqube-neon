@@ -349,6 +349,11 @@ export interface EnergyOverviewData {
 		kWh: number;
 		samples: number;
 	}>;
+	monthlyEnergyUse: Array<{
+		timestamp: string;
+		label: string;
+		kWh: number;
+	}>;
 	trendSeries: {
 		energy: Array<{ timestamp: string; label: string; kWh: number }>;
 		power: Array<{ timestamp: string; label: string; value: number }>;
@@ -1027,6 +1032,14 @@ export const deviceMetricsApi = {
 		interval?: 'hour' | 'day';
 	}): Promise<ApiResponse<Array<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }>>> => {
 		const response = await apiClient.get('/device-metrics/aggregated', { params });
+		return response.data;
+	},
+	getMidnightReadings: async (params: {
+		scopeId?: string;
+		from: string;
+		to: string;
+	}): Promise<ApiResponse<Array<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }>>> => {
+		const response = await apiClient.get('/device-metrics/midnight-readings', { params });
 		return response.data;
 	},
 	getPaginated: async (params: {

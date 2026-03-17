@@ -511,6 +511,10 @@ interface TrendPoint {
   kWh: number;
 }
 
+interface MonthlyEnergyUsePoint extends TrendPoint {
+  timestamp: string;
+}
+
 interface EnergyTrendProps {
   data: TrendPoint[];
   dateRange: DateRange;
@@ -537,6 +541,145 @@ export function EnergyTrendChart({
       loading={loading}
       showDateFilter={showDateFilter}
     />
+  );
+}
+
+const monthlyEnergyUsageConfig: ChartConfig = {
+  kWh: { label: "Energy Use (kWh)", color: "hsl(24, 95%, 53%)" },
+};
+
+interface MonthlyEnergyUsageChartProps {
+  data: MonthlyEnergyUsePoint[];
+  dateRange: DateRange;
+  onDateChange: (r: DateRange) => void;
+  loading?: boolean;
+  showDateFilter?: boolean;
+}
+
+export function MonthlyEnergyUsageChart({
+  data,
+  dateRange,
+  onDateChange,
+  loading,
+  showDateFilter = true,
+}: MonthlyEnergyUsageChartProps) {
+  const peakBucket = useMemo(() => {
+    if (!data.length) return null;
+    return data.reduce((peak, point) => (point.kWh > peak.kWh ? point : peak));
+  }, [data]);
+
+  const totalKwh = useMemo(
+    () => data.reduce((sum, point) => sum + point.kWh, 0),
+    [data],
+  );
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="flex flex-row items-start justify-between pb-1 px-4 pt-3">
+        <div>
+          <CardTitle className="text-sm font-semibold">
+            Monthly Energy Use
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Total pemakaian energi (kWh) per periode, dihitung dari SUM gap
+            energy_total.
+          </p>
+        </div>
+        {showDateFilter && (
+          <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
+        )}
+      </CardHeader>
+      <CardContent className="px-2 pb-2 pt-2">
+        {loading ? (
+          <Placeholder />
+        ) : data.length === 0 ? (
+          <div className="flex items-center justify-center h-[200px] text-xs text-muted-foreground">
+            No data
+          </div>
+        ) : (
+          <>
+            <ZoomPanChart data={data} yAxisLabel="kWh" xAxisLabel="Periode">
+              {(slicedData) => (
+                <ChartContainer
+                  config={monthlyEnergyUsageConfig}
+                  className="h-[200px] w-full"
+                >
+                  <BarChart
+                    data={slicedData}
+                    margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="fillMonthlyEnergyUsage"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="hsl(24, 95%, 53%)"
+                          stopOpacity={0.9}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="hsl(24, 95%, 53%)"
+                          stopOpacity={0.25}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="hsl(var(--border))"
+                      opacity={0.3}
+                    />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 10 }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={45}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar
+                      dataKey="kWh"
+                      fill="url(#fillMonthlyEnergyUsage)"
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={28}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </ZoomPanChart>
+
+            <div className="grid grid-cols-2 gap-3 pt-3 px-2">
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="text-xs text-muted-foreground">Total kWh</p>
+                <p className="text-lg font-semibold text-orange-600">
+                  {totalKwh.toFixed(2)} kWh
+                </p>
+              </div>
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="text-xs text-muted-foreground">Peak period</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {peakBucket ? peakBucket.label : "-"}
+                </p>
+                <p className="text-xs text-orange-600">
+                  {peakBucket ? `${peakBucket.kWh.toFixed(2)} kWh` : "No data"}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
