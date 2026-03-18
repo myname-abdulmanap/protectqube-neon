@@ -881,7 +881,7 @@ export function OverviewTrendChart({
 // ──────────────────────────────────────────────
 
 const peakHoursConfigKw: ChartConfig = {
-  powerKw: { label: "Peak Power (kW)", color: "hsl(199, 89%, 48%)" },
+  powerKw: { label: "Avg Consumption (kWh/jam)", color: "hsl(199, 89%, 48%)" },
 };
 
 interface HourlyUsage {
@@ -941,10 +941,10 @@ export function PeakHoursChart({
       <CardHeader className="flex flex-row items-start justify-between pb-0 px-1.5 pt-1">
         <div>
           <CardTitle className="text-xs font-semibold">
-            Peak Hourly Power
+            Peak Hourly Consumption
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            MAX kW pada setiap jam.
+            Rata-rata konsumsi kWh/jam untuk setiap jam (seluruh data).
           </p>
         </div>
         {showDateFilter && (
@@ -956,7 +956,11 @@ export function PeakHoursChart({
           <Placeholder />
         ) : (
           <>
-            <ZoomPanChart data={data} yAxisLabel="Daya (kW)" xAxisLabel="Jam">
+            <ZoomPanChart
+              data={data}
+              yAxisLabel="Konsumsi (kWh/jam)"
+              xAxisLabel="Jam"
+            >
               {(slicedData) => (
                 <ChartContainer
                   config={peakHoursConfigKw}
@@ -1011,8 +1015,8 @@ export function PeakHoursChart({
                       content={
                         <ChartTooltipContent
                           formatter={(value) => [
-                            `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kW`,
-                            "Peak Power",
+                            `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kWh/jam`,
+                            "Avg Consumption",
                           ]}
                         />
                       }
@@ -1041,12 +1045,12 @@ export function PeakHoursChart({
                   </p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Avg Peak</p>
+                  <p className="text-muted-foreground">Rata-rata</p>
                   <p className="font-semibold text-xs">
                     {avgKw.toLocaleString("id-ID", {
                       maximumFractionDigits: 2,
                     })}{" "}
-                    kW/jam
+                    kWh/jam
                   </p>
                 </div>
                 <div>

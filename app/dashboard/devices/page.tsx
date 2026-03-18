@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cpu, Eye, Plus, Pencil, Trash2 } from "lucide-react";
+import { Cpu, Eye, Plus, Pencil, Trash2, Download, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { devicesApi, scopesApi, type Device, type Scope } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { exportToPdf } from "@/lib/report-export";
 
 const ONLINE_WINDOW_MS = 5 * 60 * 1000;
 
@@ -37,6 +38,9 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [scopes, setScopes] = useState<Scope[]>([]);
   const [filterScope, setFilterScope] = useState<string>("");
+  const [filterRegion, setFilterRegion] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterSearch, setFilterSearch] = useState<string>("");
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [editDevice, setEditDevice] = useState<Device | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -93,13 +97,129 @@ export default function DevicesPage() {
         ""
       ).toLowerCase();
       const isOnline = onlineByLastSeen || normalizedStored === "online";
+      const scope = scopes.find((s) => s.id === device.scopeId);
 
       return {
         ...device,
         uiStatus: isOnline ? "online" : "offline",
+        scopeName: scope?.name ?? "-",
+        region: scope?.region ?? "-",
       };
     });
-  }, [devices]);
+  }, [devices, scopes]);
+
+  const allRegions = useMemo(() => {
+    const set = new Set<string>();
+    scopes.forEach((s) => {
+      if (s.region) set.add(s.region);
+    });
+    return Array.from(set).sort();
+  }, [scopes]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((d) => {
+      if (filterRegion !== "all" && d.region !== filterRegion) return false;
+      if (filterStatus !== "all" && d.uiStatus !== filterStatus) return false;
+      if (filterSearch) {
+        const q = filterSearch.toLowerCase();
+        if (
+          !d.name.toLowerCase().includes(q) &&
+          !d.scopeName.toLowerCase().includes(q) &&
+          !(d.locationType ?? "").toLowerCase().includes(q)
+        )
+          return false;
+      }
+      return true;
+    });
+  }, [rows, filterRegion, filterStatus, filterSearch]);
+
+  const handleExportCsv = () => {
+    const headers = [
+      "Device Name",
+      "Nama Outlet",
+      "Region",
+      "Area/Type",
+      "Tanggal Pemasangan",
+      "Status",
+    ];
+    const csvRows = filteredRows.map((d) => [
+      d.name,
+      d.scopeName,
+      d.region,
+      d.locationType ?? "-",
+      new Date(d.createdAt).toLocaleDateString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+      d.uiStatus,
+    ]);
+    const csv = [headers, ...csvRows]
+      .map((row) =>
+        row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","),
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `devices_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPdf = async () => {
+    const now = new Date();
+    const generatedAt = now.toLocaleString("id-ID", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    await exportToPdf({
+      fileName: `devices_${now.toISOString().slice(0, 10)}.pdf`,
+      title: "Daftar Devices",
+      scopeName: filterScope
+        ? (scopes.find((s) => s.id === filterScope)?.name ?? "")
+        : "Semua Outlet",
+      tenantName:
+        filterRegion !== "all" ? `Region: ${filterRegion}` : undefined,
+      period:
+        filterStatus !== "all" ? `Status: ${filterStatus}` : "Semua Status",
+      generatedAt,
+      summary: [
+        `Total Devices: ${filteredRows.length}`,
+        `Online: ${filteredRows.filter((d) => d.uiStatus === "online").length}`,
+        `Offline: ${filteredRows.filter((d) => d.uiStatus === "offline").length}`,
+      ],
+      tables: [
+        {
+          title: "Data Devices",
+          columns: [
+            "Device Name",
+            "Nama Outlet",
+            "Region",
+            "Area/Type",
+            "Tanggal Pemasangan",
+            "Status",
+          ],
+          rows: filteredRows.map((d) => [
+            d.name,
+            d.scopeName,
+            d.region,
+            d.locationType ?? "-",
+            new Date(d.createdAt).toLocaleDateString("id-ID", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            }),
+            d.uiStatus === "online" ? "Online" : "Offline",
+          ]),
+        },
+      ],
+    });
+  };
 
   const showValue = (
     value: string | number | null | undefined,
@@ -169,26 +289,37 @@ export default function DevicesPage() {
 
   return (
     <div className="space-y-4 p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Cpu className="h-5 w-5" />
           <h1 className="text-lg font-semibold">Devices</h1>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Label className="text-xs">Scope:</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <Input
+              className="h-8 w-44 pl-6 text-xs"
+              placeholder="Cari nama / outlet..."
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+            />
+          </div>
+
+          {/* Outlet filter */}
           <Select
             value={filterScope || "all"}
             onValueChange={(value) =>
               setFilterScope(value === "all" ? "" : value)
             }
           >
-            <SelectTrigger className="h-8 w-44 text-xs">
-              <SelectValue placeholder="All scopes" />
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue placeholder="All Outlets" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all" className="text-xs">
-                All scopes
+                All Outlets
               </SelectItem>
               {scopes.map((scope) => (
                 <SelectItem key={scope.id} value={scope.id} className="text-xs">
@@ -197,6 +328,63 @@ export default function DevicesPage() {
               ))}
             </SelectContent>
           </Select>
+
+          {/* Region filter */}
+          <Select value={filterRegion} onValueChange={setFilterRegion}>
+            <SelectTrigger className="h-8 w-36 text-xs">
+              <SelectValue placeholder="All Regions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">
+                All Regions
+              </SelectItem>
+              {allRegions.map((r) => (
+                <SelectItem key={r} value={r} className="text-xs">
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Status filter */}
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="h-8 w-32 text-xs">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">
+                All Status
+              </SelectItem>
+              <SelectItem value="online" className="text-xs">
+                Online
+              </SelectItem>
+              <SelectItem value="offline" className="text-xs">
+                Offline
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Export CSV */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportCsv}
+            className="h-8 gap-1 text-xs"
+          >
+            <Download className="h-3 w-3" />
+            CSV
+          </Button>
+
+          {/* Export PDF */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleExportPdf()}
+            className="h-8 gap-1 text-xs"
+          >
+            <Download className="h-3 w-3" />
+            PDF
+          </Button>
 
           {canCreate && (
             <Button
@@ -223,9 +411,11 @@ export default function DevicesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="text-xs">Device Name</TableHead>
-                <TableHead className="text-xs">Device ID</TableHead>
+                <TableHead className="text-xs">Nama Outlet</TableHead>
+                <TableHead className="text-xs">Region</TableHead>
+                <TableHead className="text-xs">Area/Type</TableHead>
+                <TableHead className="text-xs">Tanggal Pemasangan</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
-                <TableHead className="text-xs">Last Seen</TableHead>
                 {(canUpdate || canDelete) && (
                   <TableHead className="text-xs w-[120px]">Action</TableHead>
                 )}
@@ -235,7 +425,7 @@ export default function DevicesPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={canUpdate || canDelete ? 5 : 4}
+                    colSpan={canUpdate || canDelete ? 7 : 6}
                     className="text-center text-xs text-muted-foreground"
                   >
                     Loading...
@@ -244,14 +434,14 @@ export default function DevicesPage() {
               ) : rows.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={canUpdate || canDelete ? 5 : 4}
+                    colSpan={canUpdate || canDelete ? 7 : 6}
                     className="text-center text-xs text-muted-foreground"
                   >
                     No devices
                   </TableCell>
                 </TableRow>
               ) : (
-                rows.map((device) => (
+                filteredRows.map((device) => (
                   <TableRow key={device.id}>
                     <TableCell
                       className="text-xs font-medium cursor-pointer hover:underline"
@@ -259,8 +449,19 @@ export default function DevicesPage() {
                     >
                       {device.name}
                     </TableCell>
-                    <TableCell className="text-xs font-mono text-slate-500">
-                      {device.id}
+                    <TableCell className="text-xs">
+                      {device.scopeName}
+                    </TableCell>
+                    <TableCell className="text-xs">{device.region}</TableCell>
+                    <TableCell className="text-xs">
+                      {device.locationType ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(device.createdAt).toLocaleDateString("id-ID", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
                     </TableCell>
                     <TableCell>
                       <span
@@ -274,11 +475,6 @@ export default function DevicesPage() {
                           ? "🟢 Online"
                           : "🔴 Offline"}
                       </span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {device.lastSeenAt
-                        ? new Date(device.lastSeenAt).toLocaleString()
-                        : "-"}
                     </TableCell>
                     {(canUpdate || canDelete) && (
                       <TableCell>
@@ -345,15 +541,15 @@ export default function DevicesPage() {
                   <p className="font-medium">{selectedDevice?.name || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Device ID</p>
+                  <p className="text-muted-foreground">System</p>
                   <p className="font-mono">{selectedDevice?.id || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Serial Number</p>
+                  <p className="text-muted-foreground">Code</p>
                   <p>{selectedDevice?.serialNo || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Scope</p>
+                  <p className="text-muted-foreground">Outlet</p>
                   <p>
                     {scopes.find((s) => s.id === selectedDevice?.scopeId)
                       ?.name || "-"}

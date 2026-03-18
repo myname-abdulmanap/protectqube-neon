@@ -409,7 +409,15 @@ export function EnergyOverviewPage({
   // Daily consumption from midnight deltas (for Total Energy Consumption chart)
   const dailyConsumption = useMemo(() => {
     const result: Array<{ label: string; kWh: number }> = [];
-    for (let i = 1; i < midnightPoints.length; i++) {
+    // Determine loop start based on globalRange.from so chart respects the selected date filter
+    let loopStart = 1;
+    if (globalRange.from) {
+      const fromParts = getJakartaDateTimeParts(new Date(globalRange.from));
+      const fromKey = `${fromParts.year}-${fromParts.month}-${fromParts.day}`;
+      const idx = midnightPoints.findIndex((pt) => pt.key >= fromKey);
+      if (idx >= 0) loopStart = Math.max(1, idx + 1);
+    }
+    for (let i = loopStart; i < midnightPoints.length; i++) {
       const curr = midnightPoints[i];
       const prev = midnightPoints[i - 1];
       if (curr.energyKwh === null || prev.energyKwh === null) continue;
@@ -420,8 +428,22 @@ export function EnergyOverviewPage({
       // Delta between 00:00 prev and 00:00 curr = consumption during prev's day
       result.push({ label: prev.dateLabel, kWh: delta });
     }
-    // Append today's partial consumption (latest reading - midnight today)
-    if (todayPartialKwh !== null && todayPartialKwh > 0) {
+    // Show today's partial only for today/all presets.
+    const allowTodayPartial =
+      globalRange.preset === "today" || globalRange.preset === "all";
+    if (allowTodayPartial && todayPartialKwh !== null && todayPartialKwh > 0) {
+      const todayParts = getJakartaDateTimeParts(new Date());
+      const todayKey = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
+      const toKey = globalRange.to
+        ? (() => {
+            const p = getJakartaDateTimeParts(new Date(globalRange.to));
+            return `${p.year}-${p.month}-${p.day}`;
+          })()
+        : null;
+      const isTodayInRange = !toKey || todayKey <= toKey;
+      if (!isTodayInRange) {
+        return result;
+      }
       const todayLabel = new Intl.DateTimeFormat("id-ID", {
         day: "2-digit",
         month: "short",
@@ -430,7 +452,13 @@ export function EnergyOverviewPage({
       result.push({ label: todayLabel, kWh: todayPartialKwh });
     }
     return result;
-  }, [midnightPoints, todayPartialKwh]);
+  }, [
+    midnightPoints,
+    todayPartialKwh,
+    globalRange.from,
+    globalRange.to,
+    globalRange.preset,
+  ]);
 
   const chartDateRange = useMemo<ChartDateRange>(() => {
     const validChartPresets = [
@@ -541,7 +569,7 @@ export function EnergyOverviewPage({
   return (
     <PageTransition>
       <motion.div
-        className="space-y-3 max-w-7xl mx-auto px-3"
+        className="space-y-3 w-full max-w-[1700px] mx-auto px-3 overflow-x-hidden"
         initial="hidden"
         animate="visible"
         variants={containerVariants}
@@ -556,7 +584,10 @@ export function EnergyOverviewPage({
         )}
 
         {/* Global KPI Cards - Ultra Compact */}
-        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <motion.div
+          variants={itemVariants}
+          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+        >
           <Card className="relative overflow-hidden border-0 shadow-md ring-2 ring-blue-300/35 bg-gradient-to-br from-blue-600 to-cyan-500 text-white">
             <CardContent className="px-3 py-2.5">
               <div className="flex items-center gap-2">
@@ -632,9 +663,9 @@ export function EnergyOverviewPage({
         </motion.div>
 
         {/* Main Content Grid - Left data, Right map + charts */}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[2.7fr_2.3fr] xl:grid-cols-[2.8fr_2.2fr] 2xl:grid-cols-[3fr_2fr]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[2.6fr_2fr] lg:grid-cols-[2.7fr_2.3fr] xl:grid-cols-[2.8fr_2.2fr] 2xl:grid-cols-[3fr_2fr]">
           {/* Left Column - Data Components */}
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             {/* Energy by Region */}
             <motion.div variants={itemVariants}>
               <MonthlyEnergyChart
@@ -658,7 +689,7 @@ export function EnergyOverviewPage({
             </motion.div>
 
             {/* Top & Low Outlets side by side */}
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <motion.div variants={itemVariants}>
                 <TopOutletsList
                   data={peakOutletData}
@@ -699,7 +730,7 @@ export function EnergyOverviewPage({
           </div>
 
           {/* Right Column - Map + Charts below */}
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             {/* Outlet Status Map */}
             <motion.div variants={itemVariants}>
               <Card className="border border-border/70 shadow-sm py-2 gap-1">
@@ -709,7 +740,7 @@ export function EnergyOverviewPage({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-3 pb-2 pt-0.5">
-                  <div className="h-[240px] rounded-md overflow-hidden bg-muted/30 ring-2 ring-border/50 lg:-ml-2 lg:w-[calc(100%+0.5rem)]">
+                  <div className="h-[240px] rounded-md overflow-hidden bg-muted/30 ring-2 ring-border/50">
                     <OpenLayersMap outlets={mapOutlets} className="h-full" />
                   </div>
                   <div className="mt-1.5 flex items-center justify-end gap-3 text-xs">
