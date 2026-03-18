@@ -1,7 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Activity, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,15 +39,21 @@ export type OverviewMidnightPoint = {
 
 interface MidnightEnergyOverviewCardProps {
   points: OverviewMidnightPoint[];
+  breakdownRows?: Array<{
+    dayKey: string;
+    label: string;
+    chartLabel: string;
+    kWh: number;
+  }>;
   loading?: boolean;
   titleSuffix?: string;
 }
 
 const PAGE_SIZE = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function MidnightEnergyOverviewCard({
   points,
+  breakdownRows,
   loading = false,
   titleSuffix,
 }: MidnightEnergyOverviewCardProps) {
@@ -47,124 +62,128 @@ export function MidnightEnergyOverviewCard({
       maximumFractionDigits: 2,
     })} kWh`;
 
-  // Build full consumption rows from all points
-  const allRows = useMemo(() => {
-    const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
-      weekday: "long",
-      timeZone: "Asia/Jakarta",
-    });
-    const dateFormatterShort = new Intl.DateTimeFormat("id-ID", {
-      day: "numeric",
+  const fallbackRows = useMemo(() => {
+    const dateFormatter = new Intl.DateTimeFormat("id-ID", {
+      day: "2-digit",
       month: "short",
+      year: "numeric",
       timeZone: "Asia/Jakarta",
     });
 
-    return points.map((point, index) => {
-      const currentEnergy = point.energyKwh;
-      const currentDay = new Date(`${point.key}T00:00:00+07:00`);
-      const prevDay = new Date(currentDay.getTime() - DAY_MS);
-      const defaultDateRangeLabel = `${dateFormatterShort.format(prevDay)} - ${dateFormatterShort.format(currentDay)}`;
+    const rows: Array<{
+      key: string;
+      chartLabel: string;
+      label: string;
+      detail: string;
+      kWh: number;
+    }> = [];
 
-      if (currentEnergy === null) {
-        return {
-          ...point,
-          consumptionTransitionLabel: point.transitionLabel,
-          dateRangeLabel: defaultDateRangeLabel,
-          totalPemakaianKwh: null,
-        };
-      }
+    for (let i = 1; i < points.length; i += 1) {
+      const curr = points[i];
+      const prev = points[i - 1];
+      if (!curr || !prev) continue;
+      if (curr.energyKwh === null || prev.energyKwh === null) continue;
 
-      let previousIndex = index - 1;
-      while (previousIndex >= 0 && points[previousIndex]?.energyKwh === null) {
-        previousIndex -= 1;
-      }
+      const delta = Math.max(0, Number((curr.energyKwh - prev.energyKwh).toFixed(2)));
+      const prevDate = new Date(`${prev.key}T00:00:00+07:00`);
+      rows.push({
+        key: prev.key,
+        chartLabel: prev.dateLabel,
+        label: dateFormatter.format(prevDate),
+        detail: prev.transitionLabel,
+        kWh: delta,
+      });
+    }
 
-      if (previousIndex < 0) {
-        // First data point — starting reference, show 0
-        return {
-          ...point,
-          consumptionTransitionLabel: point.transitionLabel,
-          dateRangeLabel: defaultDateRangeLabel,
-          totalPemakaianKwh: 0,
-        };
-      }
-
-      const previousPoint = points[previousIndex];
-      const previousEnergy = previousPoint?.energyKwh;
-
-      if (previousEnergy === null || previousEnergy === undefined) {
-        return {
-          ...point,
-          consumptionTransitionLabel: point.transitionLabel,
-          dateRangeLabel: defaultDateRangeLabel,
-          totalPemakaianKwh: 0,
-        };
-      }
-
-      const prevDate = new Date(`${previousPoint.key}T00:00:00+07:00`);
-      return {
-        ...point,
-        consumptionTransitionLabel: `${weekdayFormatterLong.format(prevDate)} - ${weekdayFormatterLong.format(currentDay)}`,
-        dateRangeLabel: `${dateFormatterShort.format(prevDate)} - ${dateFormatterShort.format(currentDay)}`,
-        totalPemakaianKwh: Number((currentEnergy - previousEnergy).toFixed(2)),
-      };
-    });
+    return rows;
   }, [points]);
 
-  // Only keep rows that have actual midnight readings
-  const visibleRows = useMemo(
-    () => allRows.filter((r) => r.energyKwh !== null),
-    [allRows],
-  );
+  const sourceRows = useMemo(() => {
+    if (breakdownRows !== undefined) {
+      return breakdownRows.map((row) => ({
+        key: row.dayKey,
+        chartLabel: row.chartLabel,
+        label: row.label,
+        detail: row.label,
+        kWh: Number(row.kWh.toFixed(2)),
+      }));
+    }
+    return fallbackRows;
+  }, [breakdownRows, fallbackRows]);
 
   // Pagination: page 0 = newest 7, page 1 = 7 older, etc.
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
-  // Key resets page to 0 whenever the underlying data length changes
-  const [pageState, setPage] = useState<{ key: number; page: number }>({
-    key: visibleRows.length,
-    page: 0,
-  });
-  const page = pageState.key === visibleRows.length ? pageState.page : 0;
+  const totalPages = Math.max(1, Math.ceil(sourceRows.length / PAGE_SIZE));
+  const [page, setPage] = useState(0);
+  const currentPage = Math.min(page, Math.max(0, totalPages - 1));
+
   const updatePage = (fn: (prev: number) => number) =>
-    setPage((s) => ({
-      key: visibleRows.length,
-      page: fn(s.key === visibleRows.length ? s.page : 0),
-    }));
+    setPage((prev) => {
+      const next = fn(prev);
+      return Math.max(0, Math.min(next, Math.max(0, totalPages - 1)));
+    });
 
   const tableData = useMemo(() => {
     // Slice from the end: page 0 = last 7, page 1 = 7 before that, etc.
-    const end = visibleRows.length - page * PAGE_SIZE;
+    const end = sourceRows.length - currentPage * PAGE_SIZE;
     const start = Math.max(0, end - PAGE_SIZE);
-    return visibleRows.slice(start, end);
-  }, [visibleRows, page]);
+    return sourceRows.slice(start, end);
+  }, [sourceRows, currentPage]);
 
-  const canPrev = visibleRows.length - (page + 1) * PAGE_SIZE > 0; // older data exists
-  const canNext = page > 0; // newer data exists
+  const canPrev = sourceRows.length - (currentPage + 1) * PAGE_SIZE > 0; // older data exists
+  const canNext = currentPage > 0; // newer data exists
 
-  const chartData = useMemo(
+  const chartData = useMemo(() => {
+    return tableData.map((row, index) => {
+      const avg = Number(
+        (
+          tableData
+            .slice(0, index + 1)
+            .reduce((sum, item) => sum + item.kWh, 0) /
+          (index + 1)
+        ).toFixed(2),
+      );
+      return {
+        key: row.key,
+        label: row.chartLabel,
+        detail: row.detail,
+        value: row.kWh,
+        movingAvg: avg,
+      };
+    });
+  }, [tableData]);
+
+  const peakKey = useMemo(() => {
+    if (!chartData.length) return "";
+    return chartData.reduce((best, row) => (row.value > best.value ? row : best))
+      .key;
+  }, [chartData]);
+
+  const tableTotal = useMemo(
     () =>
-      tableData.map((point) => ({
-        label: point.shortLabel,
-        fullDay: point.transitionLabel,
-        dateLabel: point.dateLabel,
-        value: Number((point.totalPemakaianKwh ?? 0).toFixed(2)),
-        hasData: point.totalPemakaianKwh !== null,
-      })),
+      Number(
+        tableData
+          .reduce((sum, row) => sum + row.kWh, 0)
+          .toFixed(2),
+      ),
     [tableData],
   );
 
-  const hasAnyData = tableData.some(
-    (point) => point.totalPemakaianKwh !== null,
-  );
+  const tableAverage = useMemo(() => {
+    const validCount = tableData.length;
+    if (!validCount) return 0;
+    return Number((tableTotal / validCount).toFixed(2));
+  }, [tableData, tableTotal]);
+
+  const hasAnyData = tableData.length > 0;
 
   return (
     <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
       <CardHeader className="px-3 pt-2 pb-0.5 flex flex-row items-center justify-between">
         <CardTitle className="text-xs font-semibold flex items-center gap-1">
           <Activity className="h-3 w-3 text-orange-500" />
-          Energy 00:00 {titleSuffix && `• ${titleSuffix}`}
+          Breakdown Penggunaan per Tanggal {titleSuffix && `• ${titleSuffix}`}
         </CardTitle>
-        {!loading && visibleRows.length > PAGE_SIZE && (
+        {!loading && sourceRows.length > PAGE_SIZE && (
           <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
@@ -176,7 +195,7 @@ export function MidnightEnergyOverviewCard({
               <ChevronLeft className="h-3 w-3" />
             </Button>
             <span className="text-[10px] text-muted-foreground tabular-nums">
-              {page + 1}/{totalPages}
+              {currentPage + 1}/{totalPages}
             </span>
             <Button
               variant="ghost"
@@ -192,6 +211,23 @@ export function MidnightEnergyOverviewCard({
       </CardHeader>
 
       <CardContent className="px-3 pb-2 pt-0.5 space-y-2">
+        {!loading && hasAnyData ? (
+          <div className="grid grid-cols-2 gap-1.5">
+            <div className="rounded-md border border-border/60 bg-orange-50/60 px-2 py-1.5">
+              <p className="text-[10px] text-muted-foreground">Total Halaman Ini</p>
+              <p className="text-xs font-semibold text-orange-700">
+                {formatKwh(tableTotal)}
+              </p>
+            </div>
+            <div className="rounded-md border border-border/60 bg-blue-50/60 px-2 py-1.5">
+              <p className="text-[10px] text-muted-foreground">Rata-rata Harian</p>
+              <p className="text-xs font-semibold text-blue-700">
+                {formatKwh(tableAverage)}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         {loading ? (
           <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
             Memuat...
@@ -207,13 +243,23 @@ export function MidnightEnergyOverviewCard({
                 label: "Energy (kWh)",
                 color: "hsl(24, 95%, 53%)",
               },
+              movingAvg: {
+                label: "Trend Rata-rata",
+                color: "hsl(199, 89%, 48%)",
+              },
             }}
-            className="h-36 w-full"
+            className="h-44 w-full"
           >
             <BarChart
               data={chartData}
-              margin={{ top: 8, right: 8, bottom: 4, left: -6 }}
+              margin={{ top: 8, right: 10, bottom: 8, left: -6 }}
             >
+              <defs>
+                <linearGradient id="fillBreakdownBars" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(24, 95%, 53%)" stopOpacity={0.95} />
+                  <stop offset="100%" stopColor="hsl(24, 95%, 53%)" stopOpacity={0.4} />
+                </linearGradient>
+              </defs>
               <CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
@@ -224,6 +270,7 @@ export function MidnightEnergyOverviewCard({
                 tick={{ fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
+                minTickGap={14}
               />
               <YAxis
                 tick={{ fontSize: 10 }}
@@ -236,27 +283,34 @@ export function MidnightEnergyOverviewCard({
                   <ChartTooltipContent
                     formatter={(value, _name, item) => {
                       const payload = item.payload as {
-                        hasData: boolean;
-                        fullDay: string;
-                        dateLabel: string;
+                        detail: string;
                       };
-
-                      if (!payload.hasData) {
-                        return [
-                          "Tidak ada data",
-                          `${payload.fullDay}, ${payload.dateLabel}`,
-                        ];
-                      }
-
-                      return [
-                        formatKwh(Number(value)),
-                        `${payload.fullDay}, ${payload.dateLabel}`,
-                      ];
+                      return [formatKwh(Number(value)), payload.detail];
                     }}
                   />
                 }
               />
-              <Bar dataKey="value" fill="hsl(24, 95%, 53%)" radius={[4, 4, 0, 0]} />
+              <ReferenceLine
+                y={tableAverage}
+                stroke="hsl(199, 89%, 48%)"
+                strokeDasharray="4 4"
+                ifOverflow="extendDomain"
+              />
+              <Bar dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={24}>
+                {chartData.map((row) => (
+                  <Cell
+                    key={row.key}
+                    fill={row.key === peakKey ? "hsl(16, 86%, 45%)" : "url(#fillBreakdownBars)"}
+                  />
+                ))}
+              </Bar>
+              <Line
+                type="monotone"
+                dataKey="movingAvg"
+                stroke="hsl(199, 89%, 48%)"
+                strokeWidth={2}
+                dot={false}
+              />
             </BarChart>
           </ChartContainer>
         )}
@@ -276,15 +330,13 @@ export function MidnightEnergyOverviewCard({
               {tableData.map((point) => (
                 <TableRow key={point.key} className="border-b-0">
                   <TableCell className="px-2 py-1 text-xs font-medium">
-                    {point.consumptionTransitionLabel}
+                    {point.detail}
                   </TableCell>
                   <TableCell className="px-2 py-1 text-xs">
-                    {point.dateRangeLabel}
+                    {point.label}
                   </TableCell>
                   <TableCell className="px-2 py-1 text-xs text-right">
-                    {point.totalPemakaianKwh === null
-                      ? "-"
-                      : formatKwh(point.totalPemakaianKwh)}
+                    {formatKwh(point.kWh)}
                   </TableCell>
                 </TableRow>
               ))}
