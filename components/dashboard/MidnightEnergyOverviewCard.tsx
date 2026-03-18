@@ -158,8 +158,8 @@ export function MidnightEnergyOverviewCard({
   );
 
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="px-1.5 pt-1 pb-0 flex flex-row items-center justify-between">
+    <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
+      <CardHeader className="px-3 pt-2 pb-0.5 flex flex-row items-center justify-between">
         <CardTitle className="text-xs font-semibold flex items-center gap-1">
           <Activity className="h-3 w-3 text-orange-500" />
           Energy 00:00 {titleSuffix && `• ${titleSuffix}`}
@@ -191,7 +191,7 @@ export function MidnightEnergyOverviewCard({
         )}
       </CardHeader>
 
-      <CardContent className="px-1.5 pb-1 pt-0.5 space-y-1">
+      <CardContent className="px-3 pb-2 pt-0.5 space-y-2">
         {loading ? (
           <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
             Memuat...
@@ -208,11 +208,11 @@ export function MidnightEnergyOverviewCard({
                 color: "hsl(24, 95%, 53%)",
               },
             }}
-            className="h-32 w-full"
+            className="h-36 w-full"
           >
             <BarChart
               data={chartData}
-              margin={{ top: 5, right: 5, bottom: 0, left: -10 }}
+              margin={{ top: 8, right: 8, bottom: 4, left: -6 }}
             >
               <CartesianGrid
                 strokeDasharray="3 3"
@@ -221,15 +221,15 @@ export function MidnightEnergyOverviewCard({
               />
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 7 }}
+                tick={{ fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
               />
               <YAxis
-                tick={{ fontSize: 7 }}
+                tick={{ fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
-                width={35}
+                width={46}
               />
               <ChartTooltip
                 content={
@@ -256,22 +256,18 @@ export function MidnightEnergyOverviewCard({
                   />
                 }
               />
-              <Bar
-                dataKey="value"
-                fill="hsl(24, 95%, 53%)"
-                radius={[3, 3, 0, 0]}
-              />
+              <Bar dataKey="value" fill="hsl(24, 95%, 53%)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ChartContainer>
         )}
 
-        <div className="rounded border border-border/60 overflow-hidden">
+        <div className="rounded-md border-2 border-border/60 overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="h-6 px-1 py-0 text-xs">Hari</TableHead>
-                <TableHead className="h-6 px-1 py-0 text-xs">Tanggal</TableHead>
-                <TableHead className="h-6 px-1 py-0 text-xs text-right">
+                <TableHead className="h-7 px-2 py-0 text-xs">Hari</TableHead>
+                <TableHead className="h-7 px-2 py-0 text-xs">Tanggal</TableHead>
+                <TableHead className="h-7 px-2 py-0 text-xs text-right">
                   Total (kWh)
                 </TableHead>
               </TableRow>
@@ -279,13 +275,13 @@ export function MidnightEnergyOverviewCard({
             <TableBody>
               {tableData.map((point) => (
                 <TableRow key={point.key} className="border-b-0">
-                  <TableCell className="px-1 py-0.5 text-xs font-medium">
+                  <TableCell className="px-2 py-1 text-xs font-medium">
                     {point.consumptionTransitionLabel}
                   </TableCell>
-                  <TableCell className="px-1 py-0.5 text-xs">
+                  <TableCell className="px-2 py-1 text-xs">
                     {point.dateRangeLabel}
                   </TableCell>
-                  <TableCell className="px-1 py-0.5 text-xs text-right">
+                  <TableCell className="px-2 py-1 text-xs text-right">
                     {point.totalPemakaianKwh === null
                       ? "-"
                       : formatKwh(point.totalPemakaianKwh)}

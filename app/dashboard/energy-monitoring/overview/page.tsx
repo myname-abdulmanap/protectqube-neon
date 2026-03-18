@@ -541,7 +541,7 @@ export function EnergyOverviewPage({
   return (
     <PageTransition>
       <motion.div
-        className="space-y-2 p-3"
+        className="space-y-3 max-w-7xl mx-auto px-3"
         initial="hidden"
         animate="visible"
         variants={containerVariants}
@@ -556,18 +556,18 @@ export function EnergyOverviewPage({
         )}
 
         {/* Global KPI Cards - Ultra Compact */}
-        <motion.div variants={itemVariants} className="grid grid-cols-4 gap-1">
-          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-blue-500 to-cyan-500 text-white">
-            <CardContent className="px-2 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <div className="h-5 w-5 flex-shrink-0 rounded bg-white/20 flex items-center justify-center">
+        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <Card className="relative overflow-hidden border-0 shadow-md ring-2 ring-blue-300/35 bg-gradient-to-br from-blue-600 to-cyan-500 text-white">
+            <CardContent className="px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded-md bg-white/20 flex items-center justify-center">
                   <Zap className="h-3 w-3 text-white" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-white/80 leading-none">
+                  <p className="text-xs text-white/85 leading-none">
                     Total Energy
                   </p>
-                  <p className="text-xl font-bold truncate leading-tight">
+                  <p className="text-2xl font-bold truncate leading-tight">
                     {(overviewData?.globalKpi.totalEnergy ?? 0).toLocaleString(
                       "id-ID",
                     )}{" "}
@@ -580,14 +580,14 @@ export function EnergyOverviewPage({
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
-            <CardContent className="px-2 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <div className="h-5 w-5 flex-shrink-0 rounded bg-white/20 flex items-center justify-center">
+          <Card className="relative overflow-hidden border-0 shadow-md ring-2 ring-emerald-300/40 bg-gradient-to-br from-emerald-600 to-teal-500 text-white">
+            <CardContent className="px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded-md bg-white/20 flex items-center justify-center">
                   <MapPinned className="h-3 w-3 text-white" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-white/80 leading-none">
+                  <p className="text-xs text-white/85 leading-none">
                     Active Outlets
                   </p>
                   <p className="text-2xl font-bold truncate leading-tight">
@@ -598,14 +598,14 @@ export function EnergyOverviewPage({
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-orange-500 to-amber-600 text-white">
-            <CardContent className="px-2 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <div className="h-5 w-5 flex-shrink-0 rounded bg-white/20 flex items-center justify-center">
+          <Card className="relative overflow-hidden border-0 shadow-md ring-2 ring-orange-300/40 bg-gradient-to-br from-orange-600 to-amber-600 text-white">
+            <CardContent className="px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded-md bg-white/20 flex items-center justify-center">
                   <Activity className="h-3 w-3 text-white" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-white/80 leading-none">Online</p>
+                  <p className="text-xs text-white/85 leading-none">Online</p>
                   <p className="text-2xl font-bold truncate leading-tight">
                     {overviewData?.globalKpi.devicesOnline ?? 0}
                   </p>
@@ -614,14 +614,14 @@ export function EnergyOverviewPage({
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-br from-rose-500 to-red-600 text-white">
-            <CardContent className="px-2 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <div className="h-5 w-5 flex-shrink-0 rounded bg-white/20 flex items-center justify-center">
+          <Card className="relative overflow-hidden border-0 shadow-md ring-2 ring-rose-300/40 bg-gradient-to-br from-rose-600 to-red-600 text-white">
+            <CardContent className="px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 flex-shrink-0 rounded-md bg-white/20 flex items-center justify-center">
                   <AlertTriangle className="h-3 w-3 text-white" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-white/80 leading-none">Offline</p>
+                  <p className="text-xs text-white/85 leading-none">Offline</p>
                   <p className="text-2xl font-bold truncate leading-tight">
                     {overviewData?.globalKpi.devicesOffline ?? 0}
                   </p>
@@ -632,9 +632,9 @@ export function EnergyOverviewPage({
         </motion.div>
 
         {/* Main Content Grid - Left data, Right map + charts */}
-        <div className="grid grid-cols-[2fr_3fr] gap-1">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[2.7fr_2.3fr] xl:grid-cols-[2.8fr_2.2fr] 2xl:grid-cols-[3fr_2fr]">
           {/* Left Column - Data Components */}
-          <div className="space-y-1">
+          <div className="space-y-3">
             {/* Energy by Region */}
             <motion.div variants={itemVariants}>
               <MonthlyEnergyChart
@@ -658,7 +658,7 @@ export function EnergyOverviewPage({
             </motion.div>
 
             {/* Top & Low Outlets side by side */}
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               <motion.div variants={itemVariants}>
                 <TopOutletsList
                   data={peakOutletData}
@@ -699,30 +699,30 @@ export function EnergyOverviewPage({
           </div>
 
           {/* Right Column - Map + Charts below */}
-          <div className="space-y-1">
+          <div className="space-y-3">
             {/* Outlet Status Map */}
             <motion.div variants={itemVariants}>
-              <Card className="border-0 shadow-sm py-1.5 gap-1">
-                <CardHeader className="px-1.5 pt-1 pb-0">
+              <Card className="border border-border/70 shadow-sm py-2 gap-1">
+                <CardHeader className="px-3 pt-2 pb-0.5">
                   <CardTitle className="text-xs font-semibold">
                     Outlet Status Map
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="px-1.5 pb-1 pt-0">
-                  <div className="h-[240px] rounded overflow-hidden bg-muted/30">
+                <CardContent className="px-3 pb-2 pt-0.5">
+                  <div className="h-[240px] rounded-md overflow-hidden bg-muted/30 ring-2 ring-border/50 lg:-ml-2 lg:w-[calc(100%+0.5rem)]">
                     <OpenLayersMap outlets={mapOutlets} className="h-full" />
                   </div>
-                  <div className="mt-1 flex items-center justify-end gap-2 text-xs">
+                  <div className="mt-1.5 flex items-center justify-end gap-3 text-xs">
                     <span className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                      <div className="w-2 h-2 rounded-full bg-green-500" />
                       Normal
                     </span>
                     <span className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                      <div className="w-2 h-2 rounded-full bg-orange-500" />
                       High
                     </span>
                     <span className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      <div className="w-2 h-2 rounded-full bg-red-500" />
                       Alert
                     </span>
                   </div>

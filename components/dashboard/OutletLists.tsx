@@ -31,8 +31,8 @@ export function TopOutletsList({
   const maxKwh = data.length > 0 ? Math.max(...data.map((d) => d.kWh)) : 1;
 
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="flex flex-row items-center justify-between pb-0 px-1.5 pt-1">
+    <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
+      <CardHeader className="flex flex-row items-center justify-between pb-0 px-3 pt-2">
         <div>
           <CardTitle className="text-xs font-semibold flex items-center gap-1">
             <TrendingUp className="h-2.5 w-2.5 text-red-500" />
@@ -43,7 +43,7 @@ export function TopOutletsList({
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
         )}
       </CardHeader>
-      <CardContent className="px-1.5 pb-1 pt-0">
+      <CardContent className="px-3 pb-2 pt-0.5">
         {loading ? (
           <div className="flex items-center justify-center h-[120px] text-xs text-muted-foreground">
             Loading...
@@ -53,11 +53,11 @@ export function TopOutletsList({
             No data
           </div>
         ) : (
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {data.slice(0, 10).map((item, idx) => (
               <div
                 key={item.name}
-                className="flex items-center gap-1.5 py-px group hover:bg-muted/50 rounded px-0.5 -mx-0.5"
+                className="flex items-center gap-2 py-1.5 group hover:bg-muted/60 rounded-md px-1 -mx-1 border-b border-border/40 last:border-b-0"
               >
                 <span className="text-[10px] font-semibold w-3 text-muted-foreground">
                   {idx + 1}
@@ -78,7 +78,7 @@ export function TopOutletsList({
                     <span className="text-[10px] text-muted-foreground truncate">
                       {item.region}
                     </span>
-                    <div className="flex-1 h-0.5 bg-muted rounded-full overflow-hidden">
+                    <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-red-400 to-red-600 rounded-full transition-all"
                         style={{ width: `${(item.kWh / maxKwh) * 100}%` }}
@@ -105,8 +105,8 @@ export function LowOutletsList({
   const maxKwh = data.length > 0 ? Math.max(...data.map((d) => d.kWh)) : 1;
 
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="flex flex-row items-center justify-between pb-0 px-1.5 pt-1">
+    <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
+      <CardHeader className="flex flex-row items-center justify-between pb-0 px-3 pt-2">
         <div>
           <CardTitle className="text-xs font-semibold flex items-center gap-1">
             <TrendingDown className="h-2.5 w-2.5 text-green-500" />
@@ -117,7 +117,7 @@ export function LowOutletsList({
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
         )}
       </CardHeader>
-      <CardContent className="px-1.5 pb-1 pt-0">
+      <CardContent className="px-3 pb-2 pt-0.5">
         {loading ? (
           <div className="flex items-center justify-center h-[120px] text-xs text-muted-foreground">
             Loading...
@@ -127,11 +127,11 @@ export function LowOutletsList({
             No data
           </div>
         ) : (
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {data.slice(0, 10).map((item, idx) => (
               <div
                 key={item.name}
-                className="flex items-center gap-1.5 py-px group hover:bg-muted/50 rounded px-0.5 -mx-0.5"
+                className="flex items-center gap-2 py-1.5 group hover:bg-muted/60 rounded-md px-1 -mx-1 border-b border-border/40 last:border-b-0"
               >
                 <span className="text-[10px] font-semibold w-3 text-muted-foreground">
                   {idx + 1}
@@ -152,7 +152,7 @@ export function LowOutletsList({
                     <span className="text-[10px] text-muted-foreground truncate">
                       {item.region}
                     </span>
-                    <div className="flex-1 h-0.5 bg-muted rounded-full overflow-hidden">
+                    <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full transition-all"
                         style={{

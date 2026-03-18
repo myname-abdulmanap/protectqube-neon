@@ -247,7 +247,7 @@ function ZoomPanChart({
 // ──────────────────────────────────────────────
 
 const regionChartConfig: ChartConfig = {
-  kWh: { label: "Energy (kWh)", color: "hsl(239, 84%, 67%)" },
+  kWh: { label: "Energy (kWh)", color: "hsl(230, 89%, 60%)" },
 };
 
 interface RegionEnergy {
@@ -271,8 +271,8 @@ export function MonthlyEnergyChart({
   showDateFilter = true,
 }: MonthlyEnergyProps) {
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="flex flex-row items-start justify-between pb-0 px-1.5 pt-1">
+    <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
+      <CardHeader className="flex flex-row items-start justify-between pb-0 px-3 pt-2">
         <div>
           <CardTitle className="text-xs font-semibold">
             Energy by Region
@@ -285,7 +285,7 @@ export function MonthlyEnergyChart({
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
         )}
       </CardHeader>
-      <CardContent className="px-1.5 pb-1 pt-0.5">
+      <CardContent className="px-3 pb-2 pt-1">
         {loading ? (
           <Placeholder />
         ) : (
@@ -293,35 +293,35 @@ export function MonthlyEnergyChart({
             {(slicedData) => (
               <ChartContainer
                 config={regionChartConfig}
-                className="h-[120px] w-full"
+                className="h-[170px] w-full"
               >
                 <BarChart
                   data={slicedData}
-                  margin={{ top: 10, right: 5, bottom: 0, left: -15 }}
+                  margin={{ top: 10, right: 8, bottom: 6, left: -10 }}
                 >
                   <defs>
                     <linearGradient id="fillRegion" x1="0" y1="0" x2="0" y2="1">
                       <stop
                         offset="0%"
-                        stopColor="hsl(239, 84%, 67%)"
-                        stopOpacity={0.9}
+                        stopColor="hsl(230, 89%, 60%)"
+                        stopOpacity={0.96}
                       />
                       <stop
                         offset="100%"
-                        stopColor="hsl(239, 84%, 67%)"
-                        stopOpacity={0.3}
+                        stopColor="hsl(230, 89%, 60%)"
+                        stopOpacity={0.45}
                       />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="region"
-                    tick={{ fontSize: 10 }}
+                    tick={{ fontSize: 11, fontWeight: 500 }}
                     tickLine={false}
                     axisLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 10 }}
+                    tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
                   />
@@ -329,8 +329,8 @@ export function MonthlyEnergyChart({
                   <Bar
                     dataKey="kWh"
                     fill="url(#fillRegion)"
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={28}
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={32}
                   />
                 </BarChart>
               </ChartContainer>
@@ -369,7 +369,7 @@ export function PeakEnergyChart({
   loading,
 }: PeakEnergyProps) {
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
+    <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
       <CardHeader className="flex flex-row items-center justify-between pb-0 px-1.5 pt-1">
         <CardTitle className="text-xs font-semibold">Top Outlets</CardTitle>
         <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
@@ -574,8 +574,8 @@ export function MonthlyEnergyUsageChart({
   );
 
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="flex flex-row items-start justify-between pb-0 px-1.5 pt-1">
+    <Card className="border-0 shadow-sm py-2 gap-1.5">
+      <CardHeader className="flex flex-row items-start justify-between pb-0 px-3 pt-2">
         <div>
           <CardTitle className="text-xs font-semibold">
             Monthly Energy Use
@@ -588,7 +588,7 @@ export function MonthlyEnergyUsageChart({
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
         )}
       </CardHeader>
-      <CardContent className="px-1.5 pb-1 pt-0.5">
+      <CardContent className="px-3 pb-2 pt-1">
         {loading ? (
           <Placeholder />
         ) : data.length === 0 ? (
@@ -764,7 +764,7 @@ export function OverviewTrendChart({
 
   return (
     <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="flex flex-row items-start justify-between pb-0 px-1.5 pt-1">
+      <CardHeader className="flex flex-row items-start justify-between pb-0 px-3 pt-2">
         <div>
           <div className="flex items-center gap-1">
             <CardTitle className="text-xs font-semibold">Trend</CardTitle>
@@ -799,7 +799,7 @@ export function OverviewTrendChart({
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
         )}
       </CardHeader>
-      <CardContent className="px-1.5 pb-1 pt-0.5">
+      <CardContent className="px-3 pb-2 pt-1">
         {loading ? (
           <Placeholder />
         ) : chartData.length === 0 ? (
@@ -960,11 +960,11 @@ export function PeakHoursChart({
               {(slicedData) => (
                 <ChartContainer
                   config={peakHoursConfigKw}
-                  className="h-[150px] w-full"
+                  className="h-[180px] w-full"
                 >
                   <BarChart
                     data={slicedData}
-                    margin={{ top: 5, right: 10, bottom: 8, left: -8 }}
+                    margin={{ top: 8, right: 12, bottom: 10, left: -4 }}
                     barCategoryGap="26%"
                   >
                     <defs>
@@ -978,19 +978,19 @@ export function PeakHoursChart({
                         <stop
                           offset="0%"
                           stopColor="hsl(199, 89%, 48%)"
-                          stopOpacity={0.9}
+                          stopOpacity={0.96}
                         />
                         <stop
                           offset="100%"
                           stopColor="hsl(199, 89%, 48%)"
-                          stopOpacity={0.3}
+                          stopOpacity={0.45}
                         />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="hour"
-                      tick={{ fontSize: 10, fontWeight: 500 }}
+                      tick={{ fontSize: 11, fontWeight: 600 }}
                       tickLine={false}
                       axisLine={false}
                       interval="preserveStartEnd"
@@ -1002,7 +1002,7 @@ export function PeakHoursChart({
                       }
                     />
                     <YAxis
-                      tick={{ fontSize: 11 }}
+                      tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
                       width={50}
@@ -1203,11 +1203,11 @@ export function AvgHourlyConsumptionChart({
               {(slicedData) => (
                 <ChartContainer
                   config={avgHourlyConfig}
-                  className="h-[150px] w-full"
+                  className="h-[180px] w-full"
                 >
                   <BarChart
                     data={slicedData}
-                    margin={{ top: 5, right: 10, bottom: 8, left: -8 }}
+                    margin={{ top: 8, right: 12, bottom: 10, left: -4 }}
                     barCategoryGap="26%"
                   >
                     <defs>
@@ -1221,12 +1221,12 @@ export function AvgHourlyConsumptionChart({
                         <stop
                           offset="0%"
                           stopColor="hsl(199, 89%, 48%)"
-                          stopOpacity={0.9}
+                          stopOpacity={0.96}
                         />
                         <stop
                           offset="100%"
                           stopColor="hsl(199, 89%, 48%)"
-                          stopOpacity={0.3}
+                          stopOpacity={0.45}
                         />
                       </linearGradient>
                       <linearGradient
@@ -1251,7 +1251,7 @@ export function AvgHourlyConsumptionChart({
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="hour"
-                      tick={{ fontSize: 10, fontWeight: 500 }}
+                      tick={{ fontSize: 11, fontWeight: 600 }}
                       tickLine={false}
                       axisLine={false}
                       interval="preserveStartEnd"
@@ -1263,7 +1263,7 @@ export function AvgHourlyConsumptionChart({
                       }
                     />
                     <YAxis
-                      tick={{ fontSize: 11 }}
+                      tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
                       width={50}
@@ -1278,7 +1278,7 @@ export function AvgHourlyConsumptionChart({
                         />
                       }
                     />
-                    <Bar dataKey="kWh" radius={[3, 3, 0, 0]} maxBarSize={18}>
+                    <Bar dataKey="kWh" radius={[4, 4, 0, 0]} maxBarSize={20}>
                       {slicedData.map((entry, index) => (
                         <Cell
                           key={`cell-${index}`}
@@ -1295,8 +1295,8 @@ export function AvgHourlyConsumptionChart({
               )}
             </ZoomPanChart>
 
-            <div className="mt-1 pt-1 border-t border-border/50">
-              <div className="grid grid-cols-3 gap-1 text-xs">
+            <div className="mt-2 pt-2 border-t-2 border-border/60">
+              <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
                   <p className="text-muted-foreground">Peak Hour</p>
                   <p className="font-semibold text-xs text-red-600">
@@ -1407,8 +1407,8 @@ export function HourlyEnergyConsumptionChart({
   }, [dateRange.preset]);
 
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="flex flex-row items-start justify-between pb-0 px-1.5 pt-1">
+    <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
+      <CardHeader className="flex flex-row items-start justify-between pb-0 px-3 pt-2">
         <div>
           <CardTitle className="text-xs font-semibold">
             Total Energy Consumption
@@ -1423,7 +1423,7 @@ export function HourlyEnergyConsumptionChart({
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
         )}
       </CardHeader>
-      <CardContent className="px-1.5 pb-1 pt-0.5">
+      <CardContent className="px-3 pb-2 pt-1">
         {loading ? (
           <Placeholder />
         ) : isHourly ? (
@@ -1436,11 +1436,11 @@ export function HourlyEnergyConsumptionChart({
               {(slicedData) => (
                 <ChartContainer
                   config={hourlyEnergyConfig}
-                  className="h-[150px] w-full"
+                  className="h-[180px] w-full"
                 >
                   <BarChart
                     data={slicedData}
-                    margin={{ top: 5, right: 10, bottom: 8, left: -8 }}
+                    margin={{ top: 8, right: 12, bottom: 10, left: -4 }}
                     barCategoryGap="26%"
                   >
                     <defs>
@@ -1454,19 +1454,19 @@ export function HourlyEnergyConsumptionChart({
                         <stop
                           offset="0%"
                           stopColor="hsl(24, 95%, 53%)"
-                          stopOpacity={0.9}
+                          stopOpacity={0.96}
                         />
                         <stop
                           offset="100%"
                           stopColor="hsl(24, 95%, 53%)"
-                          stopOpacity={0.3}
+                          stopOpacity={0.45}
                         />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="hourRange"
-                      tick={{ fontSize: 10, fontWeight: 500 }}
+                      tick={{ fontSize: 11, fontWeight: 600 }}
                       tickLine={false}
                       axisLine={false}
                       interval="preserveStartEnd"
@@ -1478,7 +1478,7 @@ export function HourlyEnergyConsumptionChart({
                       }
                     />
                     <YAxis
-                      tick={{ fontSize: 11 }}
+                      tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
                       width={50}
@@ -1496,16 +1496,16 @@ export function HourlyEnergyConsumptionChart({
                     <Bar
                       dataKey="kWh"
                       fill="url(#fillHourlyEnergy)"
-                      radius={[3, 3, 0, 0]}
-                      maxBarSize={18}
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={20}
                     />
                   </BarChart>
                 </ChartContainer>
               )}
             </ZoomPanChart>
 
-            <div className="mt-1 pt-1 border-t border-border/50">
-              <div className="grid grid-cols-3 gap-1 text-xs">
+            <div className="mt-2 pt-2 border-t-2 border-border/60">
+              <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
                   <p className="text-muted-foreground">Total</p>
                   <p className="font-semibold text-xs text-orange-600">
@@ -1542,11 +1542,11 @@ export function HourlyEnergyConsumptionChart({
               {(slicedData) => (
                 <ChartContainer
                   config={hourlyEnergyConfig}
-                  className="h-[150px] w-full"
+                  className="h-[180px] w-full"
                 >
                   <BarChart
                     data={slicedData}
-                    margin={{ top: 5, right: 10, bottom: 8, left: -8 }}
+                    margin={{ top: 8, right: 12, bottom: 10, left: -4 }}
                     barCategoryGap="26%"
                   >
                     <defs>
@@ -1560,19 +1560,19 @@ export function HourlyEnergyConsumptionChart({
                         <stop
                           offset="0%"
                           stopColor="hsl(142, 71%, 45%)"
-                          stopOpacity={0.9}
+                          stopOpacity={0.96}
                         />
                         <stop
                           offset="100%"
                           stopColor="hsl(142, 71%, 45%)"
-                          stopOpacity={0.3}
+                          stopOpacity={0.45}
                         />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="label"
-                      tick={{ fontSize: 10, fontWeight: 500 }}
+                      tick={{ fontSize: 11, fontWeight: 600 }}
                       tickLine={false}
                       axisLine={false}
                       interval="preserveStartEnd"
@@ -1581,7 +1581,7 @@ export function HourlyEnergyConsumptionChart({
                       height={28}
                     />
                     <YAxis
-                      tick={{ fontSize: 11 }}
+                      tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
                       width={50}
@@ -1599,16 +1599,16 @@ export function HourlyEnergyConsumptionChart({
                     <Bar
                       dataKey="kWh"
                       fill="url(#fillDailyEnergy)"
-                      radius={[3, 3, 0, 0]}
-                      maxBarSize={18}
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={20}
                     />
                   </BarChart>
                 </ChartContainer>
               )}
             </ZoomPanChart>
 
-            <div className="mt-1 pt-1 border-t border-border/50">
-              <div className="grid grid-cols-3 gap-1 text-xs">
+            <div className="mt-2 pt-2 border-t-2 border-border/60">
+              <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
                   <p className="text-muted-foreground">Total</p>
                   <p className="font-semibold text-xs text-green-600">
@@ -1884,8 +1884,8 @@ export function OutletComparisonChart({
   showDateFilter = true,
 }: OutletComparisonProps) {
   return (
-    <Card className="border-0 shadow-sm py-1.5 gap-1">
-      <CardHeader className="flex flex-row items-start justify-between pb-0 px-1.5 pt-1">
+    <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
+      <CardHeader className="flex flex-row items-start justify-between pb-0 px-3 pt-2">
         <div>
           <CardTitle className="text-sm font-semibold">
             Outlet Comparison
@@ -1898,7 +1898,7 @@ export function OutletComparisonChart({
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
         )}
       </CardHeader>
-      <CardContent className="px-1.5 pb-1 pt-0.5">
+      <CardContent className="px-3 pb-2 pt-1">
         {loading ? (
           <Placeholder />
         ) : (
@@ -1906,11 +1906,11 @@ export function OutletComparisonChart({
             {(slicedData) => (
               <ChartContainer
                 config={comparisonConfig}
-                className="h-[180px] w-full"
+                className="h-[190px] w-full"
               >
                 <BarChart
                   data={slicedData}
-                  margin={{ top: 5, right: 5, bottom: 0, left: -15 }}
+                  margin={{ top: 8, right: 10, bottom: 8, left: -10 }}
                 >
                   <defs>
                     <linearGradient
@@ -1923,24 +1923,24 @@ export function OutletComparisonChart({
                       <stop
                         offset="0%"
                         stopColor="hsl(239, 84%, 67%)"
-                        stopOpacity={0.9}
+                        stopOpacity={0.96}
                       />
                       <stop
                         offset="100%"
                         stopColor="hsl(239, 84%, 67%)"
-                        stopOpacity={0.3}
+                        stopOpacity={0.45}
                       />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="name"
-                    tick={{ fontSize: 10 }}
+                    tick={{ fontSize: 11, fontWeight: 500 }}
                     tickLine={false}
                     axisLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 10 }}
+                    tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
                   />
