@@ -124,16 +124,6 @@ const getJakartaDateTimeParts = (value: string | Date) => {
   };
 };
 
-const buildLast7DayKeys = (referenceDate: Date = new Date()) => {
-  const keys: string[] = [];
-  for (let i = 6; i >= 0; i -= 1) {
-    const d = new Date(referenceDate.getTime() - i * DAY_MS);
-    const parts = getJakartaDateTimeParts(d);
-    keys.push(`${parts.year}-${parts.month}-${parts.day}`);
-  }
-  return keys;
-};
-
 const buildMidnightEnergyPoints = (
   values: Map<string, number>,
   referenceDate: Date = new Date(),
@@ -152,14 +142,24 @@ const buildMidnightEnergyPoints = (
     timeZone: DISPLAY_TIMEZONE,
   });
 
-  return buildLast7DayKeys(referenceDate).map((dayKey) => {
+  const last8Keys = (() => {
+    const keys: string[] = [];
+    for (let i = 7; i >= 0; i -= 1) {
+      const d = new Date(referenceDate.getTime() - i * DAY_MS);
+      const p = getJakartaDateTimeParts(d);
+      keys.push(`${p.year}-${p.month}-${p.day}`);
+    }
+    return keys;
+  })();
+
+  return last8Keys.map((dayKey) => {
     const currentDay = new Date(`${dayKey}T00:00:00+07:00`);
     const previousDay = new Date(currentDay.getTime() - DAY_MS);
     return {
       key: dayKey,
       transitionLabel: `${weekdayFormatterLong.format(previousDay)} - ${weekdayFormatterLong.format(currentDay)}`,
       shortLabel: `${weekdayFormatterShort.format(previousDay)}-${weekdayFormatterShort.format(currentDay)}`,
-      dateLabel: `${dateFormatter.format(currentDay)} 00:00`,
+      dateLabel: dateFormatter.format(currentDay),
       energyKwh: values.get(dayKey) ?? null,
     };
   });

@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Activity } from "lucide-react";
+import { Activity, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
   ChartTooltip,
@@ -33,6 +34,9 @@ interface MidnightEnergyOverviewCardProps {
   titleSuffix?: string;
 }
 
+const PAGE_SIZE = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export function MidnightEnergyOverviewCard({
   points,
   loading = false,
@@ -43,19 +47,29 @@ export function MidnightEnergyOverviewCard({
       maximumFractionDigits: 2,
     })} kWh`;
 
-  const tableData = useMemo(() => {
+  // Build full consumption rows from all points
+  const allRows = useMemo(() => {
     const weekdayFormatterLong = new Intl.DateTimeFormat("id-ID", {
       weekday: "long",
       timeZone: "Asia/Jakarta",
     });
+    const dateFormatterShort = new Intl.DateTimeFormat("id-ID", {
+      day: "numeric",
+      month: "short",
+      timeZone: "Asia/Jakarta",
+    });
 
-    const rows = points.map((point, index) => {
+    return points.map((point, index) => {
       const currentEnergy = point.energyKwh;
+      const currentDay = new Date(`${point.key}T00:00:00+07:00`);
+      const prevDay = new Date(currentDay.getTime() - DAY_MS);
+      const defaultDateRangeLabel = `${dateFormatterShort.format(prevDay)} - ${dateFormatterShort.format(currentDay)}`;
 
       if (currentEnergy === null) {
         return {
           ...point,
           consumptionTransitionLabel: point.transitionLabel,
+          dateRangeLabel: defaultDateRangeLabel,
           totalPemakaianKwh: null,
         };
       }
@@ -66,10 +80,12 @@ export function MidnightEnergyOverviewCard({
       }
 
       if (previousIndex < 0) {
+        // First data point — starting reference, show 0
         return {
           ...point,
           consumptionTransitionLabel: point.transitionLabel,
-          totalPemakaianKwh: null,
+          dateRangeLabel: defaultDateRangeLabel,
+          totalPemakaianKwh: 0,
         };
       }
 
@@ -80,19 +96,50 @@ export function MidnightEnergyOverviewCard({
         return {
           ...point,
           consumptionTransitionLabel: point.transitionLabel,
-          totalPemakaianKwh: null,
+          dateRangeLabel: defaultDateRangeLabel,
+          totalPemakaianKwh: 0,
         };
       }
 
+      const prevDate = new Date(`${previousPoint.key}T00:00:00+07:00`);
       return {
         ...point,
-        consumptionTransitionLabel: `${weekdayFormatterLong.format(new Date(`${previousPoint.key}T00:00:00+07:00`))} - ${weekdayFormatterLong.format(new Date(`${point.key}T00:00:00+07:00`))}`,
+        consumptionTransitionLabel: `${weekdayFormatterLong.format(prevDate)} - ${weekdayFormatterLong.format(currentDay)}`,
+        dateRangeLabel: `${dateFormatterShort.format(prevDate)} - ${dateFormatterShort.format(currentDay)}`,
         totalPemakaianKwh: Number((currentEnergy - previousEnergy).toFixed(2)),
       };
     });
-
-    return rows.slice(-7);
   }, [points]);
+
+  // Only keep rows that have actual midnight readings
+  const visibleRows = useMemo(
+    () => allRows.filter((r) => r.energyKwh !== null),
+    [allRows],
+  );
+
+  // Pagination: page 0 = newest 7, page 1 = 7 older, etc.
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  // Key resets page to 0 whenever the underlying data length changes
+  const [pageState, setPage] = useState<{ key: number; page: number }>({
+    key: visibleRows.length,
+    page: 0,
+  });
+  const page = pageState.key === visibleRows.length ? pageState.page : 0;
+  const updatePage = (fn: (prev: number) => number) =>
+    setPage((s) => ({
+      key: visibleRows.length,
+      page: fn(s.key === visibleRows.length ? s.page : 0),
+    }));
+
+  const tableData = useMemo(() => {
+    // Slice from the end: page 0 = last 7, page 1 = 7 before that, etc.
+    const end = visibleRows.length - page * PAGE_SIZE;
+    const start = Math.max(0, end - PAGE_SIZE);
+    return visibleRows.slice(start, end);
+  }, [visibleRows, page]);
+
+  const canPrev = visibleRows.length - (page + 1) * PAGE_SIZE > 0; // older data exists
+  const canNext = page > 0; // newer data exists
 
   const chartData = useMemo(
     () =>
@@ -106,29 +153,52 @@ export function MidnightEnergyOverviewCard({
     [tableData],
   );
 
-  const hasAnyData = tableData.some((point) => point.totalPemakaianKwh !== null);
+  const hasAnyData = tableData.some(
+    (point) => point.totalPemakaianKwh !== null,
+  );
 
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="px-4 py-4 pb-1">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
-          <Activity className="h-4 w-4 text-orange-500" />
-          Energy 00:00 (7 Hari)
+    <Card className="border-0 shadow-sm py-1.5 gap-1">
+      <CardHeader className="px-1.5 pt-1 pb-0 flex flex-row items-center justify-between">
+        <CardTitle className="text-xs font-semibold flex items-center gap-1">
+          <Activity className="h-3 w-3 text-orange-500" />
+          Energy 00:00 {titleSuffix && `• ${titleSuffix}`}
         </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          {titleSuffix ? `${titleSuffix}. ` : ""}
-          Nilai diambil pada transisi hari jam 00:00 WIB.
-        </p>
+        {!loading && visibleRows.length > PAGE_SIZE && (
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              disabled={!canPrev}
+              onClick={() => updatePage((p) => p + 1)}
+            >
+              <ChevronLeft className="h-3 w-3" />
+            </Button>
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              {page + 1}/{totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              disabled={!canNext}
+              onClick={() => updatePage((p) => p - 1)}
+            >
+              <ChevronRight className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
       </CardHeader>
 
-      <CardContent className="px-4 pb-4 pt-2 space-y-3">
+      <CardContent className="px-1.5 pb-1 pt-0.5 space-y-1">
         {loading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
-            Memuat data midnight...
+          <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
+            Memuat...
           </div>
         ) : !hasAnyData ? (
-          <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
-            Data jam 00:00 belum tersedia
+          <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
+            Data belum tersedia
           </div>
         ) : (
           <ChartContainer
@@ -138,11 +208,11 @@ export function MidnightEnergyOverviewCard({
                 color: "hsl(24, 95%, 53%)",
               },
             }}
-            className="h-48 w-full"
+            className="h-32 w-full"
           >
             <BarChart
               data={chartData}
-              margin={{ top: 8, right: 8, bottom: 0, left: -12 }}
+              margin={{ top: 5, right: 5, bottom: 0, left: -10 }}
             >
               <CartesianGrid
                 strokeDasharray="3 3"
@@ -151,15 +221,15 @@ export function MidnightEnergyOverviewCard({
               />
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 10 }}
+                tick={{ fontSize: 7 }}
                 tickLine={false}
                 axisLine={false}
               />
               <YAxis
-                tick={{ fontSize: 10 }}
+                tick={{ fontSize: 7 }}
                 tickLine={false}
                 axisLine={false}
-                width={48}
+                width={35}
               />
               <ChartTooltip
                 content={
@@ -173,7 +243,7 @@ export function MidnightEnergyOverviewCard({
 
                       if (!payload.hasData) {
                         return [
-                          "Tidak ada data 00:00",
+                          "Tidak ada data",
                           `${payload.fullDay}, ${payload.dateLabel}`,
                         ];
                       }
@@ -189,29 +259,33 @@ export function MidnightEnergyOverviewCard({
               <Bar
                 dataKey="value"
                 fill="hsl(24, 95%, 53%)"
-                radius={[6, 6, 0, 0]}
+                radius={[3, 3, 0, 0]}
               />
             </BarChart>
           </ChartContainer>
         )}
 
-        <div className="rounded-md border border-border/60">
+        <div className="rounded border border-border/60 overflow-hidden">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Hari</TableHead>
-                <TableHead>Tanggal</TableHead>
-                <TableHead className="text-right">Total Pemakaian (kWh)</TableHead>
+              <TableRow className="bg-muted/30">
+                <TableHead className="h-6 px-1 py-0 text-xs">Hari</TableHead>
+                <TableHead className="h-6 px-1 py-0 text-xs">Tanggal</TableHead>
+                <TableHead className="h-6 px-1 py-0 text-xs text-right">
+                  Total (kWh)
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {tableData.map((point) => (
-                <TableRow key={point.key}>
-                  <TableCell className="font-medium">
+                <TableRow key={point.key} className="border-b-0">
+                  <TableCell className="px-1 py-0.5 text-xs font-medium">
                     {point.consumptionTransitionLabel}
                   </TableCell>
-                  <TableCell>{point.dateLabel}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="px-1 py-0.5 text-xs">
+                    {point.dateRangeLabel}
+                  </TableCell>
+                  <TableCell className="px-1 py-0.5 text-xs text-right">
                     {point.totalPemakaianKwh === null
                       ? "-"
                       : formatKwh(point.totalPemakaianKwh)}

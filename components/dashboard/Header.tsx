@@ -34,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useSidebar } from "@/components/providers/SidebarProvider";
+import { useHeaderPage } from "@/components/providers/HeaderPageProvider";
 import { motion } from "framer-motion";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { authToken, authApi } from "@/lib/api";
@@ -57,6 +58,7 @@ export default function Header({ user }: HeaderProps) {
   const { toggle } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
+  const headerPage = useHeaderPage();
 
   // ── Data via SWR (cached + deduped across all mounted components) ──
   const { data: tenantList } = useTenants();
@@ -210,24 +212,34 @@ export default function Header({ user }: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-8 items-center justify-between px-1.5 sm:px-2">
-        {/* Mobile menu button */}
-        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden h-6 w-6"
-            onClick={toggle}
-          >
-            <Menu className="h-3.5 w-3.5" />
-            <span className="sr-only">Open menu</span>
-          </Button>
-        </motion.div>
+        {/* Left: menu + page title + filters */}
+        <div className="flex items-center gap-1.5">
+          {/* Mobile menu button */}
+          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden h-6 w-6"
+              onClick={toggle}
+            >
+              <Menu className="h-3.5 w-3.5" />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </motion.div>
 
-        {/* Spacer for desktop */}
-        <div className="hidden lg:block" />
+          {/* Page title */}
+          {headerPage.title && (
+            <h1 className="hidden lg:block text-xs font-semibold truncate">
+              {headerPage.title}
+            </h1>
+          )}
+        </div>
 
         {/* Right side */}
         <div className="flex items-center gap-1">
+          {/* Page-specific filters */}
+          {headerPage.filterSlot}
+
           {/* Tenant Selector */}
           {showTenantDropdown && (
             <DropdownMenu>

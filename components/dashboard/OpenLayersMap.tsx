@@ -14,7 +14,6 @@ import Point from "ol/geom/Point";
 import { fromLonLat } from "ol/proj";
 import { Style, Circle as CircleStyle, Fill, Stroke } from "ol/style";
 import Overlay from "ol/Overlay";
-import { boundingExtent } from "ol/extent";
 import "ol/ol.css";
 
 export interface MapOutlet {
@@ -88,18 +87,14 @@ export function OpenLayersMap({ outlets, className }: OpenLayersMapProps) {
       ],
       overlays: [overlay],
       view: new View({
-        center: fromLonLat([110.0, -7.25]),
-        zoom: 7,
+        center: fromLonLat([113.0, -2.0]),
+        zoom: 4.5,
       }),
       controls: [],
     });
 
-    // Fit to outlets if any exist
-    if (outlets.length > 0) {
-      const coords = outlets.map((o) => fromLonLat([o.lng, o.lat]));
-      const extent = boundingExtent(coords);
-      map.getView().fit(extent, { padding: [60, 60, 60, 60], maxZoom: 15 });
-    }
+    // Don't auto-fit to outlets - keep Indonesia view
+    // Users can zoom in manually to see specific points
 
     // Click handler
     map.on("click", (evt) => {

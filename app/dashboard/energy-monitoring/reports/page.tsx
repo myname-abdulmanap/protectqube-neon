@@ -518,10 +518,12 @@ export default function ReportsPage() {
       energyDashboardApi.getOverview({
         from: currentFrom.toISOString(),
         to: currentTo.toISOString(),
+        includeHeavy: false,
       }),
       energyDashboardApi.getOverview({
         from: previousFrom.toISOString(),
         to: previousTo.toISOString(),
+        includeHeavy: false,
       }),
     ]);
 

@@ -52,6 +52,8 @@ export default function ScopesPage() {
     city: "",
     province: "",
     region: "",
+    latitude: "",
+    longitude: "",
     isActive: true,
   });
 
@@ -88,6 +90,8 @@ export default function ScopesPage() {
       city: "",
       province: "",
       region: "",
+      latitude: "",
+      longitude: "",
       isActive: true,
     });
     setEditingId(null);
@@ -107,6 +111,8 @@ export default function ScopesPage() {
       city: s.city || "",
       province: s.province || "",
       region: s.region || "",
+      latitude: s.latitude != null ? String(s.latitude) : "",
+      longitude: s.longitude != null ? String(s.longitude) : "",
       isActive: s.isActive,
     });
     setModalOpen(true);
@@ -114,11 +120,16 @@ export default function ScopesPage() {
 
   const handleSubmit = async () => {
     if (!form.tenantId || !form.name || !form.code || !form.scopeType) return;
+    const payload = {
+      ...form,
+      latitude: form.latitude !== "" ? Number(form.latitude) : null,
+      longitude: form.longitude !== "" ? Number(form.longitude) : null,
+    };
     try {
       if (editingId) {
-        await scopesApi.update(editingId, form);
+        await scopesApi.update(editingId, payload);
       } else {
-        await scopesApi.create(form);
+        await scopesApi.create(payload);
       }
       setModalOpen(false);
       resetForm();
@@ -380,6 +391,34 @@ export default function ScopesPage() {
                 placeholder="Region"
                 className="h-8 text-xs"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Latitude</Label>
+                <Input
+                  value={form.latitude}
+                  onChange={(e) =>
+                    setForm({ ...form, latitude: e.target.value })
+                  }
+                  type="number"
+                  step="any"
+                  placeholder="-6.200000"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Longitude</Label>
+                <Input
+                  value={form.longitude}
+                  onChange={(e) =>
+                    setForm({ ...form, longitude: e.target.value })
+                  }
+                  type="number"
+                  step="any"
+                  placeholder="106.816600"
+                  className="h-8 text-xs"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Switch
