@@ -42,9 +42,7 @@ import {
   useTenants,
 } from "@/lib/use-energy-data";
 import { deviceMetricsApi } from "@/lib/api";
-import type {
-  OverviewMidnightPoint,
-} from "@/components/dashboard/MidnightEnergyOverviewCard";
+import type { OverviewMidnightPoint } from "@/components/dashboard/MidnightEnergyOverviewCard";
 
 const OpenLayersMap = dynamic(
   () =>
@@ -165,12 +163,12 @@ export function EnergyOverviewPage({
   const [midnightLoading, setMidnightLoading] = useState(false);
   const [todayPartialKwh, setTodayPartialKwh] = useState<number | null>(null);
   // Per-scope midnight readings for filter-aware region consumption
-  const [perScopeMidnight, setPerScopeMidnight] = useState<Map<string, Map<string, number>>>(
-    () => new Map(),
-  );
-  const [latestPerScopeReadings, setLatestPerScopeReadings] = useState<Map<string, number>>(
-    () => new Map(),
-  );
+  const [perScopeMidnight, setPerScopeMidnight] = useState<
+    Map<string, Map<string, number>>
+  >(() => new Map());
+  const [latestPerScopeReadings, setLatestPerScopeReadings] = useState<
+    Map<string, number>
+  >(() => new Map());
 
   const { setTitle, setFilterSlot } = useHeaderPage();
 
@@ -407,7 +405,9 @@ export function EnergyOverviewPage({
       // Store per-scope data for filter-aware region consumption
       setPerScopeMidnight(scopeMidnightMap);
       const latestMap = new Map<string, number>();
-      latestPerScope.forEach((entry, scopeId) => latestMap.set(scopeId, entry.value));
+      latestPerScope.forEach((entry, scopeId) =>
+        latestMap.set(scopeId, entry.value),
+      );
       setLatestPerScopeReadings(latestMap);
     } catch {
       setMidnightPoints(buildEmptyMidnightPoints(now));
@@ -443,7 +443,12 @@ export function EnergyOverviewPage({
       timeZone: DISPLAY_TIMEZONE,
     });
 
-    const rows: Array<{ dayKey: string; label: string; chartLabel: string; kWh: number }> = [];
+    const rows: Array<{
+      dayKey: string;
+      label: string;
+      chartLabel: string;
+      kWh: number;
+    }> = [];
 
     // Determine loop start based on globalRange.from so chart/table respect selected date filter
     let loopStart = 1;
@@ -520,7 +525,11 @@ export function EnergyOverviewPage({
 
   // Daily consumption for Total Energy Consumption chart
   const dailyConsumption = useMemo(
-    () => dailyBreakdownRows.map((row) => ({ label: row.chartLabel, kWh: row.kWh })),
+    () =>
+      dailyBreakdownRows.map((row) => ({
+        label: row.chartLabel,
+        kWh: row.kWh,
+      })),
     [dailyBreakdownRows],
   );
 
@@ -610,7 +619,8 @@ export function EnergyOverviewPage({
 
     const nowParts = getJakartaDateTimeParts(new Date());
     const todayKey = `${nowParts.year}-${nowParts.month}-${nowParts.day}`;
-    const allowPartial = globalRange.preset === "today" || globalRange.preset === "all";
+    const allowPartial =
+      globalRange.preset === "today" || globalRange.preset === "all";
     const includeTodayPartial = allowPartial && (!toKey || todayKey <= toKey);
 
     // Compute per-scope consumption within filtered range
@@ -640,17 +650,33 @@ export function EnergyOverviewPage({
     }
 
     // Aggregate by region
-    const regionMap = new Map<string, { region: string; kWh: number; cost: number; outlets: number }>();
+    const regionMap = new Map<
+      string,
+      { region: string; kWh: number; cost: number; outlets: number }
+    >();
     for (const outlet of outlets) {
       const consumption = scopeConsumption.get(outlet.id) ?? 0;
-      const existing = regionMap.get(outlet.region) ?? { region: outlet.region, kWh: 0, cost: 0, outlets: 0 };
+      const existing = regionMap.get(outlet.region) ?? {
+        region: outlet.region,
+        kWh: 0,
+        cost: 0,
+        outlets: 0,
+      };
       existing.kWh = Number((existing.kWh + consumption).toFixed(2));
       existing.outlets += 1;
       regionMap.set(outlet.region, existing);
     }
 
     return Array.from(regionMap.values()).sort((a, b) => b.kWh - a.kWh);
-  }, [perScopeMidnight, latestPerScopeReadings, globalRange.from, globalRange.to, globalRange.preset, overviewData?.outletLocations, regionData]);
+  }, [
+    perScopeMidnight,
+    latestPerScopeReadings,
+    globalRange.from,
+    globalRange.to,
+    globalRange.preset,
+    overviewData?.outletLocations,
+    regionData,
+  ]);
 
   const peakOutletData = useMemo(
     () =>
@@ -722,9 +748,7 @@ export function EnergyOverviewPage({
                     Total Energy
                   </p>
                   <p className="text-2xl font-bold truncate leading-tight">
-                    {filteredTotalEnergy.toLocaleString(
-                      "id-ID",
-                    )}{" "}
+                    {filteredTotalEnergy.toLocaleString("id-ID")}{" "}
                     <span className="text-xs font-normal text-white/90">
                       kWh
                     </span>
@@ -813,7 +837,6 @@ export function EnergyOverviewPage({
                 showDateFilter={false}
               />
             </motion.div>
-
           </div>
 
           {/* Right Column - Map + Avg Hourly + Top/Low Outlets */}

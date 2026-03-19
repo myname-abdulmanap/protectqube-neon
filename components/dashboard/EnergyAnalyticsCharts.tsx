@@ -1119,7 +1119,12 @@ interface AvgHourlyConsumptionProps {
 interface HourlyEnergyConsumptionProps {
   data: HourlyEnergyUsage[];
   dailyData?: Array<{ label: string; kWh: number }>;
-  breakdownRows?: Array<{ dayKey: string; label: string; chartLabel: string; kWh: number }>;
+  breakdownRows?: Array<{
+    dayKey: string;
+    label: string;
+    chartLabel: string;
+    kWh: number;
+  }>;
   dateRange: DateRange;
   onDateChange: (r: DateRange) => void;
   loading?: boolean;
@@ -1128,28 +1133,19 @@ interface HourlyEnergyConsumptionProps {
 
 export function AvgHourlyConsumptionChart({
   data,
-  dataDays,
   dateRange,
   onDateChange,
   loading,
   showDateFilter = true,
 }: AvgHourlyConsumptionProps) {
-  const days = useMemo(() => {
-    if (dataDays && dataDays >= 1) return dataDays;
-    if (!dateRange.from || !dateRange.to) return 1;
-    const diff =
-      new Date(dateRange.to).getTime() - new Date(dateRange.from).getTime();
-    return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
-  }, [dataDays, dateRange.from, dateRange.to]);
-
   const plotData = useMemo(() => {
     if (!data.length) return [];
     return data.map((point) => ({
       hour: point.hour,
-      kWh: Number((point.kWh / days).toFixed(2)),
+      kWh: Number(point.kWh.toFixed(2)),
       isMax: false,
     }));
-  }, [data, days]);
+  }, [data]);
 
   const dataWithMax = useMemo(() => {
     if (!plotData.length) return plotData;
@@ -1279,6 +1275,11 @@ export function AvgHourlyConsumptionChart({
                     <ChartTooltip
                       content={
                         <ChartTooltipContent
+                          labelFormatter={(label) => {
+                            const h = Number(String(label).split(":")[0]);
+                            const next = (h + 1) % 24;
+                            return `${String(h).padStart(2, "0")}:00 - ${String(next).padStart(2, "0")}:00`;
+                          }}
                           formatter={(value) => [
                             `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kWh`,
                             "Avg Consumption",
@@ -1373,9 +1374,16 @@ export function HourlyEnergyConsumptionChart({
       year: "numeric",
       timeZone: "Asia/Jakarta",
     });
-    const fromStr = dateRange.from ? fmt.format(new Date(dateRange.from)) : null;
+    const fromStr = dateRange.from
+      ? fmt.format(new Date(dateRange.from))
+      : null;
     const toStr = dateRange.to ? fmt.format(new Date(dateRange.to)) : null;
-    const rangeSuffix = fromStr && toStr ? ` (${fromStr} - ${toStr})` : fromStr ? ` (dari ${fromStr})` : "";
+    const rangeSuffix =
+      fromStr && toStr
+        ? ` (${fromStr} - ${toStr})`
+        : fromStr
+          ? ` (dari ${fromStr})`
+          : "";
 
     const presetLabels: Record<string, string> = {
       today: "Hari ini",
@@ -1393,7 +1401,10 @@ export function HourlyEnergyConsumptionChart({
 
   // ── breakdown table data ──
   const bdRows = useMemo(() => breakdownRows ?? [], [breakdownRows]);
-  const bdTotalPages = Math.max(1, Math.ceil(bdRows.length / BREAKDOWN_PAGE_SIZE));
+  const bdTotalPages = Math.max(
+    1,
+    Math.ceil(bdRows.length / BREAKDOWN_PAGE_SIZE),
+  );
   const [bdPage, setBdPage] = useState(0);
   const bdCurrentPage = Math.min(bdPage, Math.max(0, bdTotalPages - 1));
 
@@ -1403,7 +1414,8 @@ export function HourlyEnergyConsumptionChart({
     return bdRows.slice(start, end);
   }, [bdRows, bdCurrentPage]);
 
-  const bdCanPrev = bdRows.length - (bdCurrentPage + 1) * BREAKDOWN_PAGE_SIZE > 0;
+  const bdCanPrev =
+    bdRows.length - (bdCurrentPage + 1) * BREAKDOWN_PAGE_SIZE > 0;
   const bdCanNext = bdCurrentPage > 0;
 
   const formatKwh = (value: number) =>
@@ -1524,9 +1536,7 @@ export function HourlyEnergyConsumptionChart({
                 </div>
                 <div>
                   <p className="text-muted-foreground">Periode</p>
-                  <p className="font-semibold text-xs">
-                    {dateLabel}
-                  </p>
+                  <p className="font-semibold text-xs">{dateLabel}</p>
                 </div>
               </div>
             </div>
@@ -1535,7 +1545,9 @@ export function HourlyEnergyConsumptionChart({
             {bdRows.length > 0 && (
               <div className="mt-3 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-muted-foreground">Breakdown per Tanggal</p>
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    Breakdown per Tanggal
+                  </p>
                   {bdRows.length > BREAKDOWN_PAGE_SIZE && (
                     <div className="flex items-center gap-0.5">
                       <button
@@ -1543,9 +1555,19 @@ export function HourlyEnergyConsumptionChart({
                         title="Halaman sebelumnya"
                         className="h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
                         disabled={!bdCanPrev}
-                        onClick={() => setBdPage((p) => Math.min(p + 1, bdTotalPages - 1))}
+                        onClick={() =>
+                          setBdPage((p) => Math.min(p + 1, bdTotalPages - 1))
+                        }
                       >
-                        <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+                        <svg
+                          className="h-3 w-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M15 18l-6-6 6-6" />
+                        </svg>
                       </button>
                       <span className="text-[10px] text-muted-foreground tabular-nums">
                         {bdCurrentPage + 1}/{bdTotalPages}
@@ -1557,7 +1579,15 @@ export function HourlyEnergyConsumptionChart({
                         disabled={!bdCanNext}
                         onClick={() => setBdPage((p) => Math.max(p - 1, 0))}
                       >
-                        <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+                        <svg
+                          className="h-3 w-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M9 18l6-6-6-6" />
+                        </svg>
                       </button>
                     </div>
                   )}
@@ -1566,15 +1596,24 @@ export function HourlyEnergyConsumptionChart({
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-muted/30 border-b border-border/40">
-                        <th className="h-7 px-2 py-0 text-left font-medium">Tanggal</th>
-                        <th className="h-7 px-2 py-0 text-right font-medium">Pemakaian (kWh)</th>
+                        <th className="h-7 px-2 py-0 text-left font-medium">
+                          Tanggal
+                        </th>
+                        <th className="h-7 px-2 py-0 text-right font-medium">
+                          Pemakaian (kWh)
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {bdTableData.map((row) => (
-                        <tr key={row.dayKey} className="border-b border-border/20 last:border-b-0">
+                        <tr
+                          key={row.dayKey}
+                          className="border-b border-border/20 last:border-b-0"
+                        >
                           <td className="px-2 py-1">{row.label}</td>
-                          <td className="px-2 py-1 text-right font-medium">{formatKwh(row.kWh)}</td>
+                          <td className="px-2 py-1 text-right font-medium">
+                            {formatKwh(row.kWh)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

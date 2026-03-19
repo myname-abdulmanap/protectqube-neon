@@ -84,7 +84,10 @@ export function MidnightEnergyOverviewCard({
       if (!curr || !prev) continue;
       if (curr.energyKwh === null || prev.energyKwh === null) continue;
 
-      const delta = Math.max(0, Number((curr.energyKwh - prev.energyKwh).toFixed(2)));
+      const delta = Math.max(
+        0,
+        Number((curr.energyKwh - prev.energyKwh).toFixed(2)),
+      );
       const prevDate = new Date(`${prev.key}T00:00:00+07:00`);
       rows.push({
         key: prev.key,
@@ -154,17 +157,13 @@ export function MidnightEnergyOverviewCard({
 
   const peakKey = useMemo(() => {
     if (!chartData.length) return "";
-    return chartData.reduce((best, row) => (row.value > best.value ? row : best))
-      .key;
+    return chartData.reduce((best, row) =>
+      row.value > best.value ? row : best,
+    ).key;
   }, [chartData]);
 
   const tableTotal = useMemo(
-    () =>
-      Number(
-        tableData
-          .reduce((sum, row) => sum + row.kWh, 0)
-          .toFixed(2),
-      ),
+    () => Number(tableData.reduce((sum, row) => sum + row.kWh, 0).toFixed(2)),
     [tableData],
   );
 
@@ -214,13 +213,17 @@ export function MidnightEnergyOverviewCard({
         {!loading && hasAnyData ? (
           <div className="grid grid-cols-2 gap-1.5">
             <div className="rounded-md border border-border/60 bg-orange-50/60 px-2 py-1.5">
-              <p className="text-[10px] text-muted-foreground">Total Halaman Ini</p>
+              <p className="text-[10px] text-muted-foreground">
+                Total Halaman Ini
+              </p>
               <p className="text-xs font-semibold text-orange-700">
                 {formatKwh(tableTotal)}
               </p>
             </div>
             <div className="rounded-md border border-border/60 bg-blue-50/60 px-2 py-1.5">
-              <p className="text-[10px] text-muted-foreground">Rata-rata Harian</p>
+              <p className="text-[10px] text-muted-foreground">
+                Rata-rata Harian
+              </p>
               <p className="text-xs font-semibold text-blue-700">
                 {formatKwh(tableAverage)}
               </p>
@@ -255,9 +258,23 @@ export function MidnightEnergyOverviewCard({
               margin={{ top: 8, right: 10, bottom: 8, left: -6 }}
             >
               <defs>
-                <linearGradient id="fillBreakdownBars" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(24, 95%, 53%)" stopOpacity={0.95} />
-                  <stop offset="100%" stopColor="hsl(24, 95%, 53%)" stopOpacity={0.4} />
+                <linearGradient
+                  id="fillBreakdownBars"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop
+                    offset="0%"
+                    stopColor="hsl(24, 95%, 53%)"
+                    stopOpacity={0.95}
+                  />
+                  <stop
+                    offset="100%"
+                    stopColor="hsl(24, 95%, 53%)"
+                    stopOpacity={0.4}
+                  />
                 </linearGradient>
               </defs>
               <CartesianGrid
@@ -300,7 +317,11 @@ export function MidnightEnergyOverviewCard({
                 {chartData.map((row) => (
                   <Cell
                     key={row.key}
-                    fill={row.key === peakKey ? "hsl(16, 86%, 45%)" : "url(#fillBreakdownBars)"}
+                    fill={
+                      row.key === peakKey
+                        ? "hsl(16, 86%, 45%)"
+                        : "url(#fillBreakdownBars)"
+                    }
                   />
                 ))}
               </Bar>
