@@ -355,6 +355,17 @@ export default function ElectricityOutletDetailPage() {
 			if (!m) return 0;
 			return m.unit === 'W' ? m.value / 1000 : m.value;
 		};
+
+		const energyTotal = roundN(
+			applyStartPointOffset(
+				g('energy_total'),
+				detail?.startingPoint ?? null,
+				latestMetrics['energy_total']?.timestamp,
+			),
+		);
+		const kvarh = roundN(g('kvarh'));
+		const penaltyKvarh = energyTotal > 0 ? Math.max(0, Number((kvarh - 0.62 * energyTotal).toFixed(3))) : 0;
+
 		return {
 			voltageL1: roundN(g('voltage_l1'), 1),
 			voltageL2: roundN(g('voltage_l2'), 1),
@@ -391,6 +402,7 @@ export default function ElectricityOutletDetailPage() {
 			),
 			kvarh: roundN(g('kvarh')),
 			frequency: roundN(g('frequency'), 1),
+			penaltyKvarh,
 		};
 	}, [detail?.startingPoint, latestMetrics]);
 
