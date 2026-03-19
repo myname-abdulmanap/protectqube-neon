@@ -131,7 +131,7 @@ function DayChart({ day }: { day: HourlyDailyEnergyDay }) {
 					</div>
 					<div className='text-right'>
 						<p className='text-sm font-bold tabular-nums text-violet-600 dark:text-violet-400'>
-							{day.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kWh
+							{day.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 3 })} kWh
 						</p>
 						{day.peakHour !== null && (
 							<p className='text-[10px] text-muted-foreground'>

@@ -341,11 +341,8 @@ export default function ElectricityOutletDetailPage() {
 		const toDate = new Date(toIso);
 		const diffMs = toDate.getTime() - fromDate.getTime();
 		const diffHours = diffMs / (1000 * 60 * 60);
-		const diffDays = diffHours / 24;
-
-		const useHourInterval = diffHours <= 48;
-		const interval: 'hour' | 'day' = useHourInterval ? 'hour' : 'day';
-
+		const useHourInterval = diffHours < 24;
+		const toDateInclusive = new Date(toDate.getTime() + (useHourInterval ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
 		const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 		type RawHistoryRow = {
@@ -372,7 +369,7 @@ export default function ElectricityOutletDetailPage() {
 		while (fetchMore) {
 			const res = await energyDashboardApi.getOutletHistory(scopeId, {
 				from: fromIso,
-				to: toIso,
+				to: toDateInclusive.toISOString(),
 				cursor: cursor ?? undefined,
 				pageSize: 500,
 			});
@@ -387,6 +384,10 @@ export default function ElectricityOutletDetailPage() {
 				const d = new Date(ts);
 				const day = String(d.getDate()).padStart(2, '0');
 				const mon = d.toLocaleString('en-GB', { month: 'short' });
+				const year = d.getFullYear();
+				if (!useHourInterval) {
+					return `${day} ${mon} ${year}`;
+				}
 				const hh = String(d.getHours()).padStart(2, '0');
 				const mm = String(d.getMinutes()).padStart(2, '0');
 				return `${day} ${mon} ${hh}:${mm}`;
@@ -402,27 +403,24 @@ export default function ElectricityOutletDetailPage() {
 
 		const sampleHistoryRows = (rows: RawHistoryRow[]): RawHistoryRow[] => {
 			if (rows.length === 0) return [];
-			const sorted = [...rows].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+			const sorted = [...rows]
+				.filter((r) => {
+					const t = new Date(r.timestamp);
+					return t >= fromDate && t <= toDateInclusive;
+				})
+				.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-			if (diffDays > 1) {
+			if (diffHours >= 24) {
 				const dayMap = new Map<string, RawHistoryRow>();
 				for (const r of sorted) {
 					const d = new Date(r.timestamp);
-					const slotMs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-					const dk = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-					const existing = dayMap.get(dk);
-					if (!existing) {
-						dayMap.set(dk, r);
-					} else {
-						const curDist = Math.abs(new Date(r.timestamp).getTime() - slotMs);
-						const prevDist = Math.abs(new Date(existing.timestamp).getTime() - slotMs);
-						if (curDist < prevDist) dayMap.set(dk, r);
-					}
+					const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+					dayMap.set(dk, r);
 				}
-				return Array.from(dayMap.values()).sort(
-					(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-				);
-			} else if (diffHours > 1) {
+				return Array.from(dayMap.entries())
+					.sort(([a], [b]) => a.localeCompare(b))
+					.map(([, r]) => r);
+			} else {
 				const hourMap = new Map<string, RawHistoryRow>();
 				for (const r of sorted) {
 					const d = new Date(r.timestamp);
@@ -441,78 +439,24 @@ export default function ElectricityOutletDetailPage() {
 					(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
 				);
 			}
-
-			return sorted;
 		};
 
-		const sampledHistoryRows = sampleHistoryRows(allHistoryRows);
-
-		const anchorFrom = new Date(
-			fromDate.getTime() - (useHourInterval ? 2 * 60 * 60 * 1000 : 2 * 24 * 60 * 60 * 1000),
-		);
-
-		const aggRes = await deviceMetricsApi.getAggregated({
+		const hourlyRes = await energyDashboardApi.getHourlyDailyEnergy(
 			scopeId,
-			moduleType: 'power_meter',
-			from: anchorFrom.toISOString(),
-			to: toIso,
-			interval,
-		});
+			fromIso,
+			toDateInclusive.toISOString(),
+		);
+		const hourlyDays = hourlyRes.success && hourlyRes.data ? hourlyRes.data.days : [];
 
-		const aggRows = aggRes.success && aggRes.data ? aggRes.data : [];
-
-		const energySlotMap = new Map<string, number>();
-		for (const row of aggRows) {
-			if (row.metricKey !== 'energy_total') continue;
-			const ts = new Date(row.timestamp);
-			if (isNaN(ts.getTime())) continue;
-			const key = ts.toISOString();
-			const val = Number(row.max ?? row.avg ?? 0);
-			const cur = energySlotMap.get(key);
-			if (cur === undefined || val > cur) energySlotMap.set(key, val);
-		}
-
-		const metricAccum = new Map<
-			string,
-			{ powerTotal: number[]; voltageL1: number[]; currentTotal: number[]; pfSigma: number[] }
-		>();
-
-		for (const row of aggRows) {
-			if (row.metricKey === 'energy_total') continue;
-			const ts = new Date(row.timestamp);
-			if (isNaN(ts.getTime()) || ts < fromDate || ts > toDate) continue;
-			const key = ts.toISOString();
-			const acc = metricAccum.get(key) ?? { powerTotal: [], voltageL1: [], currentTotal: [], pfSigma: [] };
-			const val = Number(row.avg ?? 0);
-			if (row.metricKey === 'power_total' || row.metricKey === 'power')
-				acc.powerTotal.push(normalizePowerToKw(val));
-			if (row.metricKey === 'voltage_l1') acc.voltageL1.push(val);
-			if (row.metricKey === 'current_total') acc.currentTotal.push(val);
-			if (row.metricKey === 'pf_sigma') acc.pfSigma.push(val);
-			metricAccum.set(key, acc);
-		}
-
-		const avg = (arr: number[]): number | null =>
-			arr.length ? Number((arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(2)) : null;
-
-		const metricSlotMap = new Map<
-			string,
-			{ powerTotal: number | null; voltageL1: number | null; currentTotal: number | null; pfSigma: number | null }
-		>();
-		for (const [key, acc] of metricAccum) {
-			metricSlotMap.set(key, {
-				powerTotal: avg(acc.powerTotal),
-				voltageL1: avg(acc.voltageL1),
-				currentTotal: avg(acc.currentTotal),
-				pfSigma: avg(acc.pfSigma),
-			});
-		}
-
-		const sortedEnergyKeys = Array.from(energySlotMap.keys()).sort((a, b) => a.localeCompare(b));
-		const inRangeEnergyKeys = sortedEnergyKeys.filter((k) => {
-			const t = new Date(k);
-			return t >= fromDate && t <= toDate;
-		});
+		type EnergyBucket = {
+			timestamp: string;
+			label: string;
+			energyKwh: number | null;
+			powerTotal: number | null;
+			voltageL1: number | null;
+			currentTotal: number | null;
+			pfSigma: number | null;
+		};
 
 		const fmtBucketLabel = (ts: Date): string => {
 			const d = String(ts.getDate()).padStart(2, '0');
@@ -525,105 +469,123 @@ export default function ElectricityOutletDetailPage() {
 			return `${d} ${mo} ${y}`;
 		};
 
-		type EnergyBucket = {
-			timestamp: string;
-			label: string;
-			energyKwh: number | null;
-			powerTotal: number | null;
-			voltageL1: number | null;
-			currentTotal: number | null;
-			pfSigma: number | null;
+		const getJakartaParts = (date: Date) => {
+			const parts = new Intl.DateTimeFormat('en-CA', {
+				timeZone: 'Asia/Jakarta',
+				year: 'numeric',
+				month: '2-digit',
+				day: '2-digit',
+				hour: '2-digit',
+				hour12: false,
+			}).formatToParts(date);
+			const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
+			return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour') };
 		};
 
-		const energyBuckets: EnergyBucket[] = inRangeEnergyKeys.map((key) => {
-			const ts = new Date(key);
-			const curVal = energySlotMap.get(key)!;
-			const globalIdx = sortedEnergyKeys.indexOf(key);
-			const prevKey = globalIdx > 0 ? sortedEnergyKeys[globalIdx - 1] : undefined;
-			const prevVal = prevKey !== undefined ? energySlotMap.get(prevKey) : undefined;
-			const delta = prevVal !== undefined && curVal >= prevVal ? Number((curVal - prevVal).toFixed(3)) : null;
-			const metrics = metricSlotMap.get(key);
-			return {
-				timestamp: key,
-				label: fmtBucketLabel(ts),
-				energyKwh: delta,
-				powerTotal: metrics?.powerTotal ?? null,
-				voltageL1: metrics?.voltageL1 ?? null,
-				currentTotal: metrics?.currentTotal ?? null,
-				pfSigma: metrics?.pfSigma ?? null,
-			};
+		const tsRes = await energyDashboardApi.getOutletDetail(scopeId, {
+			from: fromIso,
+			to: toDateInclusive.toISOString(),
 		});
+		const exportTimeSeries =
+			tsRes.success && tsRes.data
+				? ((
+						tsRes.data as unknown as {
+							timeSeries?: Array<{ timestamp: string; metricKey: string; metricValue: number }>;
+						}
+					).timeSeries ?? [])
+				: [];
 
+		const histPowerMap = new Map<string, { sum: number; count: number }>();
+		for (const row of exportTimeSeries) {
+			if (row.metricKey !== 'power_total') continue;
+			const d = new Date(row.timestamp);
+			if (isNaN(d.getTime())) continue;
+			const rawPwr = Number(row.metricValue);
+			const pwr = rawPwr > 1000 ? rawPwr / 1000 : rawPwr;
+			if (!isFinite(pwr) || pwr <= 0) continue;
+			const p = getJakartaParts(d);
+			const key = useHourInterval ? `${p.year}-${p.month}-${p.day}-${p.hour}` : `${p.year}-${p.month}-${p.day}`;
+			const cur = histPowerMap.get(key) ?? { sum: 0, count: 0 };
+			cur.sum += pwr;
+			cur.count += 1;
+			histPowerMap.set(key, cur);
+		}
+
+		const energyBuckets: EnergyBucket[] = [];
+		for (const day of hourlyDays) {
+			if (useHourInterval) {
+				for (const hour of day.hours) {
+					if (!hour.hasData) continue;
+					const ts = new Date(`${day.date}T${String(hour.hour).padStart(2, '0')}:00:00+07:00`);
+					const tsJkt = getJakartaParts(ts);
+					const hKey = `${tsJkt.year}-${tsJkt.month}-${tsJkt.day}-${tsJkt.hour}`;
+					const hPwr = histPowerMap.get(hKey);
+					energyBuckets.push({
+						timestamp: ts.toISOString(),
+						label: fmtBucketLabel(ts),
+						energyKwh: hour.energyKwh > 0 ? Number(hour.energyKwh.toFixed(3)) : null,
+						powerTotal: hPwr && hPwr.count > 0 ? Number((hPwr.sum / hPwr.count).toFixed(2)) : null,
+						voltageL1: null,
+						currentTotal: null,
+						pfSigma: null,
+					});
+				}
+			} else {
+				if (day.totalKwh <= 0) continue;
+				const ts = new Date(`${day.date}T00:00:00+07:00`);
+				const tsJkt = getJakartaParts(ts);
+				const dKey = `${tsJkt.year}-${tsJkt.month}-${tsJkt.day}`;
+				const dPwr = histPowerMap.get(dKey);
+				energyBuckets.push({
+					timestamp: ts.toISOString(),
+					label: fmtBucketLabel(ts),
+					energyKwh: Number(day.totalKwh.toFixed(3)),
+					powerTotal: dPwr && dPwr.count > 0 ? Number((dPwr.sum / dPwr.count).toFixed(2)) : null,
+					voltageL1: null,
+					currentTotal: null,
+					pfSigma: null,
+				});
+			}
+		}
+
+		const sampledHistoryRows = sampleHistoryRows(allHistoryRows);
 		const validEnergy = energyBuckets.map((b) => b.energyKwh).filter((v): v is number => v !== null && v > 0);
-		const validPower = energyBuckets.map((b) => b.powerTotal).filter((v): v is number => v !== null && v > 0);
-		const validVoltage = energyBuckets.map((b) => b.voltageL1).filter((v): v is number => v !== null);
-		const validCurrent = energyBuckets.map((b) => b.currentTotal).filter((v): v is number => v !== null);
-
-		const totalEnergyKwh = roundN(validEnergy.reduce((s, v) => s + v, 0));
-		const peakPowerKw = roundN(validPower.length ? Math.max(...validPower) : 0);
-		const avgPowerKw = roundN(validPower.length ? validPower.reduce((s, v) => s + v, 0) / validPower.length : 0);
-		const avgVoltageV = roundN(
-			validVoltage.length ? validVoltage.reduce((s, v) => s + v, 0) / validVoltage.length : 0,
-			1,
-		);
-		const avgCurrentA = roundN(
-			validCurrent.length ? validCurrent.reduce((s, v) => s + v, 0) / validCurrent.length : 0,
-		);
-		const avgEnergyKwh = roundN(validEnergy.length ? totalEnergyKwh / validEnergy.length : 0);
-		const peakBucket = energyBuckets.reduce<EnergyBucket | null>(
-			(best, b) => ((b.powerTotal ?? -Infinity) > (best?.powerTotal ?? -Infinity) ? b : best),
+		const totalEnergyKwh = Number(validEnergy.reduce((s, v) => s + v, 0).toFixed(3));
+		const avgEnergyKwh = Number((validEnergy.length ? totalEnergyKwh / validEnergy.length : 0).toFixed(3));
+		const fullyLoadedBuckets = energyBuckets.slice(0, -1);
+		const peakBucket = (fullyLoadedBuckets.length ? fullyLoadedBuckets : energyBuckets).reduce<EnergyBucket | null>(
+			(best, b) => ((b.energyKwh ?? -Infinity) > (best?.energyKwh ?? -Infinity) ? b : best),
 			null,
 		);
 
+		const allPwrVals = exportTimeSeries
+			.filter((r) => r.metricKey === 'power_total')
+			.map((r) => {
+				const v = Number(r.metricValue);
+				return v > 1000 ? v / 1000 : v;
+			})
+			.filter((v) => isFinite(v) && v > 0);
+
+		const allVoltVals = allHistoryRows.map((r) => r.voltage_l1 ?? 0).filter((v) => v > 0);
+		const allCurrVals = allHistoryRows.map((r) => r.current_total ?? 0).filter((v) => v > 0);
+
 		const analytics = {
-			peakPowerKw,
+			peakPowerKw: Number((allPwrVals.length ? Math.max(...allPwrVals) : 0).toFixed(2)),
 			peakAt: peakBucket?.label ?? '-',
-			avgPowerKw,
-			avgVoltageV,
-			avgCurrentA,
+			avgPowerKw: Number(
+				(allPwrVals.length ? allPwrVals.reduce((s, v) => s + v, 0) / allPwrVals.length : 0).toFixed(2),
+			),
+			avgVoltageV: Number(
+				(allVoltVals.length ? allVoltVals.reduce((s, v) => s + v, 0) / allVoltVals.length : 0).toFixed(1),
+			),
+			avgCurrentA: Number(
+				(allCurrVals.length ? allCurrVals.reduce((s, v) => s + v, 0) / allCurrVals.length : 0).toFixed(2),
+			),
 			totalEnergyKwh,
 			avgEnergyKwh,
 		};
 
-		type DayGroup = {
-			date: string;
-			totalKwh: number;
-			peakPowerKw: number;
-			avgVoltageV: number;
-			avgCurrentA: number;
-			buckets: EnergyBucket[];
-		};
-
-		const buildDailyBreakdown = (): DayGroup[] => {
-			const dayMap = new Map<string, EnergyBucket[]>();
-			for (const b of energyBuckets) {
-				const ts = new Date(b.timestamp);
-				const dk = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}-${String(ts.getDate()).padStart(2, '0')}`;
-				const arr = dayMap.get(dk) ?? [];
-				arr.push(b);
-				dayMap.set(dk, arr);
-			}
-			return Array.from(dayMap.entries())
-				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([dk, buckets]) => {
-					const d = new Date(dk);
-					const label = `${String(d.getDate()).padStart(2, '0')} ${MONTHS_ID[d.getMonth()]} ${d.getFullYear()}`;
-					const en = buckets.map((b) => b.energyKwh).filter((v): v is number => v !== null && v > 0);
-					const pw = buckets.map((b) => b.powerTotal).filter((v): v is number => v !== null && v > 0);
-					const vo = buckets.map((b) => b.voltageL1).filter((v): v is number => v !== null);
-					const cu = buckets.map((b) => b.currentTotal).filter((v): v is number => v !== null);
-					return {
-						date: label,
-						totalKwh: roundN(en.reduce((s, v) => s + v, 0)),
-						peakPowerKw: roundN(pw.length ? Math.max(...pw) : 0),
-						avgVoltageV: roundN(vo.length ? vo.reduce((s, v) => s + v, 0) / vo.length : 0, 1),
-						avgCurrentA: roundN(cu.length ? cu.reduce((s, v) => s + v, 0) / cu.length : 0),
-						buckets,
-					};
-				});
-		};
-
-		const historicalIntervalLabel = diffDays > 1 ? 'Per Hari' : diffHours > 1 ? 'Per Jam' : 'Raw (Per Detik)';
+		const historicalIntervalLabel = diffHours >= 24 ? 'Per Hari' : 'Per Jam';
 
 		if (format === 'excel') {
 			const sheets: Array<{ name: string; rows: Array<Record<string, string | number | null>> }> = [];
@@ -638,8 +600,6 @@ export default function ElectricityOutletDetailPage() {
 						Periode: periodLabel,
 						'Capacity (VA)': detail.capacityVa ?? '-',
 						'Jumlah Device': detail.devices.length,
-						'Interval Energy': useHourInterval ? 'Per Jam' : 'Per Hari',
-						'Interval Historical': historicalIntervalLabel,
 					},
 				],
 			});
@@ -670,33 +630,30 @@ export default function ElectricityOutletDetailPage() {
 				],
 			});
 
-			sheets.push({
-				name: useHourInterval ? 'Pemakaian Per Jam' : 'Pemakaian Per Hari',
-				rows: energyBuckets.map((b) => ({
-					Waktu: b.label,
-					'Pemakaian (kWh)': b.energyKwh,
-					'Power Total (kW)': b.powerTotal,
-				})),
-			});
-
-			if (!useHourInterval) {
-				const daily = buildDailyBreakdown();
+			if (useHourInterval) {
 				sheets.push({
-					name: 'Ringkasan Per Hari',
-					rows: daily.map((d) => ({
-						Tanggal: d.date,
-						'Total kWh': d.totalKwh,
-						'Peak Power (kW)': d.peakPowerKw,
-						'Avg Voltage (V)': d.avgVoltageV,
-						'Avg Current (A)': d.avgCurrentA,
+					name: `Pemakaian (${historicalIntervalLabel})`,
+					rows: energyBuckets.map((b) => ({
+						Waktu: b.label,
+						'Energy (kWh)': b.energyKwh,
+						'Power (kW)': b.powerTotal,
+					})),
+				});
+			} else {
+				sheets.push({
+					name: `Pemakaian (${historicalIntervalLabel})`,
+					rows: energyBuckets.map((b) => ({
+						Tanggal: b.label,
+						'Energy (kWh)': b.energyKwh ?? '-',
+						'Power (kW)': b.powerTotal ?? '-',
 					})),
 				});
 			}
 
 			sheets.push({
-				name: `Historical (${historicalIntervalLabel})`,
+				name: `Historical Data (${historicalIntervalLabel})`,
 				rows: sampledHistoryRows.map((r) => ({
-					Time: fmtTs(r.timestamp),
+					[useHourInterval ? 'Time' : 'Tanggal']: fmtTs(r.timestamp),
 					'Voltage R (V)': r.voltage_l1,
 					'Voltage S (V)': r.voltage_l2,
 					'Voltage T (V)': r.voltage_l3,
@@ -715,7 +672,6 @@ export default function ElectricityOutletDetailPage() {
 
 			await exportToExcel(`outlet-${detail.id}.xlsx`, sheets);
 		} else {
-			const daily = buildDailyBreakdown();
 			const tables: Array<{ title: string; columns: string[]; rows: Array<Array<string | number>> }> = [];
 
 			tables.push({
@@ -744,24 +700,24 @@ export default function ElectricityOutletDetailPage() {
 				],
 			});
 
-			tables.push({
-				title: useHourInterval ? 'Pemakaian Per Jam' : 'Pemakaian Per Hari',
-				columns: ['Waktu', 'Pemakaian (kWh)', 'Power (kW)'],
-				rows: energyBuckets.map((b) => [b.label, String(b.energyKwh ?? '-'), String(b.powerTotal ?? '-')]),
-			});
-
-			if (!useHourInterval && daily.length > 0) {
+			if (useHourInterval) {
 				tables.push({
-					title: 'Ringkasan Per Hari',
-					columns: ['Tanggal', 'Total kWh', 'Peak Power (kW)', 'Avg Voltage (V)', 'Avg Current (A)'],
-					rows: daily.map((d) => [d.date, d.totalKwh, d.peakPowerKw, d.avgVoltageV, d.avgCurrentA]),
+					title: `Pemakaian (${historicalIntervalLabel})`,
+					columns: ['Waktu', 'Energy (kWh)', 'Power (kW)'],
+					rows: energyBuckets.map((b) => [b.label, String(b.energyKwh ?? '-'), String(b.powerTotal ?? '-')]),
+				});
+			} else {
+				tables.push({
+					title: `Pemakaian (${historicalIntervalLabel})`,
+					columns: ['Tanggal', 'Energy (kWh)', 'Power (kW)'],
+					rows: energyBuckets.map((b) => [b.label, String(b.energyKwh ?? '-'), String(b.powerTotal ?? '-')]),
 				});
 			}
 
 			tables.push({
 				title: `Historical Data (${historicalIntervalLabel})`,
 				columns: [
-					'Time',
+					useHourInterval ? 'Time' : 'Tanggal',
 					'V R',
 					'V S',
 					'V T',
@@ -807,13 +763,12 @@ export default function ElectricityOutletDetailPage() {
 					`Periode: ${periodLabel}`,
 					`Capacity (VA): ${detail.capacityVa ?? '-'}`,
 					`Jumlah Device: ${detail.devices.length}`,
-					`Interval Energy: ${useHourInterval ? 'Per Jam' : 'Per Hari'}`,
-					`Interval Historical: ${historicalIntervalLabel}`,
 				],
 				tables,
 			});
 		}
 	};
+
 	const dateRangeLabel = useMemo(() => {
 		if (!loadedFrom || !loadedTo) return '';
 		const from = new Date(loadedFrom).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });

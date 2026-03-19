@@ -309,18 +309,20 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 					</span>
 					<div className='flex items-center gap-1.5'>
 						<Button
+							type='button'
 							variant='outline'
 							size='icon'
-							className='h-8 w-8'
+							className='h-8 w-8 cursor-pointer disabled:cursor-not-allowed'
 							disabled={!hasPrev || loading}
 							onClick={handlePrev}
 						>
 							<ChevronLeft className='h-4 w-4' />
 						</Button>
 						<Button
+							type='button'
 							variant='outline'
 							size='icon'
-							className='h-8 w-8'
+							className='h-8 w-8 cursor-pointer disabled:cursor-not-allowed'
 							disabled={!hasNext || loading}
 							onClick={handleNext}
 						>
