@@ -516,6 +516,33 @@ export interface EnergyDashboardFilters {
 	scopeId?: string;
 }
 
+export interface HourlyDailyEnergyDay {
+	date: string;
+	label: string;
+	weekday: string;
+	hours: Array<{
+		hour: number;
+		label: string;
+		energyKwh: number;
+		hasData: boolean;
+	}>;
+	totalKwh: number;
+	peakHour: number | null;
+	peakHourKwh: number;
+}
+
+export interface HourlyDailyEnergyData {
+	days: HourlyDailyEnergyDay[];
+	meta: {
+		from: string;
+		to: string;
+		scopeId: string;
+		peakHour: number | null;
+		peakHourLabel: string | null;
+		avgDailyKwh: number;
+	};
+}
+
 export interface LoginResponse {
 	token: string;
 	user: User;
@@ -1030,7 +1057,9 @@ export const deviceMetricsApi = {
 		from: string;
 		to: string;
 		interval?: 'hour' | 'day';
-	}): Promise<ApiResponse<Array<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }>>> => {
+	}): Promise<
+		ApiResponse<Array<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }>>
+	> => {
 		const response = await apiClient.get('/device-metrics/aggregated', { params });
 		return response.data;
 	},
@@ -1038,7 +1067,9 @@ export const deviceMetricsApi = {
 		scopeId?: string;
 		from: string;
 		to: string;
-	}): Promise<ApiResponse<Array<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }>>> => {
+	}): Promise<
+		ApiResponse<Array<{ timestamp: string; metricKey: string; avg: number; min: number; max: number }>>
+	> => {
 		const response = await apiClient.get('/device-metrics/midnight-readings', { params });
 		return response.data;
 	},
@@ -1049,7 +1080,9 @@ export const deviceMetricsApi = {
 		to?: string;
 		page?: number;
 		pageSize?: number;
-	}): Promise<ApiResponse<DeviceMetric[]> & { total: number; page: number; pageSize: number; totalPages: number }> => {
+	}): Promise<
+		ApiResponse<DeviceMetric[]> & { total: number; page: number; pageSize: number; totalPages: number }
+	> => {
 		const response = await apiClient.get('/device-metrics/paginated', { params });
 		return response.data;
 	},
@@ -1263,12 +1296,23 @@ export const energyDashboardApi = {
 	},
 	getOutletHistory: async (
 		scopeId: string,
-		filters?: EnergyDashboardFilters & { cursor?: string; pageSize?: number },
+		filters?: EnergyDashboardFilters & { cursor?: string; pageSize?: number; search?: string },
 	): Promise<ApiResponse<HistoryPageData>> => {
 		const params = filters || {};
 		const response = await apiClient.get<ApiResponse<HistoryPageData>>(
 			`/energy-dashboard/outlets/${scopeId}/history`,
 			{ params },
+		);
+		return response.data;
+	},
+	getHourlyDailyEnergy: async (
+		scopeId: string,
+		from: string,
+		to: string,
+	): Promise<ApiResponse<HourlyDailyEnergyData>> => {
+		const response = await apiClient.get<ApiResponse<HourlyDailyEnergyData>>(
+			`/energy-dashboard/outlets/${scopeId}/hourly-energy`,
+			{ params: { from, to } },
 		);
 		return response.data;
 	},
