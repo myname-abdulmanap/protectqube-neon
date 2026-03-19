@@ -380,7 +380,7 @@ export function PowerMeterCard({ values }: { values: PowerMeterValues }) {
 							<Tooltip.Trigger asChild>
 								<div
 									className={cn(
-										'rounded-lg border-2 flex flex-col items-center justify-center px-3 py-4 text-center relative overflow-hidden cursor-pointer select-none',
+										'rounded-lg border-2 flex flex-col items-center justify-center px-3 py-4 text-center relative overflow-hidden cursor-help select-none',
 										isOverKvarh ? 'border-rose-500 bg-rose-500' : 'border-blue-500 bg-blue-500',
 									)}
 								>
