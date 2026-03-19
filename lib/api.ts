@@ -349,6 +349,7 @@ export interface EnergyOverviewData {
 		kWh: number;
 		samples: number;
 	}>;
+	hourlyEnergyDays: number;
 	monthlyEnergyUse: Array<{
 		timestamp: string;
 		label: string;
@@ -514,6 +515,7 @@ export interface EnergyDashboardFilters {
 	to?: string;
 	tenantId?: string;
 	scopeId?: string;
+	includeHeavy?: boolean;
 }
 
 export interface LoginResponse {
