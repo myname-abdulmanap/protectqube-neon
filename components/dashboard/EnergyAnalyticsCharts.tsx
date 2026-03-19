@@ -1133,19 +1133,28 @@ interface HourlyEnergyConsumptionProps {
 
 export function AvgHourlyConsumptionChart({
   data,
+  dataDays,
   dateRange,
   onDateChange,
   loading,
   showDateFilter = true,
 }: AvgHourlyConsumptionProps) {
+  const days = useMemo(() => {
+    if (dataDays && dataDays >= 1) return dataDays;
+    if (!dateRange.from || !dateRange.to) return 1;
+    const diff =
+      new Date(dateRange.to).getTime() - new Date(dateRange.from).getTime();
+    return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
+  }, [dataDays, dateRange.from, dateRange.to]);
+
   const plotData = useMemo(() => {
     if (!data.length) return [];
     return data.map((point) => ({
       hour: point.hour,
-      kWh: Number(point.kWh.toFixed(2)),
+      kWh: Number((point.kWh / days).toFixed(2)),
       isMax: false,
     }));
-  }, [data]);
+  }, [data, days]);
 
   const dataWithMax = useMemo(() => {
     if (!plotData.length) return plotData;
