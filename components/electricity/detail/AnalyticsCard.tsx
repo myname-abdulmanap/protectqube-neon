@@ -2,7 +2,7 @@
 
 import { Activity, Clock, Gauge, Layers, Zap, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page-new-old';
+import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
 
 const f = (v: number, d = 2) => (Number.isFinite(v) ? v.toLocaleString('id-ID', { maximumFractionDigits: d }) : '-');
 

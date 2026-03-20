@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BatteryCharging } from 'lucide-react';
-import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page-new-old';
+import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
 
 interface PeakEnergyChartCardProps {
 	timeSeries: OutletDetailPayload['timeSeries'];

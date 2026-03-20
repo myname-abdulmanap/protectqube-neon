@@ -3,7 +3,7 @@
 import { useMemo, useRef } from 'react';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page-new-old';
+import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
 import { Gauge, Waves } from 'lucide-react';
 
 interface ChartPoint {

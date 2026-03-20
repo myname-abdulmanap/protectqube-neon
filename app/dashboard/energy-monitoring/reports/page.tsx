@@ -352,7 +352,7 @@ export default function ReportsPage() {
       const scopeResponse =
         scopeSettled.status === "fulfilled"
           ? scopeSettled.value
-          : ({ success: false, data: null } as Awaited<
+          : ({ success: false, data: undefined } as unknown as Awaited<
               ReturnType<typeof scopesApi.getById>
             >);
       const configResponse =
