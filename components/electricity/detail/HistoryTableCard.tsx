@@ -13,28 +13,94 @@ import { cn } from '@/lib/utils';
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 400;
 
-const COLS: Array<{
-	key: keyof HistoryRow | 'timestamp';
+type ColDef = {
+	key: keyof HistoryRow;
 	label: string;
+	unit?: string;
 	highlight?: boolean;
 	align?: 'right';
-	unit?: string;
-}> = [
-	{ key: 'timestamp', label: 'Time' },
-	{ key: 'voltage_l1', label: 'Voltage R', unit: 'V', align: 'right' },
-	{ key: 'voltage_l2', label: 'Voltage S', unit: 'V', align: 'right' },
-	{ key: 'voltage_l3', label: 'Voltage T', unit: 'V', align: 'right' },
-	{ key: 'current_l1', label: 'Current R', unit: 'A', align: 'right' },
-	{ key: 'current_l2', label: 'Current S', unit: 'A', align: 'right' },
-	{ key: 'current_l3', label: 'Current T', unit: 'A', align: 'right' },
-	{ key: 'current_total', label: 'Total Current', unit: 'A', align: 'right' },
-	{ key: 'power_l1', label: 'Power R', unit: 'kW', align: 'right' },
-	{ key: 'power_l2', label: 'Power S', unit: 'kW', align: 'right' },
-	{ key: 'power_l3', label: 'Power T', unit: 'kW', align: 'right' },
-	{ key: 'power_total', label: 'Total Power', unit: 'kW', align: 'right' },
-	{ key: 'energy_total', label: 'Energy', unit: 'kWh', align: 'right', highlight: true },
-	{ key: 'pf_sigma', label: 'Power Factor', align: 'right' },
+};
+
+const COL_GROUPS: Array<{ group: string; cols: ColDef[] }> = [
+	{
+		group: '',
+		cols: [{ key: 'timestamp', label: 'Waktu' }],
+	},
+	{
+		group: 'ENERGY',
+		cols: [
+			{ key: 'energy_total', label: 'kWh', unit: 'kWh', align: 'right', highlight: true },
+			{ key: 'kvarh', label: 'kVArh', unit: 'kVArh', align: 'right', highlight: true },
+		],
+	},
+	{
+		group: 'POWER FACTOR',
+		cols: [
+			{ key: 'pf_a', label: 'PF R', align: 'right' },
+			{ key: 'pf_b', label: 'PF S', align: 'right' },
+			{ key: 'pf_c', label: 'PF T', align: 'right' },
+			{ key: 'pf_sigma', label: 'PF Avg', align: 'right' },
+		],
+	},
+	{
+		group: 'VOLTAGE L-N (V)',
+		cols: [
+			{ key: 'voltage_l1', label: 'V-R', unit: 'V', align: 'right' },
+			{ key: 'voltage_l2', label: 'V-S', unit: 'V', align: 'right' },
+			{ key: 'voltage_l3', label: 'V-T', unit: 'V', align: 'right' },
+		],
+	},
+	{
+		group: 'VOLTAGE L-L (V)',
+		cols: [
+			{ key: 'voltage_ab', label: 'V-RS', unit: 'V', align: 'right' },
+			{ key: 'voltage_bc', label: 'V-ST', unit: 'V', align: 'right' },
+			{ key: 'voltage_ca', label: 'V-TR', unit: 'V', align: 'right' },
+		],
+	},
+	{
+		group: 'CURRENT (A)',
+		cols: [
+			{ key: 'current_l1', label: 'A-R', unit: 'A', align: 'right' },
+			{ key: 'current_l2', label: 'A-S', unit: 'A', align: 'right' },
+			{ key: 'current_l3', label: 'A-T', unit: 'A', align: 'right' },
+			{ key: 'current_total', label: 'A-Total', unit: 'A', align: 'right' },
+		],
+	},
+	{
+		group: 'POWER (kW)',
+		cols: [
+			{ key: 'power_l1', label: 'P-R', unit: 'kW', align: 'right' },
+			{ key: 'power_l2', label: 'P-S', unit: 'kW', align: 'right' },
+			{ key: 'power_l3', label: 'P-T', unit: 'kW', align: 'right' },
+			{ key: 'power_total', label: 'P-Total', unit: 'kW', align: 'right' },
+		],
+	},
+	{
+		group: 'REACTIVE (VAR)',
+		cols: [
+			{ key: 'reactive_l1', label: 'Q-R', unit: 'VAR', align: 'right' },
+			{ key: 'reactive_l2', label: 'Q-S', unit: 'VAR', align: 'right' },
+			{ key: 'reactive_l3', label: 'Q-T', unit: 'VAR', align: 'right' },
+			{ key: 'reactive_sigma', label: 'Q-Total', unit: 'VAR', align: 'right' },
+		],
+	},
+	{
+		group: 'APPARENT (VA)',
+		cols: [
+			{ key: 'va_a', label: 'VA-R', unit: 'VA', align: 'right' },
+			{ key: 'va_b', label: 'VA-S', unit: 'VA', align: 'right' },
+			{ key: 'va_c', label: 'VA-T', unit: 'VA', align: 'right' },
+			{ key: 'va_sigma', label: 'VA-Total', unit: 'VA', align: 'right' },
+		],
+	},
+	{
+		group: 'LAINNYA',
+		cols: [{ key: 'frequency', label: 'Frekuensi', unit: 'Hz', align: 'right' }],
+	},
 ];
+
+const FLAT_COLS: ColDef[] = COL_GROUPS.flatMap((g) => g.cols);
 
 const fmtTs = (ts: string) => {
 	try {
@@ -96,7 +162,11 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 					setError(res.error ?? 'Failed to load history');
 					return;
 				}
-				setPageState({ rows: res.data.rows, nextCursor: res.data.nextCursor, total: res.data.total });
+				setPageState({
+					rows: res.data.rows as HistoryRow[],
+					nextCursor: res.data.nextCursor,
+					total: res.data.total,
+				});
 			} catch (e) {
 				setError(e instanceof Error ? e.message : 'Error loading history');
 			} finally {
@@ -223,8 +293,23 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 					<div className='rounded-xl border border-border/40 overflow-x-auto'>
 						<Table className='text-sm min-w-max'>
 							<TableHeader>
+								<TableRow className='bg-muted/10 hover:bg-muted/10 border-b border-border/30'>
+									{COL_GROUPS.map((g, gi) => (
+										<TableHead
+											key={`group-${gi}`}
+											colSpan={g.cols.length}
+											className={cn(
+												'text-[10px] font-bold tracking-widest uppercase h-7 px-3 whitespace-nowrap text-center border-r border-border/20 last:border-r-0',
+												g.group === '' && 'text-transparent select-none',
+												g.group === 'ENERGY' && 'text-orange-500',
+											)}
+										>
+											{g.group}
+										</TableHead>
+									))}
+								</TableRow>
 								<TableRow className='bg-muted/20 hover:bg-muted/20'>
-									{COLS.map((c) => (
+									{FLAT_COLS.map((c) => (
 										<TableHead
 											key={c.key}
 											className={cn(
@@ -248,7 +333,7 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 								{loading &&
 									Array.from({ length: PAGE_SIZE }).map((_, i) => (
 										<TableRow key={`sk-${i}`} className='animate-pulse border-border/20'>
-											{COLS.map((c) => (
+											{FLAT_COLS.map((c) => (
 												<TableCell key={c.key} className='px-3 py-2'>
 													<div className='h-3 bg-muted/50 rounded w-14' />
 												</TableCell>
@@ -259,12 +344,12 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 								{!loading && pageState.rows.length === 0 && (
 									<TableRow>
 										<TableCell
-											colSpan={COLS.length}
+											colSpan={FLAT_COLS.length}
 											className='text-center text-sm text-muted-foreground py-10'
 										>
 											{isSearchActive
 												? `Tidak ada data yang cocok dengan "${searchQuery}"`
-												: 'No data for this period'}
+												: 'Tidak ada data untuk periode ini'}
 										</TableCell>
 									</TableRow>
 								)}
@@ -275,7 +360,7 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 											key={`${row.timestamp}-${i}`}
 											className='hover:bg-muted/10 transition-colors border-border/20'
 										>
-											{COLS.map((c) => (
+											{FLAT_COLS.map((c) => (
 												<TableCell
 													key={c.key}
 													className={cn(
@@ -286,7 +371,7 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 												>
 													{c.key === 'timestamp'
 														? fmtTs(row.timestamp)
-														: fmtVal(row[c.key as keyof HistoryRow] as number | null)}
+														: fmtVal(row[c.key] as number | null)}
 												</TableCell>
 											))}
 										</TableRow>
@@ -298,12 +383,12 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 
 				<div className='flex items-center justify-between mt-3'>
 					<span className='text-sm text-muted-foreground'>
-						Page {currentPage}
+						Halaman {currentPage}
 						{pageState.rows.length > 0 && !loading && (
 							<span className='ml-1 text-muted-foreground/60'>
 								· {PAGE_SIZE * (currentPage - 1) + 1}–
-								{PAGE_SIZE * (currentPage - 1) + pageState.rows.length} rows
-								{isSearchActive && ' (filtered)'}
+								{PAGE_SIZE * (currentPage - 1) + pageState.rows.length} baris
+								{isSearchActive && ' (difilter)'}
 							</span>
 						)}
 					</span>
