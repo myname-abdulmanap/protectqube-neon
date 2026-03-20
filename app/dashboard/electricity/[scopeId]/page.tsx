@@ -62,6 +62,8 @@ export interface OutletDetailPayload {
 		overallAvgKwPerHour: number;
 		peakHourAvgKwh: number;
 		overallAvgKwhPerHour: number;
+		totalKvarhDelta: number;
+		avgFrequencyHz: number | null;
 	};
 	startingPoint: {
 		startAt: string;
@@ -91,6 +93,7 @@ function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
 		startingPoint?: OutletDetailPayload['startingPoint'];
 	};
 	const ext = raw as ExtendedRaw;
+
 	return {
 		id: raw.id,
 		name: raw.name,
@@ -129,6 +132,13 @@ function adaptApiResponse(raw: EnergyOutletDetail): OutletDetailPayload {
 			overallAvgKwPerHour: Number(ext.analytics?.overallAvgKwPerHour ?? ext.analytics?.overallAvgKwhPerHour ?? 0),
 			peakHourAvgKwh: Number(ext.analytics?.peakHourAvgKwh ?? 0),
 			overallAvgKwhPerHour: Number(ext.analytics?.overallAvgKwhPerHour ?? 0),
+			totalKvarhDelta: Number(ext.analytics?.totalKvarhDelta ?? 0),
+			avgFrequencyHz:
+				ext.analytics?.avgFrequencyHz != null &&
+				Number(ext.analytics.avgFrequencyHz) >= 45 &&
+				Number(ext.analytics.avgFrequencyHz) <= 55
+					? Number(ext.analytics.avgFrequencyHz)
+					: null,
 		},
 		startingPoint: ext.startingPoint ?? null,
 		devices: (raw.devices ?? []).map((d) => ({
@@ -335,16 +345,71 @@ export default function ElectricityOutletDetailPage() {
 		};
 	}, [detail?.startingPoint, latestMetrics]);
 
+	const L = {
+		waktu: 'Waktu',
+		waktuPeak: 'Waktu Peak',
+		peakPower: 'Peak Power (kW)',
+		totalKwh: 'Total Energy (kWh)',
+		totalKvarh: 'Total Reactive (kVArh)',
+		avgKwh: 'Avg Energy (kWh)',
+		avgPower: 'Avg Power (kW)',
+		avgVoltage: 'Avg Voltage (V)',
+		avgCurrent: 'Avg Current (A)',
+		avgPf: 'Avg Power Factor',
+		avgFreq: 'Avg Frequency (Hz)',
+		energy: 'Energy (kWh)',
+		reactive: 'Reactive (kVArh)',
+		power: 'Avg Power (kW)',
+		voltR: 'Avg Voltage R (V)',
+		voltS: 'Avg Voltage S (V)',
+		voltT: 'Avg Voltage T (V)',
+		currR: 'Avg Current R (A)',
+		currS: 'Avg Current S (A)',
+		currT: 'Avg Current T (A)',
+		currTotal: 'Avg Current Total (A)',
+		pf: 'Avg Power Factor',
+		freq: 'Avg Frequency (Hz)',
+		pfR: 'Power Factor R',
+		pfS: 'Power Factor S',
+		pfT: 'Power Factor T',
+		pfAvg: 'Power Factor Avg',
+		vRLN: 'Voltage R L-N (V)',
+		vSLN: 'Voltage S L-N (V)',
+		vTLN: 'Voltage T L-N (V)',
+		vRSLL: 'Voltage RS L-L (V)',
+		vSTLL: 'Voltage ST L-L (V)',
+		vTRLL: 'Voltage TR L-L (V)',
+		aR: 'Current R (A)',
+		aS: 'Current S (A)',
+		aT: 'Current T (A)',
+		aTotal: 'Current Total (A)',
+		pR: 'Power R (kW)',
+		pS: 'Power S (kW)',
+		pT: 'Power T (kW)',
+		pTotal: 'Power Total (kW)',
+		qR: 'Reactive R (VAR)',
+		qS: 'Reactive S (VAR)',
+		qT: 'Reactive T (VAR)',
+		qTotal: 'Reactive Total (VAR)',
+		vaR: 'Apparent R (VA)',
+		vaS: 'Apparent S (VA)',
+		vaT: 'Apparent T (VA)',
+		vaTotal: 'Apparent Total (VA)',
+		kWh: 'Energy (kWh)',
+		kVArh: 'Reactive (kVArh)',
+		hz: 'Frequency (Hz)',
+	} as const;
+
 	const handleExportProcessed = async (format: ExportFormat, period: ExportPeriod) => {
 		if (!detail) return;
 		const { fromIso, toIso, label: periodLabel } = normalizeExportPeriod(period);
 
 		const fromDate = new Date(fromIso);
 		const toDate = new Date(toIso);
-		const diffMs = toDate.getTime() - fromDate.getTime();
-		const diffHours = diffMs / (1000 * 60 * 60);
+		const diffHours = (toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60);
 		const useHourInterval = diffHours < 24;
 		const toDateInclusive = new Date(toDate.getTime() + (useHourInterval ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
+
 		const MONTHS_ID = [
 			'Januari',
 			'Februari',
@@ -374,7 +439,10 @@ export default function ElectricityOutletDetailPage() {
 			power_l3: number | null;
 			power_total: number | null;
 			energy_total: number | null;
+			kvarh: number | null;
+			va_sigma: number | null;
 			pf_sigma: number | null;
+			frequency: number | null;
 		};
 
 		const allHistoryRows: RawHistoryRow[] = [];
@@ -392,6 +460,10 @@ export default function ElectricityOutletDetailPage() {
 			cursor = res.data.nextCursor;
 			fetchMore = !!cursor;
 		}
+
+		const sortedHistoryRows = [...allHistoryRows].sort(
+			(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+		);
 
 		const hourlyRes = await energyDashboardApi.getHourlyDailyEnergy(
 			scopeId,
@@ -413,18 +485,10 @@ export default function ElectricityOutletDetailPage() {
 			return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour') };
 		};
 
-		const fmtBucketLabelHour = (ts: Date) => {
-			const d = String(ts.getDate()).padStart(2, '0');
-			const mo = MONTHS_ID[ts.getMonth()];
-			const h = String(ts.getHours()).padStart(2, '0');
-			return `${d} ${mo} ${ts.getFullYear()}, ${h}:00 WIB`;
-		};
-
-		const fmtBucketLabelDay = (ts: Date) => {
-			const d = String(ts.getDate()).padStart(2, '0');
-			const mo = MONTHS_ID[ts.getMonth()];
-			return `${d} ${mo} ${ts.getFullYear()}`;
-		};
+		const fmtBucketLabelHour = (ts: Date) =>
+			`${String(ts.getDate()).padStart(2, '0')} ${MONTHS_ID[ts.getMonth()]} ${ts.getFullYear()}, ${String(ts.getHours()).padStart(2, '0')}:00 WIB`;
+		const fmtBucketLabelDay = (ts: Date) =>
+			`${String(ts.getDate()).padStart(2, '0')} ${MONTHS_ID[ts.getMonth()]} ${ts.getFullYear()}`;
 
 		type SlotAcc = {
 			powerSum: number;
@@ -445,6 +509,10 @@ export default function ElectricityOutletDetailPage() {
 			currTotalCount: number;
 			pfSum: number;
 			pfCount: number;
+			freqSum: number;
+			freqCount: number;
+			kvarhFirst: number | null;
+			kvarhLast: number | null;
 		};
 
 		const makeAcc = (): SlotAcc => ({
@@ -466,58 +534,74 @@ export default function ElectricityOutletDetailPage() {
 			currTotalCount: 0,
 			pfSum: 0,
 			pfCount: 0,
+			freqSum: 0,
+			freqCount: 0,
+			kvarhFirst: null,
+			kvarhLast: null,
 		});
 
 		const addToAcc = (acc: SlotAcc, key: string, val: number) => {
 			const v = Number(val);
 			if (!isFinite(v)) return;
 			switch (key) {
-				case 'power_total': {
+				case 'power_total':
 					if (v <= 0) return;
-					const pwr = v > 1000 ? v / 1000 : v;
-					acc.powerSum += pwr;
+					acc.powerSum += v > 1000 ? v / 1000 : v;
 					acc.powerCount += 1;
 					break;
-				}
 				case 'voltage_l1':
-					if (v <= 0) return;
-					acc.voltL1Sum += v;
-					acc.voltL1Count += 1;
+					if (v > 0) {
+						acc.voltL1Sum += v;
+						acc.voltL1Count += 1;
+					}
 					break;
 				case 'voltage_l2':
-					if (v <= 0) return;
-					acc.voltL2Sum += v;
-					acc.voltL2Count += 1;
+					if (v > 0) {
+						acc.voltL2Sum += v;
+						acc.voltL2Count += 1;
+					}
 					break;
 				case 'voltage_l3':
-					if (v <= 0) return;
-					acc.voltL3Sum += v;
-					acc.voltL3Count += 1;
+					if (v > 0) {
+						acc.voltL3Sum += v;
+						acc.voltL3Count += 1;
+					}
 					break;
 				case 'current_l1':
-					if (v <= 0) return;
-					acc.currL1Sum += v;
-					acc.currL1Count += 1;
+					if (v > 0) {
+						acc.currL1Sum += v;
+						acc.currL1Count += 1;
+					}
 					break;
 				case 'current_l2':
-					if (v <= 0) return;
-					acc.currL2Sum += v;
-					acc.currL2Count += 1;
+					if (v > 0) {
+						acc.currL2Sum += v;
+						acc.currL2Count += 1;
+					}
 					break;
 				case 'current_l3':
-					if (v <= 0) return;
-					acc.currL3Sum += v;
-					acc.currL3Count += 1;
+					if (v > 0) {
+						acc.currL3Sum += v;
+						acc.currL3Count += 1;
+					}
 					break;
 				case 'current_total':
-					if (v <= 0) return;
-					acc.currTotalSum += v;
-					acc.currTotalCount += 1;
+					if (v > 0) {
+						acc.currTotalSum += v;
+						acc.currTotalCount += 1;
+					}
 					break;
 				case 'pf_sigma':
-					if (v <= 0 || v > 1) return;
-					acc.pfSum += v;
-					acc.pfCount += 1;
+					if (v > 0 && v <= 1) {
+						acc.pfSum += v;
+						acc.pfCount += 1;
+					}
+					break;
+				case 'frequency':
+					if (v >= 45 && v <= 55) {
+						acc.freqSum += v;
+						acc.freqCount += 1;
+					}
 					break;
 			}
 		};
@@ -546,45 +630,43 @@ export default function ElectricityOutletDetailPage() {
 				from: fromIso,
 				to: toDateInclusive.toISOString(),
 			});
-			const ts =
+			ingestTimeSeries(
 				tsRes.success && tsRes.data
 					? ((
 							tsRes.data as unknown as {
 								timeSeries?: Array<{ timestamp: string; metricKey: string; metricValue: number }>;
 							}
 						).timeSeries ?? [])
-					: [];
-			ingestTimeSeries(ts);
+					: [],
+			);
 		} else {
-			const dayKeys = hourlyDays.map((d) => d.date).sort();
 			await Promise.all(
-				dayKeys.map(async (dayKey) => {
-					const dayFrom = new Date(`${dayKey}T00:00:00+07:00`).toISOString();
-					const dayTo = new Date(`${dayKey}T23:59:59+07:00`).toISOString();
-					const tsRes = await energyDashboardApi.getOutletDetail(scopeId, {
-						from: dayFrom,
-						to: dayTo,
-					});
-					const ts =
-						tsRes.success && tsRes.data
-							? ((
-									tsRes.data as unknown as {
-										timeSeries?: Array<{
-											timestamp: string;
-											metricKey: string;
-											metricValue: number;
-										}>;
-									}
-								).timeSeries ?? [])
-							: [];
-					ingestTimeSeries(ts);
-				}),
+				hourlyDays
+					.map((day) => async () => {
+						const tsRes = await energyDashboardApi.getOutletDetail(scopeId, {
+							from: new Date(`${day.date}T00:00:00+07:00`).toISOString(),
+							to: new Date(`${day.date}T23:59:59+07:00`).toISOString(),
+						});
+						ingestTimeSeries(
+							tsRes.success && tsRes.data
+								? ((
+										tsRes.data as unknown as {
+											timeSeries?: Array<{
+												timestamp: string;
+												metricKey: string;
+												metricValue: number;
+											}>;
+										}
+									).timeSeries ?? [])
+								: [],
+						);
+					})
+					.map((fn) => fn()),
 			);
 		}
 
-		for (const r of allHistoryRows) {
-			if (r.pf_sigma === null || r.pf_sigma === undefined) continue;
-			const v = Number(r.pf_sigma);
+		for (const r of sortedHistoryRows) {
+			const v = Number(r.pf_sigma ?? 0);
 			if (!isFinite(v) || v <= 0 || v > 1) continue;
 			const d = new Date(r.timestamp);
 			if (isNaN(d.getTime())) continue;
@@ -605,10 +687,50 @@ export default function ElectricityOutletDetailPage() {
 			dailyAccMap.set(dKey, dAcc);
 		}
 
-		const avgOrNull = (sum: number, count: number, decimals = 2): number | null =>
-			count > 0 ? Number((sum / count).toFixed(decimals)) : null;
+		for (const r of sortedHistoryRows) {
+			const v = Number(r.frequency ?? null);
+			if (!isFinite(v) || v < 45 || v > 55) continue;
+			const d = new Date(r.timestamp);
+			if (isNaN(d.getTime())) continue;
+			const p = getJakartaParts(d);
+			const hKey = `${p.year}-${p.month}-${p.day}-${p.hour}`;
+			const dKey = `${p.year}-${p.month}-${p.day}`;
+			const hAcc = hourlyAccMap.get(hKey) ?? makeAcc();
+			if (hAcc.freqCount === 0) {
+				hAcc.freqSum += v;
+				hAcc.freqCount += 1;
+			}
+			hourlyAccMap.set(hKey, hAcc);
+			const dAcc = dailyAccMap.get(dKey) ?? makeAcc();
+			if (dAcc.freqCount === 0) {
+				dAcc.freqSum += v;
+				dAcc.freqCount += 1;
+			}
+			dailyAccMap.set(dKey, dAcc);
+		}
 
-		const resolveSlotAvg = (acc: SlotAcc) => ({
+		for (const r of sortedHistoryRows) {
+			const v = Number(r.kvarh ?? null);
+			if (!isFinite(v) || v < 0) continue;
+			const d = new Date(r.timestamp);
+			if (isNaN(d.getTime())) continue;
+			const p = getJakartaParts(d);
+			const hKey = `${p.year}-${p.month}-${p.day}-${p.hour}`;
+			const dKey = `${p.year}-${p.month}-${p.day}`;
+			const hAcc = hourlyAccMap.get(hKey) ?? makeAcc();
+			if (hAcc.kvarhFirst === null) hAcc.kvarhFirst = v;
+			hAcc.kvarhLast = v;
+			hourlyAccMap.set(hKey, hAcc);
+			const dAcc = dailyAccMap.get(dKey) ?? makeAcc();
+			if (dAcc.kvarhFirst === null) dAcc.kvarhFirst = v;
+			dAcc.kvarhLast = v;
+			dailyAccMap.set(dKey, dAcc);
+		}
+
+		const avgOrNull = (sum: number, count: number, d = 2): number | null =>
+			count > 0 ? Number((sum / count).toFixed(d)) : null;
+
+		const resolveSlot = (acc: SlotAcc) => ({
 			avgPowerKw: avgOrNull(acc.powerSum, acc.powerCount, 3),
 			avgVoltL1: avgOrNull(acc.voltL1Sum, acc.voltL1Count, 1),
 			avgVoltL2: avgOrNull(acc.voltL2Sum, acc.voltL2Count, 1),
@@ -618,12 +740,19 @@ export default function ElectricityOutletDetailPage() {
 			avgCurrL3: avgOrNull(acc.currL3Sum, acc.currL3Count, 2),
 			avgCurrTotal: avgOrNull(acc.currTotalSum, acc.currTotalCount, 2),
 			avgPf: avgOrNull(acc.pfSum, acc.pfCount, 3),
+			avgFreq: avgOrNull(acc.freqSum, acc.freqCount, 2),
+			_kvarhFirst: acc.kvarhFirst,
+			_kvarhLast: acc.kvarhLast,
+			avgKvarh: acc.kvarhLast !== null ? Number(acc.kvarhLast.toFixed(3)) : null,
 		});
 
 		type EnergyBucket = {
 			timestamp: string;
 			label: string;
 			energyKwh: number | null;
+			avgKvarh: number | null;
+			_kvarhFirst: number | null;
+			_kvarhLast: number | null;
 			avgPowerKw: number | null;
 			avgVoltL1: number | null;
 			avgVoltL2: number | null;
@@ -633,6 +762,7 @@ export default function ElectricityOutletDetailPage() {
 			avgCurrL3: number | null;
 			avgCurrTotal: number | null;
 			avgPf: number | null;
+			avgFreq: number | null;
 		};
 
 		const hourlyBuckets: EnergyBucket[] = [];
@@ -646,8 +776,28 @@ export default function ElectricityOutletDetailPage() {
 					timestamp: ts.toISOString(),
 					label: fmtBucketLabelHour(ts),
 					energyKwh: hour.energyKwh > 0 ? Number(hour.energyKwh.toFixed(3)) : null,
-					...resolveSlotAvg(hourlyAccMap.get(hKey) ?? makeAcc()),
+					...resolveSlot(hourlyAccMap.get(hKey) ?? makeAcc()),
 				});
+			}
+		}
+
+		for (let i = 0; i < hourlyBuckets.length; i++) {
+			const curr = hourlyBuckets[i];
+			if (i === 0) {
+				if (curr._kvarhFirst !== null && curr._kvarhLast !== null) {
+					const delta = curr._kvarhLast - curr._kvarhFirst;
+					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
+				} else {
+					curr.avgKvarh = null;
+				}
+			} else {
+				const prev = hourlyBuckets[i - 1];
+				if (curr._kvarhFirst !== null && prev._kvarhLast !== null) {
+					const delta = curr._kvarhFirst - prev._kvarhLast;
+					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
+				} else {
+					curr.avgKvarh = null;
+				}
 			}
 		}
 
@@ -661,32 +811,51 @@ export default function ElectricityOutletDetailPage() {
 				timestamp: ts.toISOString(),
 				label: fmtBucketLabelDay(ts),
 				energyKwh: Number(day.totalKwh.toFixed(3)),
-				...resolveSlotAvg(dailyAccMap.get(dKey) ?? makeAcc()),
+				...resolveSlot(dailyAccMap.get(dKey) ?? makeAcc()),
 			});
 		}
 
+		for (let i = 0; i < dailyBuckets.length; i++) {
+			const curr = dailyBuckets[i];
+			if (i === 0) {
+				if (curr._kvarhFirst !== null && curr._kvarhLast !== null) {
+					const delta = curr._kvarhLast - curr._kvarhFirst;
+					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
+				} else {
+					curr.avgKvarh = null;
+				}
+			} else {
+				const prev = dailyBuckets[i - 1];
+				if (curr._kvarhFirst !== null && prev._kvarhLast !== null) {
+					const delta = curr._kvarhFirst - prev._kvarhLast;
+					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
+				} else {
+					curr.avgKvarh = null;
+				}
+			}
+		}
+
 		const hourlyByDay = new Map<string, EnergyBucket[]>();
-		for (const bucket of hourlyBuckets) {
-			const p = getJakartaParts(new Date(bucket.timestamp));
+		for (const b of hourlyBuckets) {
+			const p = getJakartaParts(new Date(b.timestamp));
 			const dKey = `${p.year}-${p.month}-${p.day}`;
-			const existing = hourlyByDay.get(dKey) ?? [];
-			existing.push(bucket);
-			hourlyByDay.set(dKey, existing);
+			const arr = hourlyByDay.get(dKey) ?? [];
+			arr.push(b);
+			hourlyByDay.set(dKey, arr);
 		}
 
 		const daySheetLabel = (dKey: string): string => {
-			const buckets = hourlyByDay.get(dKey);
-			if (!buckets?.length) return dKey;
-			const ts = new Date(buckets[0]!.timestamp);
-			const d = String(ts.getDate()).padStart(2, '0');
-			const mo = MONTHS_ID[ts.getMonth()];
-			return `${d} ${mo}`;
+			const b = hourlyByDay.get(dKey)?.[0];
+			if (!b) return dKey;
+			const ts = new Date(b.timestamp);
+			return `${String(ts.getDate()).padStart(2, '0')} ${MONTHS_ID[ts.getMonth()]}`;
 		};
 
 		const primaryBuckets = useHourInterval ? hourlyBuckets : dailyBuckets;
 		const validEnergy = primaryBuckets.map((b) => b.energyKwh).filter((v): v is number => v !== null && v > 0);
 		const totalEnergyKwh = Number(validEnergy.reduce((s, v) => s + v, 0).toFixed(3));
 		const avgEnergyKwh = Number((validEnergy.length ? totalEnergyKwh / validEnergy.length : 0).toFixed(3));
+
 		const peakBucket =
 			[...primaryBuckets]
 				.slice(0, -1)
@@ -699,56 +868,79 @@ export default function ElectricityOutletDetailPage() {
 				null,
 			);
 
-		const globalAcc = makeAcc();
+		const gAcc = makeAcc();
 		for (const acc of hourlyAccMap.values()) {
-			globalAcc.powerSum += acc.powerSum;
-			globalAcc.powerCount += acc.powerCount;
-			globalAcc.voltL1Sum += acc.voltL1Sum;
-			globalAcc.voltL1Count += acc.voltL1Count;
-			globalAcc.voltL2Sum += acc.voltL2Sum;
-			globalAcc.voltL2Count += acc.voltL2Count;
-			globalAcc.voltL3Sum += acc.voltL3Sum;
-			globalAcc.voltL3Count += acc.voltL3Count;
-			globalAcc.currTotalSum += acc.currTotalSum;
-			globalAcc.currTotalCount += acc.currTotalCount;
+			gAcc.powerSum += acc.powerSum;
+			gAcc.powerCount += acc.powerCount;
+			gAcc.voltL1Sum += acc.voltL1Sum;
+			gAcc.voltL1Count += acc.voltL1Count;
+			gAcc.currTotalSum += acc.currTotalSum;
+			gAcc.currTotalCount += acc.currTotalCount;
+			gAcc.pfSum += acc.pfSum;
+			gAcc.pfCount += acc.pfCount;
+			gAcc.freqSum += acc.freqSum;
+			gAcc.freqCount += acc.freqCount;
 		}
 
-		const analytics = {
-			peakPowerKw: Number(
-				(globalAcc.powerCount > 0
-					? Math.max(
-							...Array.from(hourlyAccMap.values()).map((a) =>
-								a.powerCount > 0 ? a.powerSum / a.powerCount : 0,
-							),
-						)
-					: 0
-				).toFixed(2),
-			),
-			peakAt: peakBucket?.label ?? '-',
-			avgPowerKw: avgOrNull(globalAcc.powerSum, globalAcc.powerCount, 2) ?? 0,
-			avgVoltageV: avgOrNull(globalAcc.voltL1Sum, globalAcc.voltL1Count, 1) ?? 0,
-			avgCurrentA: avgOrNull(globalAcc.currTotalSum, globalAcc.currTotalCount, 2) ?? 0,
-			totalEnergyKwh,
-			avgEnergyKwh,
-		};
+		const peakPowerKw = Number(
+			(gAcc.powerCount > 0
+				? Math.max(
+						...Array.from(hourlyAccMap.values()).map((a) =>
+							a.powerCount > 0 ? a.powerSum / a.powerCount : 0,
+						),
+					)
+				: 0
+			).toFixed(2),
+		);
 
-		const pemakaianColumns = [
-			'Waktu / Tanggal',
-			'Energy (kWh)',
-			'Avg Power (kW)',
-			'Avg V-R (V)',
-			'Avg V-S (V)',
-			'Avg V-T (V)',
-			'Avg A-R (A)',
-			'Avg A-S (A)',
-			'Avg A-T (A)',
-			'Avg A-Total (A)',
-			'Avg PF',
+		const backendKvarh = detail.analytics?.totalKvarhDelta ?? 0;
+		const computedKvarh = Number(
+			primaryBuckets
+				.map((b) => b.avgKvarh ?? 0)
+				.reduce((s, v) => s + v, 0)
+				.toFixed(3),
+		);
+		const analyticsAvgKvarh = backendKvarh > 0 ? Number(backendKvarh.toFixed(3)) : computedKvarh;
+		const backendFreq = detail.analytics?.avgFrequencyHz;
+		const computedFreq = avgOrNull(gAcc.freqSum, gAcc.freqCount, 2);
+		const analyticsAvgFreq =
+			backendFreq !== null && backendFreq !== undefined ? Number(backendFreq.toFixed(2)) : (computedFreq ?? 0);
+
+		const analyticsRows: Array<[string, string | number]> = [
+			[L.waktuPeak, peakBucket?.label ?? '-'],
+			[L.peakPower, peakPowerKw],
+			[L.totalKwh, totalEnergyKwh],
+			[L.totalKvarh, analyticsAvgKvarh],
+			[L.avgKwh, avgEnergyKwh],
+			[L.avgPower, avgOrNull(gAcc.powerSum, gAcc.powerCount, 2) ?? 0],
+			[L.avgVoltage, avgOrNull(gAcc.voltL1Sum, gAcc.voltL1Count, 1) ?? 0],
+			[L.avgCurrent, avgOrNull(gAcc.currTotalSum, gAcc.currTotalCount, 2) ?? 0],
+			[L.avgPf, avgOrNull(gAcc.pfSum, gAcc.pfCount, 3) ?? 0],
+			[L.avgFreq, analyticsAvgFreq],
 		];
 
-		const bucketToRow = (b: EnergyBucket): Array<string | number> => [
+		const analyticsExcelRow = Object.fromEntries(analyticsRows) as Record<string, string | number>;
+
+		const bucketToExcelRow = (b: EnergyBucket): Record<string, string | number | null> => ({
+			[L.waktu]: b.label,
+			[L.energy]: b.energyKwh ?? '-',
+			[L.reactive]: b.avgKvarh ?? '-',
+			[L.power]: b.avgPowerKw ?? '-',
+			[L.voltR]: b.avgVoltL1 ?? '-',
+			[L.voltS]: b.avgVoltL2 ?? '-',
+			[L.voltT]: b.avgVoltL3 ?? '-',
+			[L.currR]: b.avgCurrL1 ?? '-',
+			[L.currS]: b.avgCurrL2 ?? '-',
+			[L.currT]: b.avgCurrL3 ?? '-',
+			[L.currTotal]: b.avgCurrTotal ?? '-',
+			[L.pf]: b.avgPf ?? '-',
+			[L.freq]: b.avgFreq ?? '-',
+		});
+
+		const bucketToPdfRow = (b: EnergyBucket): Array<string | number> => [
 			b.label,
 			String(b.energyKwh ?? '-'),
+			String(b.avgKvarh ?? '-'),
 			String(b.avgPowerKw ?? '-'),
 			String(b.avgVoltL1 ?? '-'),
 			String(b.avgVoltL2 ?? '-'),
@@ -758,21 +950,45 @@ export default function ElectricityOutletDetailPage() {
 			String(b.avgCurrL3 ?? '-'),
 			String(b.avgCurrTotal ?? '-'),
 			String(b.avgPf ?? '-'),
+			String(b.avgFreq ?? '-'),
 		];
 
-		const bucketToExcelRow = (b: EnergyBucket): Record<string, string | number | null> => ({
-			'Waktu / Tanggal': b.label,
-			'Energy (kWh)': b.energyKwh ?? '-',
-			'Avg Power (kW)': b.avgPowerKw ?? '-',
-			'Avg Voltage R (V)': b.avgVoltL1 ?? '-',
-			'Avg Voltage S (V)': b.avgVoltL2 ?? '-',
-			'Avg Voltage T (V)': b.avgVoltL3 ?? '-',
-			'Avg Current R (A)': b.avgCurrL1 ?? '-',
-			'Avg Current S (A)': b.avgCurrL2 ?? '-',
-			'Avg Current T (A)': b.avgCurrL3 ?? '-',
-			'Avg Total Current (A)': b.avgCurrTotal ?? '-',
-			'Avg Power Factor': b.avgPf ?? '-',
-		});
+		const pdfPemakaianCols = [
+			L.waktu,
+			L.energy,
+			L.reactive,
+			L.power,
+			L.voltR,
+			L.voltS,
+			L.voltT,
+			L.currR,
+			L.currS,
+			L.currT,
+			L.currTotal,
+			L.pf,
+			L.freq,
+		];
+
+		const infoDeviceCols = ['Nama Device', 'Serial No', 'Lokasi', 'Tipe', 'Status', 'Terakhir Online', 'Modul'];
+		const deviceRowsFn = () =>
+			detail.devices.map((d) => [
+				d.name,
+				d.serialNo,
+				d.locationName ?? '-',
+				d.locationType ?? '-',
+				d.status,
+				d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
+				d.moduleTypes.join(', ') || '-',
+			]);
+		const deviceExcelRows = detail.devices.map((d) => ({
+			'Nama Device': d.name,
+			'Serial No': d.serialNo,
+			Lokasi: d.locationName ?? '-',
+			'Tipe Lokasi': d.locationType ?? '-',
+			Status: d.status,
+			'Terakhir Online': d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
+			Modul: d.moduleTypes.join(', ') || '-',
+		}));
 
 		const summaryBlock = [
 			`Outlet: ${detail.name}`,
@@ -783,59 +999,10 @@ export default function ElectricityOutletDetailPage() {
 			`Jumlah Device: ${detail.devices.length}`,
 		];
 
-		const infoDeviceTablePdf = {
-			title: 'Info Device',
-			columns: ['Nama Device', 'Serial No', 'Lokasi', 'Tipe', 'Status', 'Terakhir Online', 'Modul'],
-			rows: detail.devices.map((device) => [
-				device.name,
-				device.serialNo,
-				device.locationName ?? '-',
-				device.locationType ?? '-',
-				device.status,
-				device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('id-ID') : '-',
-				device.moduleTypes.join(', ') || '-',
-			]),
-		};
-
-		const infoDeviceExcelRows = detail.devices.map((device) => ({
-			'Nama Device': device.name,
-			'Serial No': device.serialNo,
-			Lokasi: device.locationName ?? '-',
-			'Tipe Lokasi': device.locationType ?? '-',
-			Status: device.status,
-			'Terakhir Online': device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('id-ID') : '-',
-			Modul: device.moduleTypes.join(', ') || '-',
-		}));
-
-		const analyticsTablePdf = {
-			title: 'Analytics',
-			columns: ['Metric', 'Nilai'],
-			rows: [
-				['Waktu Peak', analytics.peakAt],
-				['Total Pemakaian (kWh)', analytics.totalEnergyKwh],
-				['Avg Pemakaian (kWh)', analytics.avgEnergyKwh],
-				['Peak Power (kW)', analytics.peakPowerKw],
-				['Avg Power (kW)', analytics.avgPowerKw],
-				['Avg Voltage (V)', analytics.avgVoltageV],
-				['Avg Current (A)', analytics.avgCurrentA],
-			],
-		};
-
-		const analyticsExcelRow = {
-			'Waktu Peak': analytics.peakAt,
-			'Total Pemakaian (kWh)': analytics.totalEnergyKwh,
-			'Avg Pemakaian (kWh)': analytics.avgEnergyKwh,
-			'Peak Power (kW)': analytics.peakPowerKw,
-			'Avg Power (kW)': analytics.avgPowerKw,
-			'Avg Voltage (V)': analytics.avgVoltageV,
-			'Avg Current (A)': analytics.avgCurrentA,
-		};
-
 		const sortedDayKeys = Array.from(hourlyByDay.keys()).sort();
 
 		if (format === 'excel') {
 			const sheets: Array<{ name: string; rows: Array<Record<string, string | number | null>> }> = [];
-
 			sheets.push({
 				name: 'Summary',
 				rows: [
@@ -849,9 +1016,8 @@ export default function ElectricityOutletDetailPage() {
 					},
 				],
 			});
-			sheets.push({ name: 'Info Device', rows: infoDeviceExcelRows });
+			sheets.push({ name: 'Info Device', rows: deviceExcelRows });
 			sheets.push({ name: 'Analytics', rows: [analyticsExcelRow] });
-
 			if (!useHourInterval) {
 				sheets.push({ name: 'Pemakaian (Per Hari)', rows: dailyBuckets.map(bucketToExcelRow) });
 				for (const dKey of sortedDayKeys) {
@@ -862,37 +1028,33 @@ export default function ElectricityOutletDetailPage() {
 			} else {
 				sheets.push({ name: 'Pemakaian (Per Jam)', rows: hourlyBuckets.map(bucketToExcelRow) });
 			}
-
 			await exportToExcel(`outlet-processed-${detail.id}.xlsx`, sheets);
 		} else {
 			const tables: Array<{ title: string; columns: string[]; rows: Array<Array<string | number>> }> = [];
-
-			tables.push(infoDeviceTablePdf);
-			tables.push(analyticsTablePdf);
-
+			tables.push({ title: 'Info Device', columns: infoDeviceCols, rows: deviceRowsFn() });
+			tables.push({ title: 'Analytics', columns: ['Metrik', 'Nilai'], rows: analyticsRows });
 			if (!useHourInterval) {
 				tables.push({
 					title: 'Pemakaian (Per Hari)',
-					columns: pemakaianColumns,
-					rows: dailyBuckets.map(bucketToRow),
+					columns: pdfPemakaianCols,
+					rows: dailyBuckets.map(bucketToPdfRow),
 				});
 				for (const dKey of sortedDayKeys) {
 					const dayBuckets = hourlyByDay.get(dKey) ?? [];
 					if (!dayBuckets.length) continue;
 					tables.push({
 						title: `Pemakaian Per Jam — ${daySheetLabel(dKey)}`,
-						columns: pemakaianColumns,
-						rows: dayBuckets.map(bucketToRow),
+						columns: pdfPemakaianCols,
+						rows: dayBuckets.map(bucketToPdfRow),
 					});
 				}
 			} else {
 				tables.push({
 					title: 'Pemakaian (Per Jam)',
-					columns: pemakaianColumns,
-					rows: hourlyBuckets.map(bucketToRow),
+					columns: pdfPemakaianCols,
+					rows: hourlyBuckets.map(bucketToPdfRow),
 				});
 			}
-
 			await exportToPdf({
 				fileName: `outlet-processed-${detail.id}.pdf`,
 				title: 'Aggregated Data Outlet',
@@ -908,14 +1070,20 @@ export default function ElectricityOutletDetailPage() {
 	const handleExportRaw = async (format: ExportFormat, period: ExportPeriod) => {
 		if (!detail) return;
 		const { fromIso, label: periodLabel } = normalizeExportPeriod(period);
-		const toDate = new Date(normalizeExportPeriod(period).toIso);
-		const toDateInclusive = new Date(toDate.getTime() + 24 * 60 * 60 * 1000);
+		const toDateInclusive = new Date(new Date(normalizeExportPeriod(period).toIso).getTime() + 24 * 60 * 60 * 1000);
 
 		type RawHistoryRow = {
 			timestamp: string;
+			pf_a: number | null;
+			pf_b: number | null;
+			pf_c: number | null;
+			pf_sigma: number | null;
 			voltage_l1: number | null;
 			voltage_l2: number | null;
 			voltage_l3: number | null;
+			voltage_ab: number | null;
+			voltage_bc: number | null;
+			voltage_ca: number | null;
 			current_l1: number | null;
 			current_l2: number | null;
 			current_l3: number | null;
@@ -924,18 +1092,25 @@ export default function ElectricityOutletDetailPage() {
 			power_l2: number | null;
 			power_l3: number | null;
 			power_total: number | null;
+			reactive_l1: number | null;
+			reactive_l2: number | null;
+			reactive_l3: number | null;
+			reactive_sigma: number | null;
+			va_a: number | null;
+			va_b: number | null;
+			va_c: number | null;
+			va_sigma: number | null;
 			energy_total: number | null;
-			pf_sigma: number | null;
+			kvarh: number | null;
+			frequency: number | null;
 		};
 
-		const normHistPower = (v: number | null): number | null => {
-			if (v === null) return null;
-			return Number(normalizePowerToKw(v).toFixed(3));
-		};
+		const normPower = (v: number | null): number | null =>
+			v === null ? null : Number(normalizePowerToKw(v).toFixed(3));
 
 		const fmtTs = (ts: string) => {
 			try {
-				const MONTHS_ID_RAW = [
+				const MONTHS = [
 					'Januari',
 					'Februari',
 					'Maret',
@@ -950,11 +1125,7 @@ export default function ElectricityOutletDetailPage() {
 					'Desember',
 				];
 				const d = new Date(ts);
-				const day = String(d.getDate()).padStart(2, '0');
-				const mon = MONTHS_ID_RAW[d.getMonth()] ?? '';
-				const hh = String(d.getHours()).padStart(2, '0');
-				const mm = String(d.getMinutes()).padStart(2, '0');
-				return `${day} ${mon} ${hh}:${mm}`;
+				return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 			} catch {
 				return ts;
 			}
@@ -984,41 +1155,81 @@ export default function ElectricityOutletDetailPage() {
 			'Capacity (VA)': detail.capacityVa ?? '-',
 			'Jumlah Device': detail.devices.length,
 		};
-
-		const deviceRows = detail.devices.map((device) => ({
-			'Nama Device': device.name,
-			'Serial No': device.serialNo,
-			Lokasi: device.locationName ?? '-',
-			'Tipe Lokasi': device.locationType ?? '-',
-			Status: device.status,
-			'Terakhir Online': device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('id-ID') : '-',
-			Modul: device.moduleTypes.join(', ') || '-',
+		const deviceExcelRows = detail.devices.map((d) => ({
+			'Nama Device': d.name,
+			'Serial No': d.serialNo,
+			Lokasi: d.locationName ?? '-',
+			'Tipe Lokasi': d.locationType ?? '-',
+			Status: d.status,
+			'Terakhir Online': d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
+			Modul: d.moduleTypes.join(', ') || '-',
 		}));
-
-		const rawDataRows = allRawRows.map((r) => ({
-			Time: fmtTs(r.timestamp),
-			'Voltage R (V)': r.voltage_l1,
-			'Voltage S (V)': r.voltage_l2,
-			'Voltage T (V)': r.voltage_l3,
-			'Current R (A)': r.current_l1,
-			'Current S (A)': r.current_l2,
-			'Current T (A)': r.current_l3,
-			'Total Current (A)': r.current_total,
-			'Power R (kW)': normHistPower(r.power_l1),
-			'Power S (kW)': normHistPower(r.power_l2),
-			'Power T (kW)': normHistPower(r.power_l3),
-			'Total Power (kW)': normHistPower(r.power_total),
-			'Energy (kWh)': r.energy_total,
-			'Power Factor': r.pf_sigma,
-		}));
+		const infoDeviceCols = ['Nama Device', 'Serial No', 'Lokasi', 'Tipe', 'Status', 'Terakhir Online', 'Modul'];
+		const devicePdfRows = detail.devices.map((d) => [
+			d.name,
+			d.serialNo,
+			d.locationName ?? '-',
+			d.locationType ?? '-',
+			d.status,
+			d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
+			d.moduleTypes.join(', ') || '-',
+		]);
 
 		if (format === 'excel') {
+			const rawDataRows = allRawRows.map((r) => ({
+				[L.waktu]: fmtTs(r.timestamp),
+				[L.pfR]: r.pf_a,
+				[L.pfS]: r.pf_b,
+				[L.pfT]: r.pf_c,
+				[L.pfAvg]: r.pf_sigma,
+				[L.vRLN]: r.voltage_l1,
+				[L.vSLN]: r.voltage_l2,
+				[L.vTLN]: r.voltage_l3,
+				[L.vRSLL]: r.voltage_ab,
+				[L.vSTLL]: r.voltage_bc,
+				[L.vTRLL]: r.voltage_ca,
+				[L.aR]: r.current_l1,
+				[L.aS]: r.current_l2,
+				[L.aT]: r.current_l3,
+				[L.aTotal]: r.current_total,
+				[L.pR]: normPower(r.power_l1),
+				[L.pS]: normPower(r.power_l2),
+				[L.pT]: normPower(r.power_l3),
+				[L.pTotal]: normPower(r.power_total),
+				[L.qR]: r.reactive_l1,
+				[L.qS]: r.reactive_l2,
+				[L.qT]: r.reactive_l3,
+				[L.qTotal]: r.reactive_sigma,
+				[L.vaR]: r.va_a,
+				[L.vaS]: r.va_b,
+				[L.vaT]: r.va_c,
+				[L.vaTotal]: r.va_sigma,
+				[L.kWh]: r.energy_total,
+				[L.kVArh]: r.kvarh,
+				[L.hz]: r.frequency,
+			}));
+
 			await exportToExcel(`outlet-raw-${detail.id}.xlsx`, [
 				{ name: 'Summary', rows: [summaryData] },
-				{ name: 'Info Device', rows: deviceRows },
+				{ name: 'Info Device', rows: deviceExcelRows },
 				{ name: 'Historical Data', rows: rawDataRows },
 			]);
 		} else {
+			const pdfRawCols = [
+				L.waktu,
+				L.pfAvg,
+				L.vRLN,
+				L.vSLN,
+				L.vTLN,
+				L.aTotal,
+				L.pTotal,
+				L.qTotal,
+				L.vaTotal,
+				L.kWh,
+				L.kVArh,
+				L.hz,
+			];
+
 			await exportToPdf({
 				fileName: `outlet-raw-${detail.id}.pdf`,
 				title: 'Raw Data Outlet',
@@ -1032,54 +1243,26 @@ export default function ElectricityOutletDetailPage() {
 					`Periode: ${periodLabel}`,
 					`Capacity (VA): ${detail.capacityVa ?? '-'}`,
 					`Jumlah Device: ${detail.devices.length}`,
+					'Catatan: PDF menampilkan kolom ringkasan (Total). Data lengkap per fase tersedia di ekspor Excel.',
 				],
 				tables: [
+					{ title: 'Info Device', columns: infoDeviceCols, rows: devicePdfRows },
 					{
-						title: 'Info Device',
-						columns: ['Nama Device', 'Serial No', 'Lokasi', 'Tipe', 'Status', 'Terakhir Online', 'Modul'],
-						rows: detail.devices.map((device) => [
-							device.name,
-							device.serialNo,
-							device.locationName ?? '-',
-							device.locationType ?? '-',
-							device.status,
-							device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('id-ID') : '-',
-							device.moduleTypes.join(', ') || '-',
-						]),
-					},
-					{
-						title: 'Historical Data',
-						columns: [
-							'Time',
-							'V R',
-							'V S',
-							'V T',
-							'A R',
-							'A S',
-							'A T',
-							'A Total',
-							'P R',
-							'P S',
-							'P T',
-							'P Total',
-							'Energy (kWh)',
-							'PF',
-						],
+						title: 'Historical Data (Ringkasan)',
+						columns: pdfRawCols,
 						rows: allRawRows.map((r) => [
 							fmtTs(r.timestamp),
+							String(r.pf_sigma ?? '-'),
 							String(r.voltage_l1 ?? '-'),
 							String(r.voltage_l2 ?? '-'),
 							String(r.voltage_l3 ?? '-'),
-							String(r.current_l1 ?? '-'),
-							String(r.current_l2 ?? '-'),
-							String(r.current_l3 ?? '-'),
 							String(r.current_total ?? '-'),
-							String(normHistPower(r.power_l1) ?? '-'),
-							String(normHistPower(r.power_l2) ?? '-'),
-							String(normHistPower(r.power_l3) ?? '-'),
-							String(normHistPower(r.power_total) ?? '-'),
+							String(normPower(r.power_total) ?? '-'),
+							String(r.reactive_sigma ?? '-'),
+							String(r.va_sigma ?? '-'),
 							String(r.energy_total ?? '-'),
-							String(r.pf_sigma ?? '-'),
+							String(r.kvarh ?? '-'),
+							String(r.frequency ?? '-'),
 						]),
 					},
 				],
