@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, FileText, Sheet } from 'lucide-react';
+import { Download, FileText, Sheet, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -11,9 +11,19 @@ import { cn } from '@/lib/utils';
 export type ExportFormat = 'pdf' | 'excel';
 export type ExportPeriod = { from: string; to: string };
 
-interface ExportModalProps {
+export interface ExportOption {
+	value: string;
+	label: string;
+	description?: string;
+	icon?: React.ReactNode;
 	onExport: (format: ExportFormat, period: ExportPeriod) => Promise<void>;
+}
+
+interface ExportModalProps {
+	onExport?: (format: ExportFormat, period: ExportPeriod) => Promise<void>;
+	options?: ExportOption[];
 	disabled?: boolean;
+	triggerLabel?: string;
 }
 
 const getDefaultPeriod = (): ExportPeriod => {
@@ -45,16 +55,28 @@ const FORMAT_OPTIONS: Array<{
 	},
 ];
 
-export function ExportModal({ onExport, disabled }: ExportModalProps) {
+const DEFAULT_ICON = <Download className='h-4 w-4' />;
+
+export function ExportModal({ onExport, options, disabled, triggerLabel }: ExportModalProps) {
 	const [open, setOpen] = useState(false);
 	const [format, setFormat] = useState<ExportFormat>('pdf');
 	const [period, setPeriod] = useState<ExportPeriod>(getDefaultPeriod);
 	const [loading, setLoading] = useState(false);
+	const [selectedOption, setSelectedOption] = useState<string>(options?.[0]?.value ?? '');
+	const [optionDropdownOpen, setOptionDropdownOpen] = useState(false);
+
+	const isMulti = !!options?.length;
+
+	const activeOption = isMulti ? (options!.find((o) => o.value === selectedOption) ?? options![0]!) : null;
 
 	const handleExport = async () => {
 		try {
 			setLoading(true);
-			await onExport(format, period);
+			if (isMulti && activeOption) {
+				await activeOption.onExport(format, period);
+			} else if (onExport) {
+				await onExport(format, period);
+			}
 			setOpen(false);
 		} finally {
 			setLoading(false);
@@ -66,11 +88,15 @@ export function ExportModal({ onExport, disabled }: ExportModalProps) {
 			<DialogTrigger asChild>
 				<Button
 					variant='outline'
-					size='icon'
-					className='h-8 w-8 border-border/60 bg-background hover:bg-muted/50 shadow-sm hover:shadow-none transition-all cursor-pointer'
+					size={triggerLabel ? 'sm' : 'icon'}
+					className={cn(
+						'border-border/60 bg-background hover:bg-muted/50 shadow-sm hover:shadow-none transition-all cursor-pointer',
+						triggerLabel ? 'h-8 px-3 gap-1.5 text-xs' : 'h-8 w-8',
+					)}
 					disabled={disabled}
 				>
 					<Download className='h-3.5 w-3.5 text-muted-foreground' />
+					{triggerLabel && <span>{triggerLabel}</span>}
 				</Button>
 			</DialogTrigger>
 
@@ -90,6 +116,81 @@ export function ExportModal({ onExport, disabled }: ExportModalProps) {
 				</DialogHeader>
 
 				<div className='px-5 py-4 space-y-4'>
+					{isMulti && (
+						<div className='space-y-2'>
+							<Label className='text-[11px] font-medium text-muted-foreground uppercase tracking-wide'>
+								Jenis Export
+							</Label>
+							<div className='relative'>
+								<button
+									onClick={() => setOptionDropdownOpen((v) => !v)}
+									className='w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border border-border/60 bg-muted/20 hover:bg-muted/50 text-left transition-all cursor-pointer'
+								>
+									<div className='flex items-center gap-2.5'>
+										<span className='text-muted-foreground shrink-0'>
+											{activeOption?.icon ?? DEFAULT_ICON}
+										</span>
+										<div>
+											<p className='text-xs font-medium leading-none text-foreground'>
+												{activeOption?.label ?? '-'}
+											</p>
+											{activeOption?.description && (
+												<p className='text-[10px] text-muted-foreground mt-0.5 leading-none'>
+													{activeOption.description}
+												</p>
+											)}
+										</div>
+									</div>
+									<ChevronDown
+										className={cn(
+											'h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform',
+											optionDropdownOpen && 'rotate-180',
+										)}
+									/>
+								</button>
+
+								{optionDropdownOpen && (
+									<div className='absolute top-full mt-1 left-0 right-0 z-50 rounded-lg border border-border/60 bg-popover shadow-md overflow-hidden'>
+										{options!.map((opt) => (
+											<button
+												key={opt.value}
+												onClick={() => {
+													setSelectedOption(opt.value);
+													setOptionDropdownOpen(false);
+												}}
+												className={cn(
+													'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors cursor-pointer',
+													selectedOption === opt.value
+														? 'bg-primary/5 text-primary'
+														: 'hover:bg-muted/50 text-foreground/80 hover:text-foreground',
+												)}
+											>
+												<span
+													className={cn(
+														'shrink-0',
+														selectedOption === opt.value
+															? 'text-primary'
+															: 'text-muted-foreground',
+													)}
+												>
+													{opt.icon ?? DEFAULT_ICON}
+												</span>
+												<div>
+													<p className='text-xs font-medium leading-none'>{opt.label}</p>
+													{opt.description && (
+														<p className='text-[10px] text-muted-foreground mt-0.5 leading-none'>
+															{opt.description}
+														</p>
+													)}
+												</div>
+											</button>
+										))}
+									</div>
+								)}
+							</div>
+						</div>
+					)}
+
 					<div className='space-y-2'>
 						<Label className='text-[11px] font-medium text-muted-foreground uppercase tracking-wide'>
 							Periode
