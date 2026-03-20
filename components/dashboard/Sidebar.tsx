@@ -156,6 +156,27 @@ export default function Sidebar({ user }: SidebarProps) {
       });
     }
 
+    const hasCalibrationMenu = sourceMenus.some(
+      (menu) => menu.path === "/dashboard/energy-monitoring/calibration",
+    );
+    const energyMonitoringParent =
+      sourceMenus.find((menu) => menu.selectorValue === "energy_monitoring") ||
+      sourceMenus.find(
+        (menu) => menu.name.toLowerCase() === "energy monitoring",
+      );
+
+    if (!hasCalibrationMenu && hasPermission("outlet_energy_snapshots:read")) {
+      sourceMenus.push({
+        id: "built-in-energy-calibration",
+        name: "Calibration",
+        path: "/dashboard/energy-monitoring/calibration",
+        icon: "ClipboardCheck",
+        selectorValue: "energy_calibration",
+        order: (energyMonitoringParent?.order ?? 11) + 6,
+        parentId: energyMonitoringParent?.id ?? null,
+      });
+    }
+
     const mapById = new Map<string, NavigationItem>();
     sourceMenus.forEach((menu) => {
       mapById.set(menu.id, {

@@ -600,6 +600,40 @@ export interface HourlyDailyEnergyData {
 	};
 }
 
+export interface CalibrationHistoryRow {
+	id: string;
+	scopeId: string;
+	pqDeviceId: string;
+	pqDeviceName: string;
+	firmwareVersion: string | null;
+	date: string;
+	intervalLabel: string;
+	prevReadingAt: string | null;
+	intervalDays: number;
+	readingAt: string;
+	plnEnergyKwh: number;
+	protectCubeEnergyKwh: number;
+	deltaPln: number;
+	deltaPq: number;
+	gapKwh: number;
+	gapPercent: number;
+	accuracyPercent: number;
+	note: string | null;
+	createdBy: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface CalibrationHistoryData {
+	rows: CalibrationHistoryRow[];
+	summary: {
+		avgGapKwh: number;
+		avgGapPercent: number;
+		avgAccuracyPercent: number;
+		totalRows: number;
+	};
+}
+
 export interface LoginResponse {
 	token: string;
 	user: User;
@@ -1383,6 +1417,49 @@ export const energyDashboardApi = {
 			`/energy-dashboard/outlets/${scopeId}/hourly-energy`,
 			{ params: { from, to } },
 		);
+		return response.data;
+	},
+	getDailyCalibration: async (
+		scopeId: string,
+		filters?: { from?: string; to?: string },
+	): Promise<ApiResponse<CalibrationHistoryData>> => {
+		const response = await apiClient.get<ApiResponse<CalibrationHistoryData>>('/energy-dashboard/daily', {
+			params: { scopeId, ...(filters || {}) },
+		});
+		return response.data;
+	},
+	getCalibrationHistory: async (
+		scopeId: string,
+		filters?: { from?: string; to?: string },
+	): Promise<ApiResponse<CalibrationHistoryData>> => {
+		const response = await apiClient.get<ApiResponse<CalibrationHistoryData>>('/energy-dashboard/calibration', {
+			params: { scopeId, ...(filters || {}) },
+		});
+		return response.data;
+	},
+	createCalibration: async (data: {
+		scopeId: string;
+		timestamp: string;
+		kwhPln: number;
+		kwhPq?: number;
+		pqDeviceId?: string;
+		note?: string;
+	}): Promise<ApiResponse<{ id: string }>> => {
+		const response = await apiClient.post<ApiResponse<{ id: string }>>('/energy-dashboard/calibration', data);
+		return response.data;
+	},
+	updateCalibration: async (
+		id: string,
+		data: {
+			timestamp?: string;
+			kwhPln?: number;
+			kwhPq?: number;
+			pqDeviceId?: string;
+			note?: string | null;
+			scopeId?: string;
+		},
+	): Promise<ApiResponse<{ id: string }>> => {
+		const response = await apiClient.put<ApiResponse<{ id: string }>>(`/energy-dashboard/calibration/${id}`, data);
 		return response.data;
 	},
 };

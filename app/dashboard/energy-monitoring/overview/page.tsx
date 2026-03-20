@@ -41,7 +41,11 @@ import {
   useScopes,
   useTenants,
 } from "@/lib/use-energy-data";
-import { deviceMetricsApi } from "@/lib/api";
+import {
+  deviceMetricsApi,
+  energyDashboardApi,
+  type CalibrationHistoryData,
+} from "@/lib/api";
 import type { OverviewMidnightPoint } from "@/components/dashboard/MidnightEnergyOverviewCard";
 
 const OpenLayersMap = dynamic(
@@ -110,6 +114,24 @@ const buildLastDayKeys = (
 const buildLast7DayKeys = (referenceDate: Date = new Date()) =>
   buildLastDayKeys(referenceDate, 7);
 
+const toJakartaDayKey = (value: Date | string): string => {
+  const p = getJakartaDateTimeParts(value instanceof Date ? value : new Date(value));
+  return `${p.year}-${p.month}-${p.day}`;
+};
+
+const listDayKeysBetween = (startKey: string, endKeyExclusive: string): string[] => {
+  const keys: string[] = [];
+  let cursor = new Date(`${startKey}T00:00:00+07:00`);
+  const end = new Date(`${endKeyExclusive}T00:00:00+07:00`);
+
+  while (cursor.getTime() < end.getTime()) {
+    keys.push(toJakartaDayKey(cursor));
+    cursor = new Date(cursor.getTime() + DAY_MS);
+  }
+
+  return keys;
+};
+
 const buildEmptyMidnightPoints = (
   referenceDate: Date = new Date(),
 ): OverviewMidnightPoint[] => {
@@ -169,6 +191,8 @@ export function EnergyOverviewPage({
   const [latestPerScopeReadings, setLatestPerScopeReadings] = useState<
     Map<string, number>
   >(() => new Map());
+  const [dailyCalibrationData, setDailyCalibrationData] =
+    useState<CalibrationHistoryData | null>(null);
 
   const { setTitle, setFilterSlot } = useHeaderPage();
 
@@ -533,21 +557,101 @@ export function EnergyOverviewPage({
     globalRange.preset,
   ]);
 
-  // Daily consumption for Total Energy Consumption chart
-  const dailyConsumption = useMemo(
-    () =>
-      dailyBreakdownRows.map((row) => ({
-        label: row.chartLabel,
-        kWh: row.kWh,
-      })),
-    [dailyBreakdownRows],
-  );
+  const calibratedBreakdownRows = useMemo(() => {
+    if (!dailyBreakdownRows.length) return null;
 
-  // Filtered total energy from breakdown (consistent with chart/table)
-  const filteredTotalEnergy = useMemo(
-    () => Number(dailyBreakdownRows.reduce((s, r) => s + r.kWh, 0).toFixed(2)),
-    [dailyBreakdownRows],
-  );
+    const baseByDay = new Map(
+      dailyBreakdownRows.map((row) => [row.dayKey, Number(row.kWh.toFixed(4))]),
+    );
+    const dayMeta = new Map(
+      dailyBreakdownRows.map((row) => [
+        row.dayKey,
+        { label: row.label, chartLabel: row.chartLabel },
+      ]),
+    );
+
+    if (!dailyCalibrationData?.rows?.length) {
+      return dailyBreakdownRows;
+    }
+
+    const adjustmentByDay = new Map<string, number>();
+
+    for (const row of dailyCalibrationData.rows) {
+      if (!row.prevReadingAt) continue;
+      if (!Number.isFinite(row.deltaPq)) continue;
+
+      const startKey = toJakartaDayKey(row.prevReadingAt);
+      const endKey = toJakartaDayKey(row.readingAt);
+      const dayKeys = listDayKeysBetween(startKey, endKey).filter((key) =>
+        dayMeta.has(key),
+      );
+
+      if (!dayKeys.length) continue;
+
+      const baseValues = dayKeys.map((key) => Math.max(0, baseByDay.get(key) ?? 0));
+      const baseTotal = baseValues.reduce((sum, value) => sum + value, 0);
+      const targetTotal = Math.max(0, Number(row.deltaPq));
+
+      dayKeys.forEach((key, idx) => {
+        const baseVal = baseValues[idx] ?? 0;
+        const calibratedVal =
+          baseTotal > 0
+            ? (targetTotal * baseVal) / baseTotal
+            : targetTotal / dayKeys.length;
+        const adjustment = calibratedVal - baseVal;
+        adjustmentByDay.set(
+          key,
+          Number(((adjustmentByDay.get(key) ?? 0) + adjustment).toFixed(6)),
+        );
+      });
+    }
+
+    return [...dayMeta.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dayKey, meta]) => {
+        const base = baseByDay.get(dayKey) ?? 0;
+        const adjusted = Math.max(0, base + (adjustmentByDay.get(dayKey) ?? 0));
+        return {
+          dayKey,
+          label: meta.label,
+          chartLabel: meta.chartLabel,
+          kWh: Number(adjusted.toFixed(2)),
+        };
+      });
+  }, [dailyBreakdownRows, dailyCalibrationData?.rows]);
+
+  const calibratedDailyConsumption = useMemo(() => {
+    if (!calibratedBreakdownRows?.length) return null;
+    return calibratedBreakdownRows.map((row) => ({
+      label: row.chartLabel,
+      kWh: row.kWh,
+    }));
+  }, [calibratedBreakdownRows]);
+
+  // Daily consumption for Total Energy Consumption chart
+  const dailyConsumption = useMemo(() => {
+    if (calibratedDailyConsumption && calibratedDailyConsumption.length) {
+      return calibratedDailyConsumption;
+    }
+
+    return dailyBreakdownRows.map((row) => ({
+      label: row.chartLabel,
+      kWh: row.kWh,
+    }));
+  }, [calibratedDailyConsumption, dailyBreakdownRows]);
+
+  // Total energy follows calibration when scope-specific calibration exists
+  const filteredTotalEnergy = useMemo(() => {
+    if (calibratedDailyConsumption && calibratedDailyConsumption.length) {
+      return Number(
+        calibratedDailyConsumption
+          .reduce((sum, row) => sum + row.kWh, 0)
+          .toFixed(2),
+      );
+    }
+
+    return Number(dailyBreakdownRows.reduce((s, r) => s + r.kWh, 0).toFixed(2));
+  }, [calibratedDailyConsumption, dailyBreakdownRows]);
 
   const chartDateRange = useMemo<ChartDateRange>(() => {
     const validChartPresets = [
@@ -745,6 +849,88 @@ export function EnergyOverviewPage({
   const errorMessage =
     overviewError instanceof Error ? overviewError.message : null;
 
+  const loadDailyCalibration = useCallback(async () => {
+    if (!scopes?.length) {
+      setDailyCalibrationData(null);
+      return;
+    }
+
+    try {
+      if (effectiveScopeId) {
+        const res = await energyDashboardApi.getCalibrationHistory(
+          effectiveScopeId,
+          {
+            from: globalRange.from,
+            to: globalRange.to,
+          },
+        );
+        if (res.success && res.data) {
+          setDailyCalibrationData(res.data);
+        } else {
+          setDailyCalibrationData(null);
+        }
+        return;
+      }
+
+      const settled = await Promise.allSettled(
+        scopes.map((scope) =>
+          energyDashboardApi.getCalibrationHistory(scope.id, {
+            from: globalRange.from,
+            to: globalRange.to,
+          }),
+        ),
+      );
+
+      const mergedRows = settled.flatMap((result) => {
+        if (result.status !== "fulfilled") return [];
+        const payload = result.value;
+        if (!payload.success || !payload.data?.rows?.length) return [];
+        return payload.data.rows;
+      });
+
+      const totalRows = mergedRows.length;
+      const avgGapKwh = totalRows
+        ? Number(
+            (
+              mergedRows.reduce((sum, row) => sum + row.gapKwh, 0) / totalRows
+            ).toFixed(4),
+          )
+        : 0;
+      const avgGapPercent = totalRows
+        ? Number(
+            (
+              mergedRows.reduce((sum, row) => sum + row.gapPercent, 0) /
+              totalRows
+            ).toFixed(4),
+          )
+        : 0;
+      const avgAccuracyPercent = totalRows
+        ? Number(
+            (
+              mergedRows.reduce((sum, row) => sum + row.accuracyPercent, 0) /
+              totalRows
+            ).toFixed(4),
+          )
+        : 0;
+
+      setDailyCalibrationData({
+        rows: mergedRows,
+        summary: {
+          avgGapKwh,
+          avgGapPercent,
+          avgAccuracyPercent,
+          totalRows,
+        },
+      });
+    } catch {
+      setDailyCalibrationData(null);
+    }
+  }, [effectiveScopeId, globalRange.from, globalRange.to, scopes]);
+
+  useEffect(() => {
+    void loadDailyCalibration();
+  }, [loadDailyCalibration]);
+
   return (
     <PageTransition>
       <motion.div
@@ -882,14 +1068,16 @@ export function EnergyOverviewPage({
               <HourlyEnergyConsumptionChart
                 data={overviewData?.hourlyEnergy ?? []}
                 dailyData={dailyConsumption}
-                breakdownRows={dailyBreakdownRows}
+                breakdownRows={calibratedBreakdownRows ?? dailyBreakdownRows}
                 dateRange={chartDateRange}
                 onDateChange={() => undefined}
                 loading={loading || midnightLoading}
                 showDateFilter={false}
               />
             </motion.div>
+
           </div>
+
 
           {/* Right Column - Map + Avg Hourly */}
           <div className="min-w-0 space-y-3">
