@@ -21,11 +21,14 @@ import {
 import { useScopes, useTenants } from "@/lib/use-energy-data";
 import { energyDashboardApi, type CalibrationHistoryData } from "@/lib/api";
 import { useHeaderPage } from "@/components/providers/HeaderPageProvider";
+import { useAuth } from "@/lib/auth-context";
 
 type FilterValue = "all" | string;
 
 export default function EnergyCalibrationPage() {
   const { setTitle, setFilterSlot } = useHeaderPage();
+  const { user } = useAuth();
+  const isUserRole = user?.role?.name === "user";
   const [tenantFilter, setTenantFilter] = useState<FilterValue>("all");
   const [scopeFilter, setScopeFilter] = useState<FilterValue>("all");
   const [globalRange, setGlobalRange] = useState<DateRange>(buildRange("30d"));
@@ -383,8 +386,7 @@ export default function EnergyCalibrationPage() {
                         <th className="px-2 py-1 text-right">GAP (kWh)</th>
                         <th className="px-2 py-1 text-right">GAP (%)</th>
                         <th className="px-2 py-1 text-right">Accuracy</th>
-                        <th className="px-2 py-1 text-left">FW</th>
-                        <th className="px-2 py-1 text-left">Action</th>
+                        {!isUserRole && <th className="px-2 py-1 text-left">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -418,29 +420,28 @@ export default function EnergyCalibrationPage() {
                             <td className="px-2 py-1 text-right">
                               {row.accuracyPercent}
                             </td>
-                            <td className="px-2 py-1">
-                              {row.firmwareVersion ?? "-"}
-                            </td>
-                            <td className="px-2 py-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => {
-                                  setEditingCalibrationId(row.id);
-                                  setCalibrationTimestamp(
-                                    toLocalInputValue(row.readingAt),
-                                  );
-                                  setCalibrationPln(String(row.plnEnergyKwh));
-                                  setCalibrationPq(
-                                    String(row.protectCubeEnergyKwh),
-                                  );
-                                  setCalibrationNote(row.note ?? "");
-                                }}
-                              >
-                                Edit
-                              </Button>
-                            </td>
+                            {!isUserRole && (
+                              <td className="px-2 py-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => {
+                                    setEditingCalibrationId(row.id);
+                                    setCalibrationTimestamp(
+                                      toLocalInputValue(row.readingAt),
+                                    );
+                                    setCalibrationPln(String(row.plnEnergyKwh));
+                                    setCalibrationPq(
+                                      String(row.protectCubeEnergyKwh),
+                                    );
+                                    setCalibrationNote(row.note ?? "");
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -448,7 +449,7 @@ export default function EnergyCalibrationPage() {
                         (calibrationData?.rows.length ?? 0) === 0 && (
                           <tr>
                             <td
-                              colSpan={11}
+                              colSpan={isUserRole ? 9 : 10}
                               className="px-2 py-3 text-center text-muted-foreground"
                             >
                               Belum ada data kalibrasi untuk outlet dan range
