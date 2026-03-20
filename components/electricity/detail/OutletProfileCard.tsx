@@ -2,29 +2,34 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Building2, MapPin, Cpu, Signal } from 'lucide-react';
+import { Building2, MapPin, Cpu, Zap, Radio, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
+import { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page-new-old';
+import { useRouter } from 'next/navigation';
 
 interface OutletProfileCardProps {
 	detail: OutletDetailPayload;
 }
 
 const STATUS_STYLE: Record<string, string> = {
-	online: 'bg-green-500/20 text-green-500 border-green-500/30',
-	offline: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
-	alert: 'bg-red-500/20   text-red-500   border-red-500/30',
-	high: 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30',
+	online: 'bg-emerald-500/10 text-emerald-600 border-emerald-200 dark:border-emerald-500/20',
+	offline: 'bg-slate-500/10 text-slate-500 border-slate-200 dark:border-slate-500/20',
+	alert: 'bg-rose-500/10 text-rose-600 border-rose-200 dark:border-rose-500/20',
+	high: 'bg-amber-500/10 text-amber-600 border-amber-200 dark:border-amber-500/20',
 };
 
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
 	if (!value) return null;
 	return (
-		<div className='flex items-start gap-3 py-2.5 border-b border-border/30 last:border-0'>
-			<div className='text-muted-foreground mt-0.5'>{icon}</div>
-			<div>
-				<p className='text-xs text-muted-foreground'>{label}</p>
-				<p className='text-sm font-semibold mt-0.5'>{value}</p>
+		<div className='group flex items-center gap-4 py-3 transition-all'>
+			<div className='flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary/50 text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors'>
+				{icon}
+			</div>
+			<div className='flex flex-col min-w-0'>
+				<span className='text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70'>
+					{label}
+				</span>
+				<span className='text-sm font-medium leading-none truncate mt-1'>{value}</span>
 			</div>
 		</div>
 	);
@@ -32,87 +37,112 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
 
 export function OutletProfileCard({ detail }: OutletProfileCardProps) {
 	const safeDevices = detail.devices ?? [];
+	const router = useRouter();
 
 	return (
-		<Card className='border-0 shadow-sm'>
-			<CardHeader className='px-5 py-4 pb-0'>
-				<CardTitle className='text-base font-semibold flex items-center gap-2'>
-					<Building2 className='h-5 w-5 text-blue-500' />
+		<Card className='border border-border/60 shadow-sm h-full gap-0 py-0 flex flex-col'>
+			<CardHeader className='px-5 pt-5 pb-0 gap-0 shrink-0'>
+				<CardTitle className='text-lg font-bold flex items-center gap-2'>
+					<Building2 className='h-5 w-5 text-blue-600' />
 					Outlet Profile
 				</CardTitle>
 			</CardHeader>
 
-			<CardContent className='p-5 pt-3'>
-				<div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-					{/* Left: outlet info */}
-					<div>
-						<p className='text-xl font-bold mb-1'>{detail.name}</p>
-						<p className='text-sm text-muted-foreground mb-4'>{detail.id}</p>
-						<InfoRow icon={<MapPin className='h-4 w-4' />} label='Region' value={detail.region} />
-						<InfoRow icon={<MapPin className='h-4 w-4' />} label='City' value={detail.city} />
-						<InfoRow icon={<MapPin className='h-4 w-4' />} label='Address' value={detail.address} />
-						{detail.capacityVa && (
+			<CardContent className='p-0 flex flex-col flex-1 text-sm sm:text-base'>
+				<div className='grid grid-cols-1 lg:grid-cols-12'>
+					<div className='lg:col-span-5 p-6 border-b lg:border-b-0 lg:border-r border-border/50'>
+						<div className='mb-6'>
+							<h3 className='text-lg font-black tracking-tight text-foreground'>{detail.name}</h3>
+							<div className='flex items-center gap-2 mt-2'>
+								{detail.capacityVa && (
+									<div className='flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100'>
+										<Zap className='h-3 w-3 fill-current' />
+										{detail.capacityVa.toLocaleString('id-ID')} VA
+									</div>
+								)}
+							</div>
+						</div>
+
+						<div className='space-y-1'>
+							<InfoRow icon={<Radio className='h-4 w-4' />} label='Region' value={detail.region} />
+							<InfoRow icon={<MapPin className='h-4 w-4' />} label='City' value={detail.city} />
 							<InfoRow
-								icon={<Signal className='h-4 w-4' />}
-								label='Capacity'
-								value={`${detail.capacityVa.toLocaleString('id-ID')} VA${detail.maxLoadKw ? ` / ${detail.maxLoadKw} kW max` : ''}`}
+								icon={<MapPin className='h-4 w-4' />}
+								label='Full Address'
+								value={detail.address}
 							/>
-						)}
+						</div>
 					</div>
 
-					{/* Right: devices */}
-					<div>
-						<p className='text-sm font-semibold mb-3 flex items-center gap-2'>
-							<Cpu className='h-4 w-4 text-muted-foreground' />
-							Devices
-							<span className='text-xs font-normal text-muted-foreground'>({safeDevices.length})</span>
-						</p>
+					<div className='lg:col-span-7 p-6'>
+						<div className='flex items-center justify-between mb-4'>
+							<div className='flex items-center gap-2'>
+								<Cpu className='h-4 w-4 text-primary' />
+								<span className='font-bold text-sm uppercase tracking-wide'>Connected Devices</span>
+							</div>
+							<Badge variant='secondary' className='rounded-full px-2.5'>
+								{safeDevices.length} Total
+							</Badge>
+						</div>
 
 						{safeDevices.length === 0 ? (
-							<p className='text-sm text-muted-foreground'>No devices found</p>
+							<div className='flex flex-col items-center justify-center py-12 border-2 border-dashed rounded-2xl'>
+								<Cpu className='h-8 w-8 text-muted-foreground/30 mb-2' />
+								<p className='text-sm text-muted-foreground'>No telemetry devices found</p>
+							</div>
 						) : (
-							<div className='space-y-2 max-h-64 overflow-y-auto pr-1'>
+							<div className='grid gap-3 max-h-95 overflow-y-auto pr-2 custom-scrollbar'>
 								{safeDevices.map((d) => {
 									const statusKey = d.status?.toLowerCase() ?? 'offline';
+
 									return (
-										<div key={d.id} className='flex items-start gap-3 bg-muted/30 rounded-xl p-3'>
-											<div
-												className={cn('w-2.5 h-2.5 rounded-full mt-1 shrink-0', {
-													'bg-green-500': statusKey === 'online',
-													'bg-slate-400': statusKey === 'offline',
-													'bg-red-500': statusKey === 'alert',
-													'bg-yellow-500': statusKey === 'high',
-												})}
-											/>
+										<div
+											key={d.id}
+											onClick={() => router.push('/dashboard/devices')}
+											className='group relative flex items-center gap-4 border border-border/50 rounded-xl p-4 transition-all hover:shadow-md hover:border-primary/20 cursor-pointer'
+										>
 											<div className='flex-1 min-w-0'>
-												<p className='text-sm font-semibold truncate'>{d.name}</p>
-												<p className='text-xs text-muted-foreground'>{d.serialNo}</p>
-												{d.locationName && (
-													<p className='text-xs text-muted-foreground'>{d.locationName}</p>
-												)}
+												<div className='flex items-center gap-2'>
+													<p className='text-sm font-bold truncate group-hover:text-primary transition-colors'>
+														{d.name}
+													</p>
+												</div>
+												<div className='flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5'>
+													<span className='font-mono'>{d.serialNo}</span>
+													{d.locationName && (
+														<>
+															<span className='opacity-30'>•</span>
+															<span>{d.locationName}</span>
+														</>
+													)}
+												</div>
+
 												{(d.moduleTypes ?? []).length > 0 && (
-													<div className='flex flex-wrap gap-1 mt-1.5'>
+													<div className='flex flex-wrap gap-1 mt-2'>
+														<Badge
+															variant='outline'
+															className={cn(
+																'text-[10px] font-bold uppercase tracking-wider px-2 py-0 border',
+																STATUS_STYLE[statusKey] ?? STATUS_STYLE['offline'],
+															)}
+														>
+															{d.status ?? 'offline'}
+														</Badge>
 														{(d.moduleTypes ?? []).map((mt) => (
-															<Badge
+															<span
 																key={mt}
-																variant='outline'
-																className='text-xs px-1.5 py-0.5 h-auto'
+																className='text-[9px] font-bold uppercase px-1.5 py-0.5 bg-secondary rounded text-secondary-foreground'
 															>
 																{mt}
-															</Badge>
+															</span>
 														))}
 													</div>
 												)}
 											</div>
-											<Badge
-												variant='outline'
-												className={cn(
-													'text-xs shrink-0',
-													STATUS_STYLE[statusKey] ?? STATUS_STYLE['offline'],
-												)}
-											>
-												{d.status ?? 'offline'}
-											</Badge>
+
+											<div className='flex flex-col items-end gap-2'>
+												<ChevronRight className='h-4 w-4 text-muted-foreground/30 group-hover:text-primary group-hover:translate-x-1 transition-all' />
+											</div>
 										</div>
 									);
 								})}

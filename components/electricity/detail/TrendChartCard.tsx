@@ -1,350 +1,336 @@
-"use client";
+'use client';
 
-import { useMemo, useRef, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import type { OutletDetailPayload } from "@/app/dashboard/electricity/[scopeId]/page";
-import { TrendingUp } from "lucide-react";
-
-type TrendMetric = "energy" | "power" | "voltage" | "current";
-
-const METRIC_CFG: Record<
-  TrendMetric,
-  { key: string; color: string; label: string; unit: string }
-> = {
-  energy: {
-    key: "energy_total",
-    color: "#f97316",
-    label: "Energy",
-    unit: "kWh",
-  },
-  power: { key: "power_total", color: "#3b82f6", label: "Power", unit: "kW" },
-  voltage: { key: "voltage_l1", color: "#22c55e", label: "Voltage", unit: "V" },
-  current: {
-    key: "current_total",
-    color: "#a855f7",
-    label: "Current",
-    unit: "A",
-  },
-};
+import { useMemo, useRef } from 'react';
+import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page-new-old';
+import { Gauge, Waves } from 'lucide-react';
 
 interface ChartPoint {
-  label: string;
-  value: number;
-  hasData: boolean;
+	label: string;
+	[key: string]: number | string | boolean;
 }
 
 export interface TrendChartCardProps {
-  timeSeries: OutletDetailPayload["timeSeries"];
-  loadedFrom: string;
-  loadedTo: string;
+	timeSeries: OutletDetailPayload['timeSeries'];
+	loadedFrom: string;
+	loadedTo: string;
 }
+
+const PHASE_COLORS = {
+	L1: '#3b82f6',
+	L2: '#f59e0b',
+	L3: '#ef4444',
+};
+
+const VOLTAGE_METRICS = [
+	{ key: 'voltage_l1', phase: 'R', color: PHASE_COLORS.L1 },
+	{ key: 'voltage_l2', phase: 'S', color: PHASE_COLORS.L2 },
+	{ key: 'voltage_l3', phase: 'T', color: PHASE_COLORS.L3 },
+];
+
+const CURRENT_METRICS = [
+	{ key: 'current_l1', phase: 'R', color: PHASE_COLORS.L1 },
+	{ key: 'current_l2', phase: 'S', color: PHASE_COLORS.L2 },
+	{ key: 'current_l3', phase: 'T', color: PHASE_COLORS.L3 },
+];
 
 const PER_HOUR_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000;
 const MIN_PX_PER_POINT = 28;
 
-function generateHourSlots(
-  fromIso: string,
-  toIso: string,
-): Array<{ key: string; label: string }> {
-  const slots: Array<{ key: string; label: string }> = [];
-
-  const cursor = new Date(fromIso);
-  cursor.setMinutes(0, 0, 0);
-
-  const end = new Date(toIso);
-
-  const spansDays =
-    cursor.getDate() !== end.getDate() ||
-    cursor.getMonth() !== end.getMonth() ||
-    cursor.getFullYear() !== end.getFullYear();
-
-  while (cursor <= end) {
-    const y = cursor.getFullYear();
-    const mo = String(cursor.getMonth() + 1).padStart(2, "0");
-    const d = String(cursor.getDate()).padStart(2, "0");
-    const hh = String(cursor.getHours()).padStart(2, "0");
-    const key = `${y}-${mo}-${d} ${hh}`;
-
-    const label = spansDays
-      ? `${cursor.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })} ${hh}:00`
-      : `${hh}:00`;
-
-    slots.push({ key, label });
-    cursor.setHours(cursor.getHours() + 1);
-  }
-
-  return slots;
+function generateHourSlots(fromIso: string, toIso: string) {
+	const slots: Array<{ key: string; label: string }> = [];
+	const cursor = new Date(fromIso);
+	cursor.setMinutes(0, 0, 0);
+	const end = new Date(toIso);
+	const spansDays =
+		cursor.getDate() !== end.getDate() ||
+		cursor.getMonth() !== end.getMonth() ||
+		cursor.getFullYear() !== end.getFullYear();
+	while (cursor <= end) {
+		const y = cursor.getFullYear();
+		const mo = String(cursor.getMonth() + 1).padStart(2, '0');
+		const d = String(cursor.getDate()).padStart(2, '0');
+		const hh = String(cursor.getHours()).padStart(2, '0');
+		const key = `${y}-${mo}-${d} ${hh}`;
+		const label = spansDays
+			? `${cursor.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} ${hh}:00`
+			: `${hh}:00`;
+		slots.push({ key, label });
+		cursor.setHours(cursor.getHours() + 1);
+	}
+	return slots;
 }
 
-function generateDaySlots(
-  fromIso: string,
-  toIso: string,
-): Array<{ key: string; label: string }> {
-  const slots: Array<{ key: string; label: string }> = [];
-
-  const cursor = new Date(fromIso);
-  cursor.setHours(0, 0, 0, 0);
-
-  const end = new Date(toIso);
-  end.setHours(23, 59, 59, 999);
-
-  while (cursor <= end) {
-    const y = cursor.getFullYear();
-    const mo = String(cursor.getMonth() + 1).padStart(2, "0");
-    const d = String(cursor.getDate()).padStart(2, "0");
-    slots.push({
-      key: `${y}-${mo}-${d}`,
-      label: cursor.toLocaleDateString("id-ID", {
-        day: "2-digit",
-        month: "short",
-      }),
-    });
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return slots;
+function generateDaySlots(fromIso: string, toIso: string) {
+	const slots: Array<{ key: string; label: string }> = [];
+	const cursor = new Date(fromIso);
+	cursor.setHours(0, 0, 0, 0);
+	const end = new Date(toIso);
+	end.setHours(23, 59, 59, 999);
+	while (cursor <= end) {
+		const y = cursor.getFullYear();
+		const mo = String(cursor.getMonth() + 1).padStart(2, '0');
+		const d = String(cursor.getDate()).padStart(2, '0');
+		slots.push({
+			key: `${y}-${mo}-${d}`,
+			label: cursor.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }),
+		});
+		cursor.setDate(cursor.getDate() + 1);
+	}
+	return slots;
 }
 
-function aggregateSeries(
-  rows: OutletDetailPayload["timeSeries"],
-  metricKey: string,
-  fromIso: string,
-  toIso: string,
+function buildMultiLineData(
+	rows: OutletDetailPayload['timeSeries'],
+	metricKeys: string[],
+	fromIso: string,
+	toIso: string,
+	perHour: boolean,
 ): ChartPoint[] {
-  if (!fromIso || !toIso) return [];
+	if (!fromIso || !toIso) return [];
 
-  const perHour =
-    new Date(toIso).getTime() - new Date(fromIso).getTime() <=
-    PER_HOUR_THRESHOLD_MS;
-  const buckets = new Map<string, { sum: number; count: number }>();
+	const buckets = new Map<string, Map<string, { sum: number; count: number }>>();
 
-  for (const r of rows) {
-    if (r.metricKey !== metricKey) continue;
-    const d = new Date(r.timestamp);
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
+	for (const r of rows) {
+		if (!metricKeys.includes(r.metricKey)) continue;
+		const d = new Date(r.timestamp);
+		const y = d.getFullYear();
+		const mo = String(d.getMonth() + 1).padStart(2, '0');
+		const dd = String(d.getDate()).padStart(2, '0');
+		const hh = String(d.getHours()).padStart(2, '0');
+		const key = perHour ? `${y}-${mo}-${dd} ${hh}` : `${y}-${mo}-${dd}`;
 
-    const key = perHour ? `${y}-${mo}-${dd} ${hh}` : `${y}-${mo}-${dd}`;
+		const metricMap = buckets.get(key) ?? new Map<string, { sum: number; count: number }>();
+		const cur = metricMap.get(r.metricKey) ?? { sum: 0, count: 0 };
+		cur.sum += Number(r.metricValue);
+		cur.count += 1;
+		metricMap.set(r.metricKey, cur);
+		buckets.set(key, metricMap);
+	}
 
-    const normalizedValue =
-      metricKey === "power_total" && Number(r.metricValue) > 1000
-        ? Number(r.metricValue) / 1000
-        : Number(r.metricValue);
+	const slots = perHour ? generateHourSlots(fromIso, toIso) : generateDaySlots(fromIso, toIso);
 
-    const cur = buckets.get(key) ?? { sum: 0, count: 0 };
-    cur.sum += normalizedValue;
-    cur.count += 1;
-    buckets.set(key, cur);
-  }
-
-  const slots = perHour
-    ? generateHourSlots(fromIso, toIso)
-    : generateDaySlots(fromIso, toIso);
-  return slots.map(({ key, label }) => {
-    const b = buckets.get(key);
-    return {
-      label,
-      value: b ? Number((b.sum / b.count).toFixed(2)) : 0,
-      hasData: !!b,
-    };
-  });
+	return slots.map(({ key, label }) => {
+		const metricMap = buckets.get(key);
+		const point: ChartPoint = { label, hasData: !!metricMap };
+		for (const mk of metricKeys) {
+			const entry = metricMap?.get(mk);
+			point[mk] = entry ? Number((entry.sum / entry.count).toFixed(2)) : 0;
+		}
+		return point;
+	});
 }
 
-export function TrendChartCard({
-  timeSeries,
-  loadedFrom,
-  loadedTo,
-}: TrendChartCardProps) {
-  const [metric, setMetric] = useState<TrendMetric>("energy");
-  const scrollRef = useRef<HTMLDivElement>(null);
+function MultiLineTooltip({
+	active,
+	payload,
+	label,
+	unit,
+	metrics,
+}: {
+	active?: boolean;
+	payload?: Array<{ dataKey: string; value: number; color: string }>;
+	label?: string;
+	unit: string;
+	metrics: Array<{ key: string; phase: string; color: string }>;
+}) {
+	if (!active || !payload?.length) return null;
 
-  const cfg = METRIC_CFG[metric];
-  const perHour =
-    loadedFrom && loadedTo
-      ? new Date(loadedTo).getTime() - new Date(loadedFrom).getTime() <=
-        PER_HOUR_THRESHOLD_MS
-      : true;
+	const headerBg = unit === 'V' ? 'bg-green-500' : 'bg-purple-500';
+	const title = unit === 'V' ? 'Voltage' : 'Current';
 
-  const chartData = useMemo(
-    () => aggregateSeries(timeSeries ?? [], cfg.key, loadedFrom, loadedTo),
-    [timeSeries, cfg.key, loadedFrom, loadedTo],
-  );
+	return (
+		<div className='rounded-md border border-border/50 bg-background shadow-xl overflow-hidden min-w-44'>
+			<div className={`${headerBg} px-3 py-1.5`}>
+				<p className='text-[10px] font-bold uppercase tracking-widest text-white'>{title}</p>
+			</div>
+			<div className='px-3 py-2 border-b border-border/30'>
+				<p className='text-xs font-semibold text-foreground'>{label}</p>
+			</div>
+			<div className='px-3 py-2 space-y-1.5'>
+				{metrics.map((m) => {
+					const entry = payload.find((p) => p.dataKey === m.key);
+					if (!entry) return null;
+					return (
+						<div key={m.key} className='flex items-center justify-between gap-4'>
+							<div className='flex items-center gap-1.5'>
+								<div className='w-2.5 h-2.5 rounded-full' style={{ background: m.color }} />
+								<span className='text-xs text-muted-foreground'>{m.phase}</span>
+							</div>
+							<span className='text-xs font-bold tabular-nums'>
+								{entry.value.toLocaleString('id-ID', { maximumFractionDigits: 2 })}{' '}
+								<span className='font-normal text-muted-foreground'>{unit}</span>
+							</span>
+						</div>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
 
-  const hasAnyData = chartData.some((d) => d.hasData);
-  const chartMinWidth = Math.max(chartData.length * MIN_PX_PER_POINT, 400);
-  const xAxisInterval = (() => {
-    const n = chartData.length;
-    if (n <= 24) return 1;
-    if (n <= 48) return 3;
-    if (n <= 96) return 6;
-    return Math.ceil(n / 15);
-  })();
+function MultiLineChart({
+	title,
+	unit,
+	icon: Icon,
+	iconClass,
+	metrics,
+	chartData,
+	perHour,
+}: {
+	title: string;
+	unit: string;
+	icon: React.ElementType;
+	iconClass: string;
+	metrics: Array<{ key: string; phase: string; color: string }>;
+	chartData: ChartPoint[];
+	perHour: boolean;
+}) {
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const chartMinWidth = Math.max(chartData.length * MIN_PX_PER_POINT, 400);
 
-  const metricExplanation = useMemo(() => {
-    if (metric === "energy") {
-      return "Trend Energy menampilkan nilai energy_total per bucket waktu pada periode aktif. Untuk range sampai 2 hari ditampilkan per jam, di atas itu diringkas per hari.";
-    }
-    if (metric === "power") {
-      return "Trend Power menampilkan rata-rata power_total per bucket waktu pada periode aktif. Nilai power yang tersimpan dalam W dinormalisasi menjadi kW sebelum ditampilkan.";
-    }
-    if (metric === "voltage") {
-      return "Trend Voltage menampilkan rata-rata voltage_l1 per bucket waktu pada periode aktif.";
-    }
-    return "Trend Current menampilkan rata-rata current_total per bucket waktu pada periode aktif.";
-  }, [metric]);
+	const xAxisInterval = (() => {
+		const n = chartData.length;
+		if (n <= 24) return 1;
+		if (n <= 48) return 3;
+		if (n <= 96) return 6;
+		return Math.ceil(n / 15);
+	})();
 
-  return (
-    <Card className="border-0 shadow-sm lg:col-span-2">
-      <CardHeader className="px-5 py-4 pb-0 flex flex-row items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5 shrink-0">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-orange-500" />
-            Trend
-          </CardTitle>
-          <Select
-            value={metric}
-            onValueChange={(v) => setMetric(v as TrendMetric)}
-          >
-            <SelectTrigger className="h-7 min-w-max text-sm border-0 bg-muted/50 px-2 cursor-pointer">
-              <SelectValue />
-            </SelectTrigger>
+	return (
+		<Card className='border border-border/60 shadow-sm h-full gap-0 py-0 flex flex-col'>
+			<CardHeader className='px-5 pt-5 pb-0 flex flex-row items-center justify-between gap-2'>
+				<div className='flex items-center gap-2'>
+					<Icon className={`h-4 w-4 ${iconClass}`} />
+					<CardTitle className='text-lg font-bold'>{title}</CardTitle>
+					<span className='text-xs text-muted-foreground font-medium bg-muted/60 px-2 py-0.5 rounded-full'>
+						{unit}
+					</span>
+				</div>
+				{chartData.length > 0 && (
+					<span className='text-xs text-muted-foreground/50'>
+						{chartData.length} {perHour ? 'jam' : 'hari'}
+					</span>
+				)}
+			</CardHeader>
 
-            <SelectContent align="start" position="popper">
-              <SelectItem value="energy" className="text-sm cursor-pointer">
-                Energy (kWh)
-              </SelectItem>
-              <SelectItem value="power" className="text-sm cursor-pointer">
-                Power (kW)
-              </SelectItem>
-              <SelectItem value="voltage" className="text-sm cursor-pointer">
-                Voltage (V)
-              </SelectItem>
-              <SelectItem value="current" className="text-sm cursor-pointer">
-                Current (A)
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+			<CardContent className='px-5 pb-5 pt-4'>
+				{chartData.length === 0 ? (
+					<div className='h-44 flex items-center justify-center text-sm text-muted-foreground'>
+						Tidak ada data untuk periode ini
+					</div>
+				) : (
+					<div
+						ref={scrollRef}
+						className='overflow-x-auto pb-1'
+						style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+					>
+						<div style={{ minWidth: `${chartMinWidth}px` }}>
+							<ResponsiveContainer width='100%' height={176}>
+								<LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 4 }}>
+									<CartesianGrid
+										strokeDasharray='3 3'
+										vertical={false}
+										stroke='hsl(var(--border))'
+										opacity={0.3}
+									/>
+									<XAxis
+										dataKey='label'
+										tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+										tickLine={false}
+										axisLine={false}
+										interval={xAxisInterval}
+									/>
+									<YAxis
+										tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+										tickLine={false}
+										axisLine={false}
+										width={52}
+										label={{
+											value: unit,
+											angle: -90,
+											position: 'insideLeft',
+											offset: 12,
+											style: {
+												fontSize: 10,
+												fontWeight: 700,
+												textAnchor: 'middle',
+												fill: 'hsl(var(--muted-foreground))',
+											},
+										}}
+									/>
+									<Tooltip content={<MultiLineTooltip unit={unit} metrics={metrics} />} />
+									<Legend
+										iconType='circle'
+										iconSize={8}
+										formatter={(value) => {
+											const m = metrics.find((mx) => mx.key === value);
+											return <span style={{ fontSize: 11 }}>{m?.phase ?? value}</span>;
+										}}
+									/>
+									{metrics.map((m) => (
+										<Line
+											key={m.key}
+											type='monotone'
+											dataKey={m.key}
+											stroke={m.color}
+											strokeWidth={1.75}
+											dot={false}
+											activeDot={{ r: 4, fill: m.color, stroke: '#fff', strokeWidth: 2 }}
+											connectNulls={false}
+										/>
+									))}
+								</LineChart>
+							</ResponsiveContainer>
+						</div>
+					</div>
+				)}
+			</CardContent>
+		</Card>
+	);
+}
 
-        <div className="flex items-center gap-2">
-          {chartData.length > 0 && (
-            <span className="text-xs text-muted-foreground/60">
-              {chartData.length} {perHour ? "hours" : "days"}
-            </span>
-          )}
-        </div>
-      </CardHeader>
+export function TrendChartCard({ timeSeries, loadedFrom, loadedTo }: TrendChartCardProps) {
+	const perHour =
+		loadedFrom && loadedTo
+			? new Date(loadedTo).getTime() - new Date(loadedFrom).getTime() <= PER_HOUR_THRESHOLD_MS
+			: true;
 
-      <CardContent className="p-5 pt-3">
-        {!hasAnyData && chartData.length === 0 ? (
-          <div
-            className={`${metric !== "energy" ? "sm:h-92.5" : "sm:h-81.25"} h-60 flex items-center justify-center text-sm text-muted-foreground`}
-          >
-            No data available for this period
-          </div>
-        ) : (
-          <>
-            <div
-              ref={scrollRef}
-              className="overflow-x-auto pb-1"
-              style={
-                { WebkitOverflowScrolling: "touch" } as React.CSSProperties
-              }
-            >
-              <div style={{ minWidth: `${chartMinWidth}px` }}>
-                <ChartContainer
-                  config={{
-                    value: {
-                      label: `${cfg.label} (${cfg.unit})`,
-                      color: cfg.color,
-                    },
-                  }}
-                  className={`${metric !== "energy" ? "sm:h-92.5" : "sm:h-81.25"} h-60 w-full`}
-                >
-                  <AreaChart
-                    data={chartData}
-                    margin={{ top: 10, right: 8, bottom: 0, left: -5 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id={`grad-${metric}`}
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="0%"
-                          stopColor={cfg.color}
-                          stopOpacity={0.35}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor={cfg.color}
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke="hsl(var(--border))"
-                      opacity={0.3}
-                    />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      interval={xAxisInterval}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      width={48}
-                    />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Area
-                      type="monotone"
-                      dataKey="value"
-                      stroke={cfg.color}
-                      strokeWidth={2.5}
-                      fill={`url(#grad-${metric})`}
-                      dot={false}
-                      connectNulls={false}
-                    />
-                  </AreaChart>
-                </ChartContainer>
-              </div>
-            </div>
-            <div className="mt-3 border-t border-border/40 pt-3 text-[11px] leading-relaxed text-muted-foreground">
-              <p>{metricExplanation}</p>
-              <p className="mt-1">
-                Bucket aktif: {perHour ? "per jam" : "per hari"}. Rentang data:{" "}
-                {loadedFrom && loadedTo
-                  ? `${new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(loadedFrom))} - ${new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(loadedTo))} WIB`
-                  : "-"}
-              </p>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
+	const voltageKeys = VOLTAGE_METRICS.map((m) => m.key);
+	const voltageData = useMemo(
+		() => buildMultiLineData(timeSeries ?? [], voltageKeys, loadedFrom, loadedTo, perHour),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[timeSeries, loadedFrom, loadedTo, perHour],
+	);
+
+	const currentKeys = CURRENT_METRICS.map((m) => m.key);
+	const currentData = useMemo(
+		() => buildMultiLineData(timeSeries ?? [], currentKeys, loadedFrom, loadedTo, perHour),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[timeSeries, loadedFrom, loadedTo, perHour],
+	);
+
+	return (
+		<div className='grid grid-cols-2 gap-4 h-full'>
+			<MultiLineChart
+				title='Voltage'
+				unit='V'
+				icon={Gauge}
+				iconClass='text-green-500'
+				metrics={VOLTAGE_METRICS}
+				chartData={voltageData}
+				perHour={perHour}
+			/>
+			<MultiLineChart
+				title='Current'
+				unit='A'
+				icon={Waves}
+				iconClass='text-purple-500'
+				metrics={CURRENT_METRICS}
+				chartData={currentData}
+				perHour={perHour}
+			/>
+		</div>
+	);
 }
