@@ -186,6 +186,61 @@ export interface Device {
 	modules?: DeviceModule[];
 }
 
+export interface DeviceHealth {
+	deviceId: string;
+	deviceName: string;
+	serialNo: string;
+	scopeId: string;
+	scopeName: string;
+	region: string;
+	currentStatus: string;
+	lastSeenAt: string | null;
+	offlineSinceAt: string | null;
+	lastOfflineAt: string | null;
+	offlineCount: number;
+	internetStatus: string | null;
+	powerStatus: string | null;
+}
+
+export interface DeviceHealthHistoryItem {
+	id: string;
+	topic: string;
+	timestamp: string;
+	status: string | null;
+	internetStatus: string | null;
+	powerStatus: string | null;
+	dvrStatus: string | null;
+	vpnStatus: string | null;
+	inferenceStatus: string | null;
+	mobileSignal: number | null;
+	mobileQuality: string | null;
+	operator: string | null;
+	downloadMbps: number | null;
+	uploadMbps: number | null;
+	pingMs: number | null;
+	firmwareVersion: string | null;
+	uptime: string | null;
+	cpuUsage: number | null;
+	memoryUsagePercent: number | null;
+	diskUsagePercent: number | null;
+	payload: unknown;
+}
+
+export interface DeviceHealthHistoryData {
+	device: {
+		id: string;
+		name: string;
+		serialNo: string;
+		firmwareVersion: string | null;
+		currentStatus: string;
+		lastSeenAt: string | null;
+		scopeId: string;
+		scopeName: string;
+		region: string;
+	};
+	history: DeviceHealthHistoryItem[];
+}
+
 export interface DeviceModule {
 	id: string;
 	deviceId: string;
@@ -864,6 +919,18 @@ export const devicesApi = {
 	getAll: async (scopeId?: string): Promise<ApiResponse<Device[]>> => {
 		const params = scopeId ? { scopeId } : {};
 		const response = await apiClient.get<ApiResponse<Device[]>>('/devices', { params });
+		return response.data;
+	},
+	getHealth: async (scopeId?: string): Promise<ApiResponse<DeviceHealth[]>> => {
+		const params = scopeId ? { scopeId } : {};
+		const response = await apiClient.get<ApiResponse<DeviceHealth[]>>('/devices/health', { params });
+		return response.data;
+	},
+	getHealthHistory: async (deviceId: string, limit?: number): Promise<ApiResponse<DeviceHealthHistoryData>> => {
+		const params = limit ? { limit } : {};
+		const response = await apiClient.get<ApiResponse<DeviceHealthHistoryData>>(`/devices/health/${deviceId}/history`, {
+			params,
+		});
 		return response.data;
 	},
 	getById: async (id: string): Promise<ApiResponse<Device>> => {

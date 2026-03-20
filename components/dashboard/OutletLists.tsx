@@ -56,7 +56,7 @@ export function TopOutletsList({
           <div className="space-y-1">
             {data.slice(0, 10).map((item, idx) => (
               <div
-                key={item.name}
+                key={`${item.name}-${item.region}-${idx}`}
                 className="flex items-center gap-2 py-1.5 group hover:bg-muted/60 rounded-md px-1 -mx-1 border-b border-border/40 last:border-b-0"
               >
                 <span className="text-[10px] font-semibold w-3 text-muted-foreground">
@@ -64,8 +64,8 @@ export function TopOutletsList({
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-0.5">
-                    <span className="text-[10px] font-medium truncate">
-                      {item.name}
+                    <span className="text-[10px] font-medium text-foreground truncate">
+                      {item.name?.trim() || "Unknown Outlet"}
                     </span>
                     <span className="text-[10px] font-semibold text-red-600 whitespace-nowrap">
                       {item.kWh.toLocaleString("id-ID", {
@@ -130,7 +130,7 @@ export function LowOutletsList({
           <div className="space-y-1">
             {data.slice(0, 10).map((item, idx) => (
               <div
-                key={item.name}
+                key={`${item.name}-${item.region}-${idx}`}
                 className="flex items-center gap-2 py-1.5 group hover:bg-muted/60 rounded-md px-1 -mx-1 border-b border-border/40 last:border-b-0"
               >
                 <span className="text-[10px] font-semibold w-3 text-muted-foreground">
@@ -138,8 +138,8 @@ export function LowOutletsList({
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-0.5">
-                    <span className="text-[10px] font-medium truncate">
-                      {item.name}
+                    <span className="text-[10px] font-medium text-foreground truncate">
+                      {item.name?.trim() || "Unknown Outlet"}
                     </span>
                     <span className="text-[10px] font-semibold text-green-600 whitespace-nowrap">
                       {item.kWh.toLocaleString("id-ID", {
