@@ -58,7 +58,8 @@ export default function PeakHoursPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Peak Hours Dashboard</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Agregasi peak hours seluruh data (tanpa filter tanggal).
+                Agregasi rata-rata konsumsi kWh/jam seluruh data (tanpa filter
+                tanggal).
               </p>
             </CardHeader>
             <CardContent className="pt-0">
@@ -70,16 +71,20 @@ export default function PeakHoursPage() {
                   </p>
                 </div>
                 <div className="rounded-lg border border-border/60 p-3">
-                  <p className="text-xs text-muted-foreground">Peak Power</p>
+                  <p className="text-xs text-muted-foreground">
+                    Peak Consumption
+                  </p>
                   <p className="text-xl font-semibold">
                     {(data?.summary.peakPowerKw ?? 0).toLocaleString("id-ID", {
                       maximumFractionDigits: 2,
                     })}{" "}
-                    kW
+                    kWh/jam
                   </p>
                 </div>
                 <div className="rounded-lg border border-border/60 p-3">
-                  <p className="text-xs text-muted-foreground">Avg Power</p>
+                  <p className="text-xs text-muted-foreground">
+                    Avg Consumption
+                  </p>
                   <p className="text-xl font-semibold">
                     {(data?.summary.averagePowerKw ?? 0).toLocaleString(
                       "id-ID",
@@ -87,7 +92,7 @@ export default function PeakHoursPage() {
                         maximumFractionDigits: 2,
                       },
                     )}{" "}
-                    kW
+                    kWh/jam
                   </p>
                 </div>
                 <div className="rounded-lg border border-border/60 p-3">
@@ -137,7 +142,7 @@ export default function PeakHoursPage() {
                         <TableHead className="w-14">Rank</TableHead>
                         <TableHead>Hour (WIB)</TableHead>
                         <TableHead className="text-right">
-                          Peak Power (kW)
+                          Peak Consumption (kWh/jam)
                         </TableHead>
                         <TableHead className="text-right">Samples</TableHead>
                         <TableHead className="text-right">% of Peak</TableHead>

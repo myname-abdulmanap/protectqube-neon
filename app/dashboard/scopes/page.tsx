@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,7 @@ export default function ScopesPage() {
   const canManage =
     hasPermission("manage_roles") || hasPermission("scopes:read");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setIsLoading(true);
       const [scRes, tRes] = await Promise.all([
@@ -74,11 +74,11 @@ export default function ScopesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [filterTenant]);
 
   useEffect(() => {
     load();
-  }, [filterTenant]);
+  }, [load]);
 
   const resetForm = () => {
     setForm({
@@ -120,16 +120,21 @@ export default function ScopesPage() {
 
   const handleSubmit = async () => {
     if (!form.tenantId || !form.name || !form.code || !form.scopeType) return;
-    const payload = {
-      ...form,
-      latitude: form.latitude !== "" ? Number(form.latitude) : null,
-      longitude: form.longitude !== "" ? Number(form.longitude) : null,
-    };
     try {
       if (editingId) {
-        await scopesApi.update(editingId, payload);
+        const updatePayload = {
+          ...form,
+          latitude: form.latitude !== "" ? Number(form.latitude) : null,
+          longitude: form.longitude !== "" ? Number(form.longitude) : null,
+        };
+        await scopesApi.update(editingId, updatePayload);
       } else {
-        await scopesApi.create(payload);
+        const createPayload = {
+          ...form,
+          latitude: form.latitude !== "" ? Number(form.latitude) : undefined,
+          longitude: form.longitude !== "" ? Number(form.longitude) : undefined,
+        };
+        await scopesApi.create(createPayload);
       }
       setModalOpen(false);
       resetForm();

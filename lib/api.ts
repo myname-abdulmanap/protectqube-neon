@@ -186,6 +186,61 @@ export interface Device {
 	modules?: DeviceModule[];
 }
 
+export interface DeviceHealth {
+	deviceId: string;
+	deviceName: string;
+	serialNo: string;
+	scopeId: string;
+	scopeName: string;
+	region: string;
+	currentStatus: string;
+	lastSeenAt: string | null;
+	offlineSinceAt: string | null;
+	lastOfflineAt: string | null;
+	offlineCount: number;
+	internetStatus: string | null;
+	powerStatus: string | null;
+}
+
+export interface DeviceHealthHistoryItem {
+	id: string;
+	topic: string;
+	timestamp: string;
+	status: string | null;
+	internetStatus: string | null;
+	powerStatus: string | null;
+	dvrStatus: string | null;
+	vpnStatus: string | null;
+	inferenceStatus: string | null;
+	mobileSignal: number | null;
+	mobileQuality: string | null;
+	operator: string | null;
+	downloadMbps: number | null;
+	uploadMbps: number | null;
+	pingMs: number | null;
+	firmwareVersion: string | null;
+	uptime: string | null;
+	cpuUsage: number | null;
+	memoryUsagePercent: number | null;
+	diskUsagePercent: number | null;
+	payload: unknown;
+}
+
+export interface DeviceHealthHistoryData {
+	device: {
+		id: string;
+		name: string;
+		serialNo: string;
+		firmwareVersion: string | null;
+		currentStatus: string;
+		lastSeenAt: string | null;
+		scopeId: string;
+		scopeName: string;
+		region: string;
+	};
+	history: DeviceHealthHistoryItem[];
+}
+
 export interface DeviceModule {
 	id: string;
 	deviceId: string;
@@ -349,6 +404,7 @@ export interface EnergyOverviewData {
 		kWh: number;
 		samples: number;
 	}>;
+	hourlyEnergyDays: number;
 	monthlyEnergyUse: Array<{
 		timestamp: string;
 		label: string;
@@ -532,6 +588,7 @@ export interface EnergyDashboardFilters {
 	to?: string;
 	tenantId?: string;
 	scopeId?: string;
+	includeHeavy?: boolean;
 }
 
 export interface HourlyDailyEnergyDay {
@@ -558,6 +615,40 @@ export interface HourlyDailyEnergyData {
 		peakHour: number | null;
 		peakHourLabel: string | null;
 		avgDailyKwh: number;
+	};
+}
+
+export interface CalibrationHistoryRow {
+	id: string;
+	scopeId: string;
+	pqDeviceId: string;
+	pqDeviceName: string;
+	firmwareVersion: string | null;
+	date: string;
+	intervalLabel: string;
+	prevReadingAt: string | null;
+	intervalDays: number;
+	readingAt: string;
+	plnEnergyKwh: number;
+	protectCubeEnergyKwh: number;
+	deltaPln: number;
+	deltaPq: number;
+	gapKwh: number;
+	gapPercent: number;
+	accuracyPercent: number;
+	note: string | null;
+	createdBy: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface CalibrationHistoryData {
+	rows: CalibrationHistoryRow[];
+	summary: {
+		avgGapKwh: number;
+		avgGapPercent: number;
+		avgAccuracyPercent: number;
+		totalRows: number;
 	};
 }
 
@@ -880,6 +971,18 @@ export const devicesApi = {
 	getAll: async (scopeId?: string): Promise<ApiResponse<Device[]>> => {
 		const params = scopeId ? { scopeId } : {};
 		const response = await apiClient.get<ApiResponse<Device[]>>('/devices', { params });
+		return response.data;
+	},
+	getHealth: async (scopeId?: string): Promise<ApiResponse<DeviceHealth[]>> => {
+		const params = scopeId ? { scopeId } : {};
+		const response = await apiClient.get<ApiResponse<DeviceHealth[]>>('/devices/health', { params });
+		return response.data;
+	},
+	getHealthHistory: async (deviceId: string, limit?: number): Promise<ApiResponse<DeviceHealthHistoryData>> => {
+		const params = limit ? { limit } : {};
+		const response = await apiClient.get<ApiResponse<DeviceHealthHistoryData>>(`/devices/health/${deviceId}/history`, {
+			params,
+		});
 		return response.data;
 	},
 	getById: async (id: string): Promise<ApiResponse<Device>> => {
@@ -1332,6 +1435,49 @@ export const energyDashboardApi = {
 			`/energy-dashboard/outlets/${scopeId}/hourly-energy`,
 			{ params: { from, to } },
 		);
+		return response.data;
+	},
+	getDailyCalibration: async (
+		scopeId: string,
+		filters?: { from?: string; to?: string },
+	): Promise<ApiResponse<CalibrationHistoryData>> => {
+		const response = await apiClient.get<ApiResponse<CalibrationHistoryData>>('/energy-dashboard/daily', {
+			params: { scopeId, ...(filters || {}) },
+		});
+		return response.data;
+	},
+	getCalibrationHistory: async (
+		scopeId: string,
+		filters?: { from?: string; to?: string },
+	): Promise<ApiResponse<CalibrationHistoryData>> => {
+		const response = await apiClient.get<ApiResponse<CalibrationHistoryData>>('/energy-dashboard/calibration', {
+			params: { scopeId, ...(filters || {}) },
+		});
+		return response.data;
+	},
+	createCalibration: async (data: {
+		scopeId: string;
+		timestamp: string;
+		kwhPln: number;
+		kwhPq?: number;
+		pqDeviceId?: string;
+		note?: string;
+	}): Promise<ApiResponse<{ id: string }>> => {
+		const response = await apiClient.post<ApiResponse<{ id: string }>>('/energy-dashboard/calibration', data);
+		return response.data;
+	},
+	updateCalibration: async (
+		id: string,
+		data: {
+			timestamp?: string;
+			kwhPln?: number;
+			kwhPq?: number;
+			pqDeviceId?: string;
+			note?: string | null;
+			scopeId?: string;
+		},
+	): Promise<ApiResponse<{ id: string }>> => {
+		const response = await apiClient.put<ApiResponse<{ id: string }>>(`/energy-dashboard/calibration/${id}`, data);
 		return response.data;
 	},
 };

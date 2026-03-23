@@ -269,17 +269,20 @@ export function MonthlyEnergyChart({
   onDateChange,
   loading,
   showDateFilter = true,
-}: MonthlyEnergyProps) {
+  compact = false,
+}: MonthlyEnergyProps & { compact?: boolean }) {
   return (
     <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
       <CardHeader className="flex flex-row items-start justify-between pb-0 px-3 pt-2">
         <div>
           <CardTitle className="text-xs font-semibold">
-            Energy by Region
+            Energy Comparison
           </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Akumulasi energi per region.
-          </p>
+          {!compact && (
+            <p className="text-xs text-muted-foreground">
+              Perbandingan konsumsi energi per region.
+            </p>
+          )}
         </div>
         {showDateFilter && (
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
@@ -293,7 +296,7 @@ export function MonthlyEnergyChart({
             {(slicedData) => (
               <ChartContainer
                 config={regionChartConfig}
-                className="h-[170px] w-full"
+                className={compact ? "h-[130px] w-full" : "h-[170px] w-full"}
               >
                 <BarChart
                   data={slicedData}
@@ -881,7 +884,7 @@ export function OverviewTrendChart({
 // ──────────────────────────────────────────────
 
 const peakHoursConfigKw: ChartConfig = {
-  powerKw: { label: "Peak Power (kW)", color: "hsl(199, 89%, 48%)" },
+  powerKw: { label: "Avg Consumption (kWh/jam)", color: "hsl(199, 89%, 48%)" },
 };
 
 interface HourlyUsage {
@@ -941,10 +944,10 @@ export function PeakHoursChart({
       <CardHeader className="flex flex-row items-start justify-between pb-0 px-1.5 pt-1">
         <div>
           <CardTitle className="text-xs font-semibold">
-            Peak Hourly Power
+            Peak Hourly Consumption
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            MAX kW pada setiap jam.
+            Rata-rata konsumsi kWh/jam untuk setiap jam (seluruh data).
           </p>
         </div>
         {showDateFilter && (
@@ -956,7 +959,11 @@ export function PeakHoursChart({
           <Placeholder />
         ) : (
           <>
-            <ZoomPanChart data={data} yAxisLabel="Daya (kW)" xAxisLabel="Jam">
+            <ZoomPanChart
+              data={data}
+              yAxisLabel="Konsumsi (kWh/jam)"
+              xAxisLabel="Jam"
+            >
               {(slicedData) => (
                 <ChartContainer
                   config={peakHoursConfigKw}
@@ -1011,8 +1018,8 @@ export function PeakHoursChart({
                       content={
                         <ChartTooltipContent
                           formatter={(value) => [
-                            `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kW`,
-                            "Peak Power",
+                            `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kWh/jam`,
+                            "Avg Consumption",
                           ]}
                         />
                       }
@@ -1041,12 +1048,12 @@ export function PeakHoursChart({
                   </p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Avg Peak</p>
+                  <p className="text-muted-foreground">Rata-rata</p>
                   <p className="font-semibold text-xs">
                     {avgKw.toLocaleString("id-ID", {
                       maximumFractionDigits: 2,
                     })}{" "}
-                    kW/jam
+                    kWh/jam
                   </p>
                 </div>
                 <div>
@@ -1112,6 +1119,12 @@ interface AvgHourlyConsumptionProps {
 interface HourlyEnergyConsumptionProps {
   data: HourlyEnergyUsage[];
   dailyData?: Array<{ label: string; kWh: number }>;
+  breakdownRows?: Array<{
+    dayKey: string;
+    label: string;
+    chartLabel: string;
+    kWh: number;
+  }>;
   dateRange: DateRange;
   onDateChange: (r: DateRange) => void;
   loading?: boolean;
@@ -1271,6 +1284,11 @@ export function AvgHourlyConsumptionChart({
                     <ChartTooltip
                       content={
                         <ChartTooltipContent
+                          labelFormatter={(label) => {
+                            const h = Number(String(label).split(":")[0]);
+                            const next = (h + 1) % 24;
+                            return `${String(h).padStart(2, "0")}:00 - ${String(next).padStart(2, "0")}:00`;
+                          }}
                           formatter={(value) => [
                             `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kWh`,
                             "Avg Consumption",
@@ -1329,53 +1347,16 @@ export function AvgHourlyConsumptionChart({
   );
 }
 
+const BREAKDOWN_PAGE_SIZE = 7;
+
 export function HourlyEnergyConsumptionChart({
-  data,
   dailyData,
+  breakdownRows,
   dateRange,
   onDateChange,
   loading,
   showDateFilter = true,
 }: HourlyEnergyConsumptionProps) {
-  // Auto-detect: today/yesterday (1 day) → hourly, otherwise → daily
-  const isHourly = useMemo(() => {
-    if (dateRange.preset === "today" || dateRange.preset === "yesterday")
-      return true;
-    if (!dateRange.from || !dateRange.to) return false;
-    const diff =
-      new Date(dateRange.to).getTime() - new Date(dateRange.from).getTime();
-    const days = Math.round(diff / (1000 * 60 * 60 * 24));
-    return days <= 1;
-  }, [dateRange]);
-
-  // ── hourly view data ──
-  const formatHourInterval = useCallback((hour: string) => {
-    const startHour = Number(hour.slice(0, 2));
-    if (!Number.isFinite(startHour)) return hour;
-    const endHour = (startHour + 1) % 24;
-    return `${String(startHour).padStart(2, "0")}:00 - ${String(endHour).padStart(2, "0")}:00`;
-  }, []);
-
-  const hourlyPlotData = useMemo(
-    () =>
-      data.map((point) => ({
-        ...point,
-        hourRange: formatHourInterval(point.hour),
-      })),
-    [data, formatHourInterval],
-  );
-
-  const hourlyTotal = useMemo(() => {
-    if (!data.length) return 0;
-    return Number(data.reduce((s, p) => s + p.kWh, 0).toFixed(2));
-  }, [data]);
-
-  const hourlyPeak = useMemo(() => {
-    if (!data.length) return { hour: "-", kWh: 0 };
-    const top = data.reduce((best, p) => (p.kWh > best.kWh ? p : best));
-    return { hour: top.hour, kWh: top.kWh };
-  }, [data]);
-
   // ── daily view data ──
   const dailyPlotData = useMemo(() => {
     if (!dailyData?.length) return [];
@@ -1396,6 +1377,23 @@ export function HourlyEnergyConsumptionChart({
   }, [dailyPlotData, dailyTotal]);
 
   const dateLabel = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat("id-ID", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      timeZone: "Asia/Jakarta",
+    });
+    const fromStr = dateRange.from
+      ? fmt.format(new Date(dateRange.from))
+      : null;
+    const toStr = dateRange.to ? fmt.format(new Date(dateRange.to)) : null;
+    const rangeSuffix =
+      fromStr && toStr
+        ? ` (${fromStr} - ${toStr})`
+        : fromStr
+          ? ` (dari ${fromStr})`
+          : "";
+
     const presetLabels: Record<string, string> = {
       today: "Hari ini",
       yesterday: "Kemarin",
@@ -1403,8 +1401,34 @@ export function HourlyEnergyConsumptionChart({
       "30d": "30 hari terakhir",
       all: "Semua data",
     };
-    return presetLabels[dateRange.preset] || dateRange.preset;
-  }, [dateRange.preset]);
+    const base = presetLabels[dateRange.preset];
+    if (base) return `${base}${rangeSuffix}`;
+    if (fromStr && toStr) return `${fromStr} - ${toStr}`;
+    if (fromStr) return `Dari ${fromStr}`;
+    return dateRange.preset;
+  }, [dateRange.preset, dateRange.from, dateRange.to]);
+
+  // ── breakdown table data ──
+  const bdRows = useMemo(() => breakdownRows ?? [], [breakdownRows]);
+  const bdTotalPages = Math.max(
+    1,
+    Math.ceil(bdRows.length / BREAKDOWN_PAGE_SIZE),
+  );
+  const [bdPage, setBdPage] = useState(0);
+  const bdCurrentPage = Math.min(bdPage, Math.max(0, bdTotalPages - 1));
+
+  const bdTableData = useMemo(() => {
+    const end = bdRows.length - bdCurrentPage * BREAKDOWN_PAGE_SIZE;
+    const start = Math.max(0, end - BREAKDOWN_PAGE_SIZE);
+    return bdRows.slice(start, end);
+  }, [bdRows, bdCurrentPage]);
+
+  const bdCanPrev =
+    bdRows.length - (bdCurrentPage + 1) * BREAKDOWN_PAGE_SIZE > 0;
+  const bdCanNext = bdCurrentPage > 0;
+
+  const formatKwh = (value: number) =>
+    `${value.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kWh`;
 
   return (
     <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
@@ -1414,9 +1438,7 @@ export function HourlyEnergyConsumptionChart({
             Total Energy Consumption
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            {isHourly
-              ? "Total konsumsi energi (kWh) per jam."
-              : "Total konsumsi energi (kWh) per hari."}
+            Total konsumsi energi (kWh) per hari.
           </p>
         </div>
         {showDateFilter && (
@@ -1426,112 +1448,6 @@ export function HourlyEnergyConsumptionChart({
       <CardContent className="px-3 pb-2 pt-1">
         {loading ? (
           <Placeholder />
-        ) : isHourly ? (
-          <>
-            <ZoomPanChart
-              data={hourlyPlotData}
-              yAxisLabel="Energi (kWh)"
-              xAxisLabel="Jam"
-            >
-              {(slicedData) => (
-                <ChartContainer
-                  config={hourlyEnergyConfig}
-                  className="h-[180px] w-full"
-                >
-                  <BarChart
-                    data={slicedData}
-                    margin={{ top: 8, right: 12, bottom: 10, left: -4 }}
-                    barCategoryGap="26%"
-                  >
-                    <defs>
-                      <linearGradient
-                        id="fillHourlyEnergy"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="0%"
-                          stopColor="hsl(24, 95%, 53%)"
-                          stopOpacity={0.96}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor="hsl(24, 95%, 53%)"
-                          stopOpacity={0.45}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis
-                      dataKey="hourRange"
-                      tick={{ fontSize: 11, fontWeight: 600 }}
-                      tickLine={false}
-                      axisLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={14}
-                      tickMargin={4}
-                      height={28}
-                      tickFormatter={(value) =>
-                        String(value).replace(":00 - ", "-")
-                      }
-                    />
-                    <YAxis
-                      tick={{ fontSize: 12 }}
-                      tickLine={false}
-                      axisLine={false}
-                      width={50}
-                    />
-                    <ChartTooltip
-                      content={
-                        <ChartTooltipContent
-                          formatter={(value) => [
-                            `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kWh`,
-                            "Energy Consumption",
-                          ]}
-                        />
-                      }
-                    />
-                    <Bar
-                      dataKey="kWh"
-                      fill="url(#fillHourlyEnergy)"
-                      radius={[4, 4, 0, 0]}
-                      maxBarSize={20}
-                    />
-                  </BarChart>
-                </ChartContainer>
-              )}
-            </ZoomPanChart>
-
-            <div className="mt-2 pt-2 border-t-2 border-border/60">
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div>
-                  <p className="text-muted-foreground">Total</p>
-                  <p className="font-semibold text-xs text-orange-600">
-                    {hourlyTotal.toLocaleString("id-ID", {
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    kWh
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Peak Hour</p>
-                  <p className="font-semibold text-xs">
-                    {hourlyPeak.hour !== "-"
-                      ? formatHourInterval(hourlyPeak.hour)
-                      : "-"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Periode</p>
-                  <p className="font-semibold text-xs">
-                    {dateRange.preset === "custom" ? "Custom" : dateLabel}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </>
         ) : (
           <>
             <ZoomPanChart
@@ -1629,12 +1545,91 @@ export function HourlyEnergyConsumptionChart({
                 </div>
                 <div>
                   <p className="text-muted-foreground">Periode</p>
-                  <p className="font-semibold text-xs">
-                    {dateRange.preset === "custom" ? "Custom" : dateLabel}
-                  </p>
+                  <p className="font-semibold text-xs">{dateLabel}</p>
                 </div>
               </div>
             </div>
+
+            {/* Breakdown Table */}
+            {bdRows.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    Breakdown per Tanggal
+                  </p>
+                  {bdRows.length > BREAKDOWN_PAGE_SIZE && (
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title="Halaman sebelumnya"
+                        className="h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
+                        disabled={!bdCanPrev}
+                        onClick={() =>
+                          setBdPage((p) => Math.min(p + 1, bdTotalPages - 1))
+                        }
+                      >
+                        <svg
+                          className="h-3 w-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M15 18l-6-6 6-6" />
+                        </svg>
+                      </button>
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {bdCurrentPage + 1}/{bdTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        title="Halaman berikutnya"
+                        className="h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40"
+                        disabled={!bdCanNext}
+                        onClick={() => setBdPage((p) => Math.max(p - 1, 0))}
+                      >
+                        <svg
+                          className="h-3 w-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M9 18l6-6-6-6" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-md border border-border/60 overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-muted/30 border-b border-border/40">
+                        <th className="h-7 px-2 py-0 text-left font-medium">
+                          Tanggal
+                        </th>
+                        <th className="h-7 px-2 py-0 text-right font-medium">
+                          Pemakaian (kWh)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bdTableData.map((row) => (
+                        <tr
+                          key={row.dayKey}
+                          className="border-b border-border/20 last:border-b-0"
+                        >
+                          <td className="px-2 py-1">{row.label}</td>
+                          <td className="px-2 py-1 text-right font-medium">
+                            {formatKwh(row.kWh)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </>
         )}
       </CardContent>
@@ -1882,17 +1877,20 @@ export function OutletComparisonChart({
   onDateChange,
   loading,
   showDateFilter = true,
-}: OutletComparisonProps) {
+  compact = false,
+}: OutletComparisonProps & { compact?: boolean }) {
   return (
     <Card className="border border-border/70 shadow-sm py-2 gap-1.5">
       <CardHeader className="flex flex-row items-start justify-between pb-0 px-3 pt-2">
         <div>
-          <CardTitle className="text-sm font-semibold">
+          <CardTitle className="text-xs font-semibold">
             Outlet Comparison
           </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Perbandingan total energi antar outlet.
-          </p>
+          {!compact && (
+            <p className="text-xs text-muted-foreground">
+              Perbandingan total energi antar outlet.
+            </p>
+          )}
         </div>
         {showDateFilter && (
           <ChartDateFilter value={dateRange} onChange={onDateChange} compact />
@@ -1906,7 +1904,7 @@ export function OutletComparisonChart({
             {(slicedData) => (
               <ChartContainer
                 config={comparisonConfig}
-                className="h-[190px] w-full"
+                className={compact ? "h-[130px] w-full" : "h-[190px] w-full"}
               >
                 <BarChart
                   data={slicedData}

@@ -258,25 +258,38 @@ export default function ReportsPage() {
               item.scopeId,
               filters,
             );
-            return detailResponse.success ? detailResponse.data : null;
+            return {
+              item,
+              detail: detailResponse.success ? detailResponse.data : null,
+            };
           }),
         );
 
         const mapped: OutletView[] = details
-          .filter((d): d is EnergyOutletDetail => Boolean(d))
-          .map((d) => ({
-            id: d.id,
-            name: d.name,
-            region: d.region || "Unknown",
-            city: d.city,
-            address: d.address,
-            devices: d.devices,
-            kpiData: d.kpiData,
-            hourlyData: d.hourlyData,
-            sectionData: d.sectionData,
-            comparisonData: d.comparisonData,
-            peakPower: d.peakPower,
-            maxLoad: d.maxLoad,
+          .filter(
+            (
+              entry,
+            ): entry is {
+              item: (typeof listResponse.data)[number];
+              detail: EnergyOutletDetail;
+            } => Boolean(entry.detail),
+          )
+          .map(({ item, detail }) => ({
+            id: detail.id,
+            name:
+              detail.name?.trim() ||
+              item.scope?.name ||
+              `Outlet ${item.scopeId}`,
+            region: detail.region || item.scope?.region || "Unknown",
+            city: detail.city,
+            address: detail.address,
+            devices: detail.devices,
+            kpiData: detail.kpiData,
+            hourlyData: detail.hourlyData,
+            sectionData: detail.sectionData,
+            comparisonData: detail.comparisonData,
+            peakPower: detail.peakPower,
+            maxLoad: detail.maxLoad,
           }));
 
         setOutlets(mapped);
@@ -304,29 +317,50 @@ export default function ReportsPage() {
     const filterTo = filters.to;
 
     const loadData = async () => {
-      const [
-        metricResponse,
-        aggregatedResponse,
-        scopeResponse,
-        configResponse,
-      ] = await Promise.all([
-        deviceMetricsApi.getAll({
-          scopeId: outletId,
-          moduleType: "power_meter",
-          from: filterFrom,
-          to: filterTo,
-          limit: 50000,
-        }),
-        deviceMetricsApi.getAggregated({
-          scopeId: outletId,
-          moduleType: "power_meter",
-          from: filterFrom,
-          to: filterTo,
-          interval: "hour",
-        }),
-        scopesApi.getById(outletId),
-        energyConfigsApi.getAll(outletId),
-      ]);
+      const [metricSettled, aggregatedSettled, scopeSettled, configSettled] =
+        await Promise.allSettled([
+          deviceMetricsApi.getAll({
+            scopeId: outletId,
+            moduleType: "power_meter",
+            from: filterFrom,
+            to: filterTo,
+            limit: 10000,
+          }),
+          deviceMetricsApi.getAggregated({
+            scopeId: outletId,
+            moduleType: "power_meter",
+            from: filterFrom,
+            to: filterTo,
+            interval: "hour",
+          }),
+          scopesApi.getById(outletId),
+          energyConfigsApi.getAll(outletId),
+        ]);
+
+      const metricResponse =
+        metricSettled.status === "fulfilled"
+          ? metricSettled.value
+          : ({ success: false, data: [] } as Awaited<
+              ReturnType<typeof deviceMetricsApi.getAll>
+            >);
+      const aggregatedResponse =
+        aggregatedSettled.status === "fulfilled"
+          ? aggregatedSettled.value
+          : ({ success: false, data: [] } as Awaited<
+              ReturnType<typeof deviceMetricsApi.getAggregated>
+            >);
+      const scopeResponse =
+        scopeSettled.status === "fulfilled"
+          ? scopeSettled.value
+          : ({ success: false, data: null } as Awaited<
+              ReturnType<typeof scopesApi.getById>
+            >);
+      const configResponse =
+        configSettled.status === "fulfilled"
+          ? configSettled.value
+          : ({ success: false, data: [] } as Awaited<
+              ReturnType<typeof energyConfigsApi.getAll>
+            >);
 
       let activeStartPoint: { startAt: string; initialKwh: number } | null =
         null;

@@ -23,7 +23,6 @@ import {
   HourlyEnergyConsumptionChart,
   MonthlyEnergyChart,
   MonthlyEnergyUsageChart,
-  OutletComparisonChart,
 } from "@/components/dashboard/EnergyAnalyticsCharts";
 import {
   TopOutletsList,
@@ -42,11 +41,12 @@ import {
   useScopes,
   useTenants,
 } from "@/lib/use-energy-data";
-import { deviceMetricsApi } from "@/lib/api";
 import {
-  MidnightEnergyOverviewCard,
-  type OverviewMidnightPoint,
-} from "@/components/dashboard/MidnightEnergyOverviewCard";
+  deviceMetricsApi,
+  energyDashboardApi,
+  type CalibrationHistoryData,
+} from "@/lib/api";
+import type { OverviewMidnightPoint } from "@/components/dashboard/MidnightEnergyOverviewCard";
 
 const OpenLayersMap = dynamic(
   () =>
@@ -114,6 +114,24 @@ const buildLastDayKeys = (
 const buildLast7DayKeys = (referenceDate: Date = new Date()) =>
   buildLastDayKeys(referenceDate, 7);
 
+const toJakartaDayKey = (value: Date | string): string => {
+  const p = getJakartaDateTimeParts(value instanceof Date ? value : new Date(value));
+  return `${p.year}-${p.month}-${p.day}`;
+};
+
+const listDayKeysBetween = (startKey: string, endKeyExclusive: string): string[] => {
+  const keys: string[] = [];
+  let cursor = new Date(`${startKey}T00:00:00+07:00`);
+  const end = new Date(`${endKeyExclusive}T00:00:00+07:00`);
+
+  while (cursor.getTime() < end.getTime()) {
+    keys.push(toJakartaDayKey(cursor));
+    cursor = new Date(cursor.getTime() + DAY_MS);
+  }
+
+  return keys;
+};
+
 const buildEmptyMidnightPoints = (
   referenceDate: Date = new Date(),
 ): OverviewMidnightPoint[] => {
@@ -166,6 +184,15 @@ export function EnergyOverviewPage({
   );
   const [midnightLoading, setMidnightLoading] = useState(false);
   const [todayPartialKwh, setTodayPartialKwh] = useState<number | null>(null);
+  // Per-scope midnight readings for filter-aware region consumption
+  const [perScopeMidnight, setPerScopeMidnight] = useState<
+    Map<string, Map<string, number>>
+  >(() => new Map());
+  const [latestPerScopeReadings, setLatestPerScopeReadings] = useState<
+    Map<string, number>
+  >(() => new Map());
+  const [dailyCalibrationData, setDailyCalibrationData] =
+    useState<CalibrationHistoryData | null>(null);
 
   const { setTitle, setFilterSlot } = useHeaderPage();
 
@@ -280,6 +307,9 @@ export function EnergyOverviewPage({
         { sum: number; scopeIds: Set<string> }
       >();
 
+      // Per-scope midnight readings for region consumption calculation
+      const scopeMidnightMap = new Map<string, Map<string, number>>();
+
       // Track latest reading per scope for today's partial consumption
       const latestPerScope = new Map<
         string,
@@ -302,15 +332,28 @@ export function EnergyOverviewPage({
           const ts = new Date(item.timestamp);
           if (Number.isNaN(ts.getTime())) continue;
 
-          // Apply starting point offset
-          let rawValue = Number((item.min ?? item.avg ?? 0).toFixed(2));
+          const slotStartRaw = Number((item.min ?? item.avg ?? 0).toFixed(2));
+          const slotLatestRaw = Number(
+            (item.max ?? item.avg ?? item.min ?? 0).toFixed(2),
+          );
+
+          // Apply starting point offset. For cumulative energy counters:
+          // - use slot start for midnight baseline
+          // - use slot max/latest for current partial consumption
+          let baselineValue = slotStartRaw;
+          let latestValue = slotLatestRaw;
           if (sp) {
             if (ts < sp.startAt) {
-              rawValue = 0;
+              baselineValue = 0;
+              latestValue = 0;
             } else {
-              rawValue = Math.max(
+              baselineValue = Math.max(
                 0,
-                Number((rawValue - sp.initialKwh).toFixed(2)),
+                Number((baselineValue - sp.initialKwh).toFixed(2)),
+              );
+              latestValue = Math.max(
+                0,
+                Number((latestValue - sp.initialKwh).toFixed(2)),
               );
             }
           }
@@ -319,7 +362,7 @@ export function EnergyOverviewPage({
           const existing = latestPerScope.get(currentScopeId);
           if (!existing || ts > existing.timestamp) {
             latestPerScope.set(currentScopeId, {
-              value: rawValue,
+              value: latestValue,
               timestamp: ts,
             });
           }
@@ -335,9 +378,17 @@ export function EnergyOverviewPage({
             sum: 0,
             scopeIds: new Set<string>(),
           };
-          aggregate.sum += rawValue;
+          aggregate.sum += baselineValue;
           aggregate.scopeIds.add(currentScopeId);
           perDayReadings.set(dayKey, aggregate);
+
+          // Also track per-scope midnight readings
+          let scopeDay = scopeMidnightMap.get(currentScopeId);
+          if (!scopeDay) {
+            scopeDay = new Map();
+            scopeMidnightMap.set(currentScopeId, scopeDay);
+          }
+          scopeDay.set(dayKey, baselineValue);
         }
       });
 
@@ -387,9 +438,19 @@ export function EnergyOverviewPage({
       }
 
       setMidnightPoints(points);
+
+      // Store per-scope data for filter-aware region consumption
+      setPerScopeMidnight(scopeMidnightMap);
+      const latestMap = new Map<string, number>();
+      latestPerScope.forEach((entry, scopeId) =>
+        latestMap.set(scopeId, entry.value),
+      );
+      setLatestPerScopeReadings(latestMap);
     } catch {
       setMidnightPoints(buildEmptyMidnightPoints(now));
       setTodayPartialKwh(null);
+      setPerScopeMidnight(new Map());
+      setLatestPerScopeReadings(new Map());
     } finally {
       setMidnightLoading(false);
     }
@@ -406,31 +467,191 @@ export function EnergyOverviewPage({
     }
   }, [effectiveScopeId, scopes]);
 
-  // Daily consumption from midnight deltas (for Total Energy Consumption chart)
-  const dailyConsumption = useMemo(() => {
-    const result: Array<{ label: string; kWh: number }> = [];
-    for (let i = 1; i < midnightPoints.length; i++) {
+  const dailyBreakdownRows = useMemo(() => {
+    const dateLabelFormatter = new Intl.DateTimeFormat("id-ID", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      timeZone: DISPLAY_TIMEZONE,
+    });
+    const chartLabelFormatter = new Intl.DateTimeFormat("id-ID", {
+      day: "2-digit",
+      month: "short",
+      timeZone: DISPLAY_TIMEZONE,
+    });
+
+    const rows: Array<{
+      dayKey: string;
+      label: string;
+      chartLabel: string;
+      kWh: number;
+    }> = [];
+
+    // Determine loop start based on globalRange.from so chart/table respect selected date filter
+    let loopStart = 1;
+    if (globalRange.from) {
+      const fromParts = getJakartaDateTimeParts(new Date(globalRange.from));
+      const fromKey = `${fromParts.year}-${fromParts.month}-${fromParts.day}`;
+      const idx = midnightPoints.findIndex((pt) => pt.key >= fromKey);
+      if (idx >= 0) loopStart = Math.max(1, idx + 1);
+    }
+
+    // Determine toKey cap based on globalRange.to
+    let toKey: string | null = null;
+    if (globalRange.to) {
+      const toParts = getJakartaDateTimeParts(new Date(globalRange.to));
+      toKey = `${toParts.year}-${toParts.month}-${toParts.day}`;
+    }
+
+    for (let i = loopStart; i < midnightPoints.length; i++) {
       const curr = midnightPoints[i];
       const prev = midnightPoints[i - 1];
       if (curr.energyKwh === null || prev.energyKwh === null) continue;
+
+      // Skip days beyond the selected end date
+      if (toKey && prev.key > toKey) break;
+
       const delta = Math.max(
         0,
         Number((curr.energyKwh - prev.energyKwh).toFixed(2)),
       );
-      // Delta between 00:00 prev and 00:00 curr = consumption during prev's day
-      result.push({ label: prev.dateLabel, kWh: delta });
+
+      const prevDate = new Date(`${prev.key}T00:00:00+07:00`);
+      rows.push({
+        dayKey: prev.key,
+        label: dateLabelFormatter.format(prevDate),
+        chartLabel: chartLabelFormatter.format(prevDate),
+        kWh: delta,
+      });
     }
-    // Append today's partial consumption (latest reading - midnight today)
+
+    // Show today's partial if today falls within the selected range.
     if (todayPartialKwh !== null && todayPartialKwh > 0) {
-      const todayLabel = new Intl.DateTimeFormat("id-ID", {
-        day: "2-digit",
-        month: "short",
-        timeZone: DISPLAY_TIMEZONE,
-      }).format(new Date());
-      result.push({ label: todayLabel, kWh: todayPartialKwh });
+      const now = new Date();
+      const todayParts = getJakartaDateTimeParts(now);
+      const todayKey = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
+      const toKey = globalRange.to
+        ? (() => {
+            const p = getJakartaDateTimeParts(new Date(globalRange.to));
+            return `${p.year}-${p.month}-${p.day}`;
+          })()
+        : null;
+      const isTodayInRange = !toKey || todayKey <= toKey;
+
+      if (isTodayInRange) {
+        rows.push({
+          dayKey: todayKey,
+          label: `${dateLabelFormatter.format(now)} (s.d. sekarang)`,
+          chartLabel: chartLabelFormatter.format(now),
+          kWh: Number(todayPartialKwh.toFixed(2)),
+        });
+      }
     }
-    return result;
-  }, [midnightPoints, todayPartialKwh]);
+
+    return rows;
+  }, [
+    midnightPoints,
+    todayPartialKwh,
+    globalRange.from,
+    globalRange.to,
+    globalRange.preset,
+  ]);
+
+  const calibratedBreakdownRows = useMemo(() => {
+    if (!dailyBreakdownRows.length) return null;
+
+    const baseByDay = new Map(
+      dailyBreakdownRows.map((row) => [row.dayKey, Number(row.kWh.toFixed(4))]),
+    );
+    const dayMeta = new Map(
+      dailyBreakdownRows.map((row) => [
+        row.dayKey,
+        { label: row.label, chartLabel: row.chartLabel },
+      ]),
+    );
+
+    if (!dailyCalibrationData?.rows?.length) {
+      return dailyBreakdownRows;
+    }
+
+    const adjustmentByDay = new Map<string, number>();
+
+    for (const row of dailyCalibrationData.rows) {
+      if (!row.prevReadingAt) continue;
+      if (!Number.isFinite(row.deltaPq)) continue;
+
+      const startKey = toJakartaDayKey(row.prevReadingAt);
+      const endKey = toJakartaDayKey(row.readingAt);
+      const dayKeys = listDayKeysBetween(startKey, endKey).filter((key) =>
+        dayMeta.has(key),
+      );
+
+      if (!dayKeys.length) continue;
+
+      const baseValues = dayKeys.map((key) => Math.max(0, baseByDay.get(key) ?? 0));
+      const baseTotal = baseValues.reduce((sum, value) => sum + value, 0);
+      const targetTotal = Math.max(0, Number(row.deltaPq));
+
+      dayKeys.forEach((key, idx) => {
+        const baseVal = baseValues[idx] ?? 0;
+        const calibratedVal =
+          baseTotal > 0
+            ? (targetTotal * baseVal) / baseTotal
+            : targetTotal / dayKeys.length;
+        const adjustment = calibratedVal - baseVal;
+        adjustmentByDay.set(
+          key,
+          Number(((adjustmentByDay.get(key) ?? 0) + adjustment).toFixed(6)),
+        );
+      });
+    }
+
+    return [...dayMeta.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dayKey, meta]) => {
+        const base = baseByDay.get(dayKey) ?? 0;
+        const adjusted = Math.max(0, base + (adjustmentByDay.get(dayKey) ?? 0));
+        return {
+          dayKey,
+          label: meta.label,
+          chartLabel: meta.chartLabel,
+          kWh: Number(adjusted.toFixed(2)),
+        };
+      });
+  }, [dailyBreakdownRows, dailyCalibrationData?.rows]);
+
+  const calibratedDailyConsumption = useMemo(() => {
+    if (!calibratedBreakdownRows?.length) return null;
+    return calibratedBreakdownRows.map((row) => ({
+      label: row.chartLabel,
+      kWh: row.kWh,
+    }));
+  }, [calibratedBreakdownRows]);
+
+  // Daily consumption for Total Energy Consumption chart
+  const dailyConsumption = useMemo(() => {
+    if (calibratedDailyConsumption && calibratedDailyConsumption.length) {
+      return calibratedDailyConsumption;
+    }
+
+    return dailyBreakdownRows.map((row) => ({
+      label: row.chartLabel,
+      kWh: row.kWh,
+    }));
+  }, [calibratedDailyConsumption, dailyBreakdownRows]);
+
+  // Total energy follows calibration when scope-specific calibration exists
+  const filteredTotalEnergy = useMemo(() => {
+    if (calibratedDailyConsumption && calibratedDailyConsumption.length) {
+      return Number(
+        calibratedDailyConsumption
+          .reduce((sum, row) => sum + row.kWh, 0)
+          .toFixed(2),
+      );
+    }
+
+    return Number(dailyBreakdownRows.reduce((s, r) => s + r.kWh, 0).toFixed(2));
+  }, [calibratedDailyConsumption, dailyBreakdownRows]);
 
   const chartDateRange = useMemo<ChartDateRange>(() => {
     const validChartPresets = [
@@ -492,56 +713,228 @@ export function EnergyOverviewPage({
   }, [overviewData]);
 
   const regionData = overviewData?.regionData ?? [];
-  const comparisonData = useMemo(
+
+  const filteredOutletEnergy = useMemo(() => {
+    const outlets = overviewData?.outletLocations ?? [];
+    if (!outlets.length) return new Map<string, number>();
+
+    if (!perScopeMidnight.size) {
+      return new Map(
+        outlets.map((outlet) => [outlet.id, Number(outlet.usage.toFixed(2))]),
+      );
+    }
+
+    let fromKey: string | null = null;
+    let toKey: string | null = null;
+    if (globalRange.from) {
+      const fp = getJakartaDateTimeParts(new Date(globalRange.from));
+      fromKey = `${fp.year}-${fp.month}-${fp.day}`;
+    }
+    if (globalRange.to) {
+      const tp = getJakartaDateTimeParts(new Date(globalRange.to));
+      toKey = `${tp.year}-${tp.month}-${tp.day}`;
+    }
+
+    const nowParts = getJakartaDateTimeParts(new Date());
+    const todayKey = `${nowParts.year}-${nowParts.month}-${nowParts.day}`;
+    // removed
+    const includeTodayPartial = !toKey || todayKey <= toKey;
+
+    const scopeConsumption = new Map<string, number>();
+    for (const [scopeId, dayMap] of perScopeMidnight) {
+      const sortedKeys = [...dayMap.keys()].sort();
+      let total = 0;
+      for (let i = 1; i < sortedKeys.length; i++) {
+        const prevKey = sortedKeys[i - 1]!;
+        const currKey = sortedKeys[i]!;
+        if (fromKey && prevKey < fromKey) continue;
+        if (toKey && prevKey > toKey) break;
+        const prev = dayMap.get(prevKey) ?? 0;
+        const curr = dayMap.get(currKey) ?? 0;
+        total += Math.max(0, curr - prev);
+      }
+      if (includeTodayPartial) {
+        const todayMidnight = dayMap.get(todayKey);
+        const latestReading = latestPerScopeReadings.get(scopeId);
+        if (todayMidnight !== undefined && latestReading !== undefined) {
+          total += Math.max(0, latestReading - todayMidnight);
+        }
+      }
+      scopeConsumption.set(scopeId, Number(total.toFixed(2)));
+    }
+
+    return scopeConsumption;
+  }, [
+    globalRange.from,
+    globalRange.preset,
+    globalRange.to,
+    latestPerScopeReadings,
+    overviewData?.outletLocations,
+    perScopeMidnight,
+  ]);
+
+  const filteredOutletRankData = useMemo(
     () =>
       (overviewData?.outletLocations ?? []).map((outlet) => ({
+        id: outlet.id,
         name: outlet.name,
-        kWh: Number(outlet.usage.toFixed(2)),
+        region: outlet.region,
+        kWh:
+          filteredOutletEnergy.get(outlet.id) ??
+          Number(outlet.usage.toFixed(2)),
       })),
-    [overviewData?.outletLocations],
+    [filteredOutletEnergy, overviewData?.outletLocations],
   );
+
+  // Filter-aware region consumption from per-scope midnight deltas
+  const filteredRegionData = useMemo(() => {
+    const outlets = overviewData?.outletLocations ?? [];
+    if (!outlets.length) return regionData;
+
+    const regionMap = new Map<
+      string,
+      { region: string; kWh: number; cost: number; outlets: number }
+    >();
+    for (const outlet of outlets) {
+      const consumption =
+        filteredOutletEnergy.get(outlet.id) ?? Number(outlet.usage.toFixed(2));
+      const existing = regionMap.get(outlet.region) ?? {
+        region: outlet.region,
+        kWh: 0,
+        cost: 0,
+        outlets: 0,
+      };
+      existing.kWh = Number((existing.kWh + consumption).toFixed(2));
+      existing.outlets += 1;
+      regionMap.set(outlet.region, existing);
+    }
+
+    return Array.from(regionMap.values()).sort((a, b) => b.kWh - a.kWh);
+  }, [filteredOutletEnergy, overviewData?.outletLocations, regionData]);
 
   const peakOutletData = useMemo(
     () =>
-      [...(overviewData?.outletLocations ?? [])]
-        .sort((a, b) => b.usage - a.usage)
+      [...filteredOutletRankData]
+        .sort((a, b) => b.kWh - a.kWh)
         .slice(0, 10)
         .map((outlet) => ({
           name: outlet.name,
           region: outlet.region,
-          kWh: Number(outlet.usage.toFixed(2)),
+          kWh: Number(outlet.kWh.toFixed(2)),
         })),
-    [overviewData?.outletLocations],
+    [filteredOutletRankData],
   );
 
   const lowOutletData = useMemo(
     () =>
-      [...(overviewData?.outletLocations ?? [])]
-        .sort((a, b) => a.usage - b.usage)
+      [...filteredOutletRankData]
+        .sort((a, b) => a.kWh - b.kWh)
         .slice(0, 10)
         .map((outlet) => ({
           name: outlet.name,
           region: outlet.region,
-          kWh: Number(outlet.usage.toFixed(2)),
+          kWh: Number(outlet.kWh.toFixed(2)),
         })),
-    [overviewData?.outletLocations],
+    [filteredOutletRankData],
   );
 
   const donutData = useMemo(
     () =>
-      regionData
+      filteredRegionData
         .slice(0, 8)
         .map((item) => ({ name: item.region, kWh: item.kWh })),
-    [regionData],
+    [filteredRegionData],
   );
 
   const errorMessage =
     overviewError instanceof Error ? overviewError.message : null;
 
+  const loadDailyCalibration = useCallback(async () => {
+    if (!scopes?.length) {
+      setDailyCalibrationData(null);
+      return;
+    }
+
+    try {
+      if (effectiveScopeId) {
+        const res = await energyDashboardApi.getCalibrationHistory(
+          effectiveScopeId,
+          {
+            from: globalRange.from,
+            to: globalRange.to,
+          },
+        );
+        if (res.success && res.data) {
+          setDailyCalibrationData(res.data);
+        } else {
+          setDailyCalibrationData(null);
+        }
+        return;
+      }
+
+      const settled = await Promise.allSettled(
+        scopes.map((scope) =>
+          energyDashboardApi.getCalibrationHistory(scope.id, {
+            from: globalRange.from,
+            to: globalRange.to,
+          }),
+        ),
+      );
+
+      const mergedRows = settled.flatMap((result) => {
+        if (result.status !== "fulfilled") return [];
+        const payload = result.value;
+        if (!payload.success || !payload.data?.rows?.length) return [];
+        return payload.data.rows;
+      });
+
+      const totalRows = mergedRows.length;
+      const avgGapKwh = totalRows
+        ? Number(
+            (
+              mergedRows.reduce((sum, row) => sum + row.gapKwh, 0) / totalRows
+            ).toFixed(4),
+          )
+        : 0;
+      const avgGapPercent = totalRows
+        ? Number(
+            (
+              mergedRows.reduce((sum, row) => sum + row.gapPercent, 0) /
+              totalRows
+            ).toFixed(4),
+          )
+        : 0;
+      const avgAccuracyPercent = totalRows
+        ? Number(
+            (
+              mergedRows.reduce((sum, row) => sum + row.accuracyPercent, 0) /
+              totalRows
+            ).toFixed(4),
+          )
+        : 0;
+
+      setDailyCalibrationData({
+        rows: mergedRows,
+        summary: {
+          avgGapKwh,
+          avgGapPercent,
+          avgAccuracyPercent,
+          totalRows,
+        },
+      });
+    } catch {
+      setDailyCalibrationData(null);
+    }
+  }, [effectiveScopeId, globalRange.from, globalRange.to, scopes]);
+
+  useEffect(() => {
+    void loadDailyCalibration();
+  }, [loadDailyCalibration]);
+
   return (
     <PageTransition>
       <motion.div
-        className="space-y-3 max-w-7xl mx-auto px-3"
+        className="space-y-3 w-full max-w-[1700px] mx-auto px-3 overflow-x-hidden"
         initial="hidden"
         animate="visible"
         variants={containerVariants}
@@ -556,7 +949,10 @@ export function EnergyOverviewPage({
         )}
 
         {/* Global KPI Cards - Ultra Compact */}
-        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <motion.div
+          variants={itemVariants}
+          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+        >
           <Card className="relative overflow-hidden border-0 shadow-md ring-2 ring-blue-300/35 bg-gradient-to-br from-blue-600 to-cyan-500 text-white">
             <CardContent className="px-3 py-2.5">
               <div className="flex items-center gap-2">
@@ -568,9 +964,7 @@ export function EnergyOverviewPage({
                     Total Energy
                   </p>
                   <p className="text-2xl font-bold truncate leading-tight">
-                    {(overviewData?.globalKpi.totalEnergy ?? 0).toLocaleString(
-                      "id-ID",
-                    )}{" "}
+                    {filteredTotalEnergy.toLocaleString("id-ID")}{" "}
                     <span className="text-xs font-normal text-white/90">
                       kWh
                     </span>
@@ -632,39 +1026,29 @@ export function EnergyOverviewPage({
         </motion.div>
 
         {/* Main Content Grid - Left data, Right map + charts */}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[2.7fr_2.3fr] xl:grid-cols-[2.8fr_2.2fr] 2xl:grid-cols-[3fr_2fr]">
-          {/* Left Column - Data Components */}
-          <div className="space-y-3">
-            {/* Energy by Region */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[2.6fr_2fr] lg:grid-cols-[2.7fr_2.3fr] xl:grid-cols-[2.8fr_2.2fr] 2xl:grid-cols-[3fr_2fr]">
+          {/* Left Column - Energy Comparison, then Total Energy */}
+          <div className="min-w-0 space-y-3">
+            {/* Energy Comparison */}
             <motion.div variants={itemVariants}>
               <MonthlyEnergyChart
-                data={regionData}
+                data={filteredRegionData}
                 dateRange={chartDateRange}
                 onDateChange={() => undefined}
                 loading={loading}
                 showDateFilter={false}
+                compact
               />
             </motion.div>
 
-            {/* Outlet Comparison */}
-            <motion.div variants={itemVariants}>
-              <OutletComparisonChart
-                data={comparisonData}
-                dateRange={chartDateRange}
-                onDateChange={() => undefined}
-                loading={loading}
-                showDateFilter={false}
-              />
-            </motion.div>
-
-            {/* Top & Low Outlets side by side */}
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {/* Top & Low Outlets */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <motion.div variants={itemVariants}>
                 <TopOutletsList
                   data={peakOutletData}
                   dateRange={chartDateRange}
                   onDateChange={() => undefined}
-                  loading={loading}
+                  loading={loading || midnightLoading}
                   showDateFilter={false}
                 />
               </motion.div>
@@ -673,33 +1057,30 @@ export function EnergyOverviewPage({
                   data={lowOutletData}
                   dateRange={chartDateRange}
                   onDateChange={() => undefined}
-                  loading={loading}
+                  loading={loading || midnightLoading}
                   showDateFilter={false}
                 />
               </motion.div>
             </div>
 
-            {/* Energy Distribution Donut - hidden for now */}
-            {/* <motion.div variants={itemVariants}>
-              <EnergyDistributionDonut data={donutData} loading={loading} />
-            </motion.div> */}
-
-            {/* Energy 00:00 */}
+            {/* Total Energy Consumption */}
             <motion.div variants={itemVariants}>
-              <MidnightEnergyOverviewCard
-                points={midnightPoints}
-                loading={midnightLoading}
-                titleSuffix={
-                  effectiveScopeId
-                    ? `${selectedScopeName}`
-                    : `Semua outlet${effectiveTenantId ? ` (${selectedTenantName})` : ""}`
-                }
+              <HourlyEnergyConsumptionChart
+                data={overviewData?.hourlyEnergy ?? []}
+                dailyData={dailyConsumption}
+                breakdownRows={calibratedBreakdownRows ?? dailyBreakdownRows}
+                dateRange={chartDateRange}
+                onDateChange={() => undefined}
+                loading={loading || midnightLoading}
+                showDateFilter={false}
               />
             </motion.div>
+
           </div>
 
-          {/* Right Column - Map + Charts below */}
-          <div className="space-y-3">
+
+          {/* Right Column - Map + Avg Hourly */}
+          <div className="min-w-0 space-y-3">
             {/* Outlet Status Map */}
             <motion.div variants={itemVariants}>
               <Card className="border border-border/70 shadow-sm py-2 gap-1">
@@ -709,7 +1090,7 @@ export function EnergyOverviewPage({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-3 pb-2 pt-0.5">
-                  <div className="h-[240px] rounded-md overflow-hidden bg-muted/30 ring-2 ring-border/50 lg:-ml-2 lg:w-[calc(100%+0.5rem)]">
+                  <div className="h-[240px] rounded-md overflow-hidden bg-muted/30 ring-2 ring-border/50">
                     <OpenLayersMap outlets={mapOutlets} className="h-full" />
                   </div>
                   <div className="mt-1.5 flex items-center justify-end gap-3 text-xs">
@@ -738,18 +1119,6 @@ export function EnergyOverviewPage({
                 dateRange={chartDateRange}
                 onDateChange={() => undefined}
                 loading={loading}
-                showDateFilter={false}
-              />
-            </motion.div>
-
-            {/* Total Energy Consumption */}
-            <motion.div variants={itemVariants}>
-              <HourlyEnergyConsumptionChart
-                data={overviewData?.hourlyEnergy ?? []}
-                dailyData={dailyConsumption}
-                dateRange={chartDateRange}
-                onDateChange={() => undefined}
-                loading={loading || midnightLoading}
                 showDateFilter={false}
               />
             </motion.div>

@@ -125,7 +125,7 @@ const overlayVariants = {
 };
 
 export default function Sidebar({ user }: SidebarProps) {
-  const { user: authUser } = useAuth();
+  const { user: authUser, hasPermission } = useAuth();
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapse, setOpen } = useSidebar();
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(
@@ -135,7 +135,47 @@ export default function Sidebar({ user }: SidebarProps) {
   const userName = authUser?.name || user?.name;
 
   const menuItems: NavigationItem[] = (() => {
-    const sourceMenus = authUser?.menus || user?.menus || [];
+    const sourceMenus = [...(authUser?.menus || user?.menus || [])];
+
+    const hasHealthMenu = sourceMenus.some(
+      (menu) => menu.path === "/dashboard/health",
+    );
+    const devicesParent =
+      sourceMenus.find((menu) => menu.selectorValue === "devices_group") ||
+      sourceMenus.find((menu) => menu.name.toLowerCase() === "devices");
+
+    if (!hasHealthMenu && hasPermission("devices:read")) {
+      sourceMenus.push({
+        id: "built-in-device-health",
+        name: "Health",
+        path: "/dashboard/health",
+        icon: "Activity",
+        selectorValue: "device_health",
+        order: (devicesParent?.order ?? 40) + 2,
+        parentId: devicesParent?.id ?? null,
+      });
+    }
+
+    const hasCalibrationMenu = sourceMenus.some(
+      (menu) => menu.path === "/dashboard/energy-monitoring/calibration",
+    );
+    const energyMonitoringParent =
+      sourceMenus.find((menu) => menu.selectorValue === "energy_monitoring") ||
+      sourceMenus.find(
+        (menu) => menu.name.toLowerCase() === "energy monitoring",
+      );
+
+    if (!hasCalibrationMenu && hasPermission("outlet_energy_snapshots:read")) {
+      sourceMenus.push({
+        id: "built-in-energy-calibration",
+        name: "Calibration",
+        path: "/dashboard/energy-monitoring/calibration",
+        icon: "ClipboardCheck",
+        selectorValue: "energy_calibration",
+        order: (energyMonitoringParent?.order ?? 11) + 6,
+        parentId: energyMonitoringParent?.id ?? null,
+      });
+    }
 
     const mapById = new Map<string, NavigationItem>();
     sourceMenus.forEach((menu) => {
