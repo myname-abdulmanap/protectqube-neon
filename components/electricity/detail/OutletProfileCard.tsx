@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Building2, MapPin, Cpu, Zap, Radio, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
+import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
 import { useRouter } from 'next/navigation';
 
 interface OutletProfileCardProps {
