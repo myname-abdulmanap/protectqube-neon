@@ -93,7 +93,7 @@ async function fetchEnergyKwh(scopeId: string, from: Date, to: Date): Promise<nu
 		const baseline = beforeRange.length > 0 ? beforeRange[beforeRange.length - 1]! : inRange[0]!;
 
 		const delta = peak - baseline;
-		return Number(Math.max(0, delta).toFixed(2));
+		return Number(delta);
 	} catch {
 		return 0;
 	}
@@ -120,7 +120,7 @@ function EnergyStatBox({
 				<div className='h-7 w-14 rounded bg-white/20 animate-pulse' />
 			) : (
 				<p className='text-xl font-bold tabular-nums leading-tight'>
-					{hasValue ? value!.toLocaleString('id-ID', { maximumFractionDigits: 2 }) : '–'}
+					{hasValue ? value!.toLocaleString('id-ID', { maximumFractionDigits: 3 }) : '–'}
 				</p>
 			)}
 			<p className='text-[10px] font-semibold mt-0.5 opacity-70'>kWh</p>

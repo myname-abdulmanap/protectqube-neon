@@ -373,7 +373,7 @@ export function HourlyEnergyCard({ scopeId }: HourlyEnergyCardProps) {
 							iconBg='bg-indigo-500/10'
 							iconColor='text-indigo-500'
 							label='Rata-rata Per Hari'
-							value={`${stats.avgDailyKwh.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kWh`}
+							value={`${stats.avgDailyKwh.toLocaleString('id-ID', { maximumFractionDigits: 3 })} kWh`}
 							sub='Rata-rata harian periode ini'
 						/>
 						<MetaStat
@@ -381,7 +381,7 @@ export function HourlyEnergyCard({ scopeId }: HourlyEnergyCardProps) {
 							iconBg='bg-emerald-500/10'
 							iconColor='text-emerald-500'
 							label='Total Periode Ini'
-							value={`${stats.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 1 })} kWh`}
+							value={`${stats.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 3 })} kWh`}
 							sub={`Selama ${days.filter((d) => d.totalKwh > 0).length} hari`}
 						/>
 						{stats.busiestDay && (
@@ -391,7 +391,7 @@ export function HourlyEnergyCard({ scopeId }: HourlyEnergyCardProps) {
 								iconColor='text-rose-500'
 								label='Hari Paling Sibuk'
 								value={`${stats.busiestDay.weekday}, ${stats.busiestDay.label}`}
-								sub={`${stats.busiestDay.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kWh`}
+								sub={`${stats.busiestDay.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 3 })} kWh`}
 							/>
 						)}
 						{stats.quietestDay && (
@@ -401,7 +401,7 @@ export function HourlyEnergyCard({ scopeId }: HourlyEnergyCardProps) {
 								iconColor='text-amber-500'
 								label='Konsumsi Paling Rendah'
 								value={`${stats.quietestDay.weekday}, ${stats.quietestDay.label}`}
-								sub={`${stats.quietestDay.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 2 })} kWh`}
+								sub={`${stats.quietestDay.totalKwh.toLocaleString('id-ID', { maximumFractionDigits: 3 })} kWh`}
 							/>
 						)}
 					</div>

@@ -538,14 +538,23 @@ export interface EnergyOutletDetail {
 		overallAvgKwPerHour?: number;
 		peakHourAvgKwh?: number;
 		overallAvgKwhPerHour?: number;
+		totalKvarhDelta: number;
+		avgFrequencyHz: number | null;
 	};
 }
 
 export interface HistoryRow {
 	timestamp: string;
+	pf_a: number | null;
+	pf_b: number | null;
+	pf_c: number | null;
+	pf_sigma: number | null;
 	voltage_l1: number | null;
 	voltage_l2: number | null;
 	voltage_l3: number | null;
+	voltage_ab: number | null;
+	voltage_bc: number | null;
+	voltage_ca: number | null;
 	current_l1: number | null;
 	current_l2: number | null;
 	current_l3: number | null;
@@ -554,8 +563,17 @@ export interface HistoryRow {
 	power_l2: number | null;
 	power_l3: number | null;
 	power_total: number | null;
+	reactive_l1: number | null;
+	reactive_l2: number | null;
+	reactive_l3: number | null;
+	reactive_sigma: number | null;
+	va_a: number | null;
+	va_b: number | null;
+	va_c: number | null;
+	va_sigma: number | null;
 	energy_total: number | null;
-	pf_sigma: number | null;
+	kvarh: number | null;
+	frequency: number | null;
 }
 
 export interface HistoryPageData {

@@ -231,7 +231,7 @@ export function EnergyOverviewPage({
             ))}
           </SelectContent>
         </Select>
-        <DateFilter value={globalRange} onChange={setGlobalRange} size="xs" />
+        <DateFilter value={globalRange} onChange={setGlobalRange} />
       </div>,
     );
     return () => setFilterSlot(null);
