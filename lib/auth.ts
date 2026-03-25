@@ -94,11 +94,10 @@ export const authConfig: NextAuthConfig = {
       if (user && user.id) {
         token.id = user.id;
         token.role = user.role;
-        token.scopeIds = (user as any).scopeIds || [];
+        token.scopeIds = user.scopeIds || [];
         token.permissions = user.permissions || [];
         token.menus = user.menus || [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        token.backendToken = (user as any).backendToken;
+        token.backendToken = user.backendToken;
       }
       return token;
     },

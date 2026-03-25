@@ -634,14 +634,24 @@ export function EnergyOverviewPage({
     const adjustmentByDay = new Map<string, number>();
 
     for (const row of dailyCalibrationData.rows) {
-      if (!row.prevReadingAt) continue;
       if (!Number.isFinite(row.deltaPq) || row.deltaPq <= 0) continue;
 
-      const startKey = toJakartaDayKey(row.prevReadingAt);
+      const intervalStartAt = row.periodStartAt ?? row.prevReadingAt;
+      if (!intervalStartAt) continue;
+
+      // Always align calibration allocation to full day buckets (00:00-00:00).
+      const startKey = toJakartaDayKey(intervalStartAt);
       const endKey = toJakartaDayKey(row.readingAt);
-      const dayKeys = listDayKeysBetween(startKey, endKey).filter((key) =>
+
+      let dayKeys = listDayKeysBetween(startKey, endKey).filter((key) =>
         dayMeta.has(key),
       );
+
+      // If calibration interval stays within one calendar day,
+      // map it to that full day bucket to keep daily chart at 00:00-00:00 granularity.
+      if (!dayKeys.length && startKey === endKey && dayMeta.has(startKey)) {
+        dayKeys = [startKey];
+      }
 
       if (!dayKeys.length) continue;
 

@@ -17,6 +17,7 @@ declare module "next-auth" {
     user: {
       id: string;
       role: Role;
+      scopeIds: string[];
       permissions: string[];
       menus: SidebarMenu[];
       backendToken: string;
@@ -25,6 +26,7 @@ declare module "next-auth" {
 
   interface User extends DefaultUser {
     role: Role;
+    scopeIds?: string[];
     permissions?: string[];
     menus?: SidebarMenu[];
     backendToken?: string;
@@ -35,6 +37,7 @@ declare module "next-auth/jwt" {
   interface JWT extends DefaultJWT {
     id: string;
     role: Role;
+    scopeIds?: string[];
     permissions?: string[];
     menus?: SidebarMenu[];
     backendToken?: string;
