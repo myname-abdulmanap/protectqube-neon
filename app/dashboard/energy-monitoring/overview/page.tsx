@@ -47,6 +47,7 @@ import {
   type CalibrationHistoryData,
 } from "@/lib/api";
 import type { OverviewMidnightPoint } from "@/components/dashboard/MidnightEnergyOverviewCard";
+import { useAuth } from "@/lib/auth-context";
 
 const OpenLayersMap = dynamic(
   () =>
@@ -195,6 +196,7 @@ export function EnergyOverviewPage({
     useState<CalibrationHistoryData | null>(null);
 
   const { setTitle, setFilterSlot } = useHeaderPage();
+  const { user } = useAuth();
 
   useEffect(() => {
     setTitle("Dashboard Overview");
@@ -213,11 +215,62 @@ export function EnergyOverviewPage({
   const effectiveScopeId = scopeFilter === "all" ? undefined : scopeFilter;
 
   const { data: tenants } = useTenants();
+  const { data: allScopes } = useScopes(undefined);
   const { data: scopes } = useScopes(effectiveTenantId);
+
+  // Get user's accessible scope IDs
+  const accessibleScopeIds = useMemo(() => {
+    if (!user?.scopeIds || user.scopeIds.length === 0) return [];
+    return user.scopeIds;
+  }, [user?.scopeIds]);
+
+  // Filter tenants to only show those with accessible scopes
+  const filteredTenants = useMemo(() => {
+    if (!tenants || !allScopes || !accessibleScopeIds.length) return tenants ?? [];
+    const accessibleTenantIds = new Set<string>();
+    for (const scope of allScopes) {
+      if (accessibleScopeIds.includes(scope.id)) {
+        accessibleTenantIds.add(scope.tenantId);
+      }
+    }
+    return tenants.filter((tenant) => accessibleTenantIds.has(tenant.id));
+  }, [tenants, allScopes, accessibleScopeIds]);
+
+  // Auto-reset tenant filter if selected tenant becomes inaccessible
+  useEffect(() => {
+    if (tenantFilter === "all") return;
+    if (!filteredTenants.some((t) => t.id === tenantFilter)) {
+      setTenantFilter("all");
+    }
+  }, [filteredTenants, tenantFilter]);
 
   useEffect(() => {
     setFilterSlot(
       <div className="flex items-center gap-1">
+        <Select 
+          value={tenantFilter} 
+          onValueChange={setTenantFilter}
+          disabled={!!forcedTenantId}
+        >
+          <SelectTrigger className="h-6 w-[120px] text-[10px] bg-background border-border/50">
+            <SelectValue placeholder="Tenant" />
+          </SelectTrigger>
+          <SelectContent>
+            {filteredTenants.length > 0 && (
+              <SelectItem value="all">All Tenants</SelectItem>
+            )}
+            {filteredTenants.map((tenant) => (
+              <SelectItem key={tenant.id} value={tenant.id}>
+                {tenant.name}
+              </SelectItem>
+            ))}
+            {filteredTenants.length === 0 && (
+              <SelectItem value="none" disabled>
+                No tenants available
+              </SelectItem>
+            )}
+          </SelectContent>
+        </Select>
         <Select value={scopeFilter} onValueChange={setScopeFilter}>
           <SelectTrigger className="h-6 w-[110px] text-[10px] bg-background border-border/50">
             <SelectValue placeholder="Outlet" />
@@ -236,12 +289,16 @@ export function EnergyOverviewPage({
     );
     return () => setFilterSlot(null);
   }, [
+    tenantFilter,
+    filteredTenants,
     scopeFilter,
     scopes,
     globalRange,
     setFilterSlot,
+    setTenantFilter,
     setScopeFilter,
     setGlobalRange,
+    forcedTenantId,
   ]);
 
   const overviewFilters = useMemo(

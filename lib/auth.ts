@@ -65,6 +65,7 @@ export const authConfig: NextAuthConfig = {
             name: userData.name,
             email: userData.email,
             role: userData.role?.name || "user",
+            scopeIds: userData.scopeIds || [],
             permissions:
               userData.role?.permissions?.map(
                 (permission: BackendPermission) => permission.name,
@@ -93,6 +94,7 @@ export const authConfig: NextAuthConfig = {
       if (user && user.id) {
         token.id = user.id;
         token.role = user.role;
+        token.scopeIds = (user as any).scopeIds || [];
         token.permissions = user.permissions || [];
         token.menus = user.menus || [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,6 +106,7 @@ export const authConfig: NextAuthConfig = {
       if (session.user) {
         session.user.id = token.id;
         session.user.role = token.role;
+        session.user.scopeIds = token.scopeIds || [];
         session.user.permissions = token.permissions || [];
         session.user.menus = token.menus || [];
         session.user.backendToken = token.backendToken ?? "";

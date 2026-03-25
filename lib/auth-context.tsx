@@ -37,6 +37,7 @@ export function useAuth(): AuthContextType {
         isActive: true,
         createdAt: "",
         updatedAt: "",
+        scopeIds: (session.user as { scopeIds?: string[] }).scopeIds || [],
         role: {
           id: "",
           name: session.user.role,

@@ -67,6 +67,34 @@ export default function EnergyCalibrationPage() {
 
   const { data: tenants } = useTenants();
   const { data: scopes } = useScopes(effectiveTenantId);
+  const { data: allScopes } = useScopes(undefined);
+
+  // Get user's accessible scope IDs
+  const accessibleScopeIds = useMemo(() => {
+    if (!user?.scopeIds || user.scopeIds.length === 0) return [];
+    return user.scopeIds;
+  }, [user?.scopeIds]);
+
+  // Filter tenants to only show those with accessible scopes
+  const filteredTenants = useMemo(() => {
+    if (!tenants || !allScopes || !accessibleScopeIds.length) return tenants ?? [];
+    
+    // Find which tenants the user's accessible scopes belong to
+    const accessibleTenantIds = new Set<string>();
+    for (const scope of allScopes) {
+      if (accessibleScopeIds.includes(scope.id)) {
+        accessibleTenantIds.add(scope.tenantId);
+      }
+    }
+    
+    return tenants.filter((tenant) => accessibleTenantIds.has(tenant.id));
+  }, [tenants, allScopes, accessibleScopeIds]);
+
+  // Filter scopes by both tenant AND user's accessible scopes
+  const filteredScopes = useMemo(() => {
+    if (!scopes) return scopes;
+    return scopes.filter((scope) => accessibleScopeIds.includes(scope.id));
+  }, [scopes, accessibleScopeIds]);
 
   useEffect(() => {
     if (!scopes || scopes.length === 0) {
@@ -84,7 +112,15 @@ export default function EnergyCalibrationPage() {
     if (!scopes.some((scope) => scope.id === scopeFilter)) {
       setScopeFilter(scopes[0]!.id);
     }
-  }, [scopeFilter, scopes]);
+  }, [scopeFilter, scopes, filteredScopes]);
+
+  // Reset tenant filter if it becomes inaccessible
+  useEffect(() => {
+    if (tenantFilter === "all") return;
+    if (!filteredTenants.some((t) => t.id === tenantFilter)) {
+      setTenantFilter("all");
+    }
+  }, [filteredTenants, tenantFilter]);
 
   useEffect(() => {
     setTitle("History Kalibrasi Energy");
@@ -499,12 +535,19 @@ export default function EnergyCalibrationPage() {
                   <SelectValue placeholder="Tenant" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Tenants</SelectItem>
-                  {(tenants ?? []).map((tenant) => (
-                  <SelectItem key={tenant.id} value={tenant.id}>
-                    {tenant.name}
-                  </SelectItem>
-                ))}
+                  {filteredTenants.length > 0 && (
+                    <SelectItem value="all">All Tenants</SelectItem>
+                  )}
+                  {filteredTenants.map((tenant) => (
+                    <SelectItem key={tenant.id} value={tenant.id}>
+                      {tenant.name}
+                    </SelectItem>
+                  ))}
+                  {filteredTenants.length === 0 && (
+                    <SelectItem value="none" disabled>
+                      No tenants available
+                    </SelectItem>
+                  )}
               </SelectContent>
             </Select>
 
@@ -513,12 +556,19 @@ export default function EnergyCalibrationPage() {
                 <SelectValue placeholder="Outlet" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Outlets</SelectItem>
-                {(scopes ?? []).map((scope) => (
+                {filteredScopes && filteredScopes.length > 0 && (
+                  <SelectItem value="all">All Outlets</SelectItem>
+                )}
+                {(filteredScopes ?? []).map((scope) => (
                   <SelectItem key={scope.id} value={scope.id}>
                     {scope.name}
                   </SelectItem>
                 ))}
+                {(!filteredScopes || filteredScopes.length === 0) && (
+                  <SelectItem value="none" disabled>
+                    No outlets available
+                  </SelectItem>
+                )}
               </SelectContent>
             </Select>
 
@@ -587,7 +637,7 @@ export default function EnergyCalibrationPage() {
                     Avg GAP %: {summary.avgGapPercent.toFixed(2)}%
                   </div>
                   <div className="rounded border p-2">
-                    Avg Accuracy: {summary.avgAccuracyPercent.toFixed(2)}%
+                    Avg Accuracy: {Math.min(100, summary.avgAccuracyPercent).toFixed(2)}%
                   </div>
                 </div>
 

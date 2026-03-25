@@ -6,8 +6,6 @@ import {
   Menu,
   LogOut,
   User,
-  Building2,
-  ChevronDown,
   KeyRound,
   Eye,
   EyeOff,
@@ -83,38 +81,58 @@ export default function Header({ user }: HeaderProps) {
     );
   }, [pathname]);
 
-  // Auto-select tenant when landing on /overview without a tenantId.
-  // Runs only after SWR data is loaded, and only redirects once per mount (useRef guard).
-  useEffect(() => {
-    if (didAutoRedirect.current || !isOnOverviewPage || tenantIdFromPath)
-      return;
-    if (!tenants.length && !scopeList?.length) return; // still loading
+  // Determine accessible tenants based on user role and scopes
+  const accessibleTenants = useMemo(() => {
+    const isSuperAdmin = user?.role === "SUPERADMIN";
+    
+    // Superadmin can see all tenants
+    if (isSuperAdmin) {
+      return tenants;
+    }
 
-    if (scopeList?.length) {
-      const scopeTenantId = scopeList[0].tenantId;
-      if (scopeTenantId) {
-        didAutoRedirect.current = true;
-        router.push(`/dashboard/energy-monitoring/overview/${scopeTenantId}`);
-        return;
+    // Non-superadmin: filter to tenants that match their accessible scopes
+    const userScopeIds = user?.scopeIds || [];
+    if (!userScopeIds.length || !scopeList) return [];
+
+    const accessibleTenantIds = new Set<string>();
+    for (const scope of scopeList) {
+      if (userScopeIds.includes(scope.id)) {
+        accessibleTenantIds.add(scope.tenantId);
       }
     }
+    
+    return tenants.filter((t) => accessibleTenantIds.has(t.id));
+  }, [user, tenants, scopeList]);
 
-    if (tenants.length === 1) {
-      didAutoRedirect.current = true;
-      router.push(`/dashboard/energy-monitoring/overview/${tenants[0].id}`);
+  // Auto-select tenant when landing on /overview without a tenantId
+  // For non-superadmin, always redirect to their single accessible tenant
+  useEffect(() => {
+    if (didAutoRedirect.current || !isOnOverviewPage || tenantIdFromPath) return;
+    if (!tenants.length && !scopeList?.length) return; // still loading
+
+    const isSuperAdmin = user?.role === "SUPERADMIN";
+
+    // Superadmin: redirect to first tenant if available
+    if (isSuperAdmin) {
+      if (tenants.length === 1) {
+        didAutoRedirect.current = true;
+        router.push(`/dashboard/energy-monitoring/overview/${tenants[0].id}`);
+      } else if (scopeList?.length) {
+        const scopeTenantId = scopeList[0].tenantId;
+        if (scopeTenantId) {
+          didAutoRedirect.current = true;
+          router.push(`/dashboard/energy-monitoring/overview/${scopeTenantId}`);
+        }
+      }
+      return;
     }
-  }, [isOnOverviewPage, tenantIdFromPath, tenants, scopeList, router]);
 
-  // Derive tenant display name from the already-loaded tenants list — no extra API call
-  const tenantName = useMemo(() => {
-    if (!tenantIdFromPath) return null;
-    const found = tenants.find((t) => t.id === tenantIdFromPath);
-    return found?.name ?? null;
-  }, [tenantIdFromPath, tenants]);
-
-  const handleTenantSelect = (tenantId: string) => {
-    router.push(`/dashboard/energy-monitoring/overview/${tenantId}`);
-  };
+    // Non-superadmin: must redirect to their single accessible tenant
+    if (accessibleTenants.length === 1) {
+      didAutoRedirect.current = true;
+      router.push(`/dashboard/energy-monitoring/overview/${accessibleTenants[0].id}`);
+    }
+  }, [isOnOverviewPage, tenantIdFromPath, tenants, scopeList, user, accessibleTenants, router]);
 
   const handleLogout = async () => {
     authToken.remove();
@@ -143,9 +161,6 @@ export default function Header({ user }: HeaderProps) {
       .toUpperCase()
       .slice(0, 2);
   };
-
-  // Show tenant selector only if we have multiple tenants or a name to display
-  const showTenantDropdown = tenants.length > 1 || !!tenantName;
 
   // Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -239,38 +254,6 @@ export default function Header({ user }: HeaderProps) {
         <div className="flex items-center gap-1">
           {/* Page-specific filters */}
           {headerPage.filterSlot}
-
-          {/* Tenant Selector */}
-          {showTenantDropdown && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 gap-1 px-2 text-[10px] border-border/50 bg-muted/30"
-                >
-                  <Building2 className="h-3 w-3" />
-                  {tenantName || "Tenant"}
-                  {tenants.length > 1 && (
-                    <ChevronDown className="h-3 w-3 opacity-50" />
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              {tenants.length > 1 && (
-                <DropdownMenuContent align="end" className="w-48">
-                  {tenants.map((tenant) => (
-                    <DropdownMenuItem
-                      key={tenant.id}
-                      className="text-xs"
-                      onClick={() => handleTenantSelect(tenant.id)}
-                    >
-                      {tenant.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              )}
-            </DropdownMenu>
-          )}
 
           <ThemeToggle />
 
