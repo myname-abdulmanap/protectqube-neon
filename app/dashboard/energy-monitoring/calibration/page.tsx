@@ -375,12 +375,15 @@ export default function EnergyCalibrationPage() {
             rows: calibrationData.rows.map((row) => {
               const anchorRow = isAnchorRow(row);
               return {
-                Date: row.date,
+                Date: formatTableDateRange(row.periodStartAt, row.readingAt),
                 "Calibration History": formatCalibrationHistoryRange(
                   row.periodStartAt,
                   row.readingAt,
                 ),
-                "Time Interval": row.intervalLabel,
+                "Time Interval": formatTableTimeInterval(
+                  row.periodStartAt,
+                  row.readingAt,
+                ),
                 "Raw PLN": row.plnEnergyKwh,
                 "Raw ProtectCube": row.protectCubeEnergyKwh,
                 "Delta PLN": anchorRow ? "-" : row.deltaPln,
@@ -403,6 +406,8 @@ export default function EnergyCalibrationPage() {
     effectiveScopeId,
     formatCalibrationHistoryRange,
     formatExportDateTime,
+    formatTableDateRange,
+    formatTableTimeInterval,
     isAnchorRow,
     selectedScopeName,
     selectedTenantName,
@@ -445,12 +450,12 @@ export default function EnergyCalibrationPage() {
               "Accuracy",
             ],
             rows: calibrationData.rows.map((row) => [
-              row.date,
+              formatTableDateRange(row.periodStartAt, row.readingAt),
               formatCalibrationHistoryRange(
                 row.periodStartAt,
                 row.readingAt,
               ),
-              row.intervalLabel,
+              formatTableTimeInterval(row.periodStartAt, row.readingAt),
               row.plnEnergyKwh,
               row.protectCubeEnergyKwh,
               isAnchorRow(row) ? "-" : row.deltaPln,
@@ -471,6 +476,8 @@ export default function EnergyCalibrationPage() {
     effectiveScopeId,
     formatCalibrationHistoryRange,
     formatExportDateTime,
+    formatTableDateRange,
+    formatTableTimeInterval,
     isAnchorRow,
     selectedScopeName,
     selectedTenantName,
@@ -531,22 +538,28 @@ export default function EnergyCalibrationPage() {
                     variant="outline"
                     onClick={() => void handleExportPdf()}
                     disabled={exportLoading !== null || !calibrationData?.rows?.length}
-                    className="h-8 w-8"
+                    className="relative h-9 w-9"
                     title="Export PDF"
                     aria-label="Export PDF"
                   >
-                    <FileText className="h-4 w-4" />
+                    <FileText className="h-4 w-4 text-red-600" />
+                    <span className="absolute -bottom-0.5 rounded bg-red-600 px-1 text-[8px] font-semibold leading-3 text-white">
+                      PDF
+                    </span>
                   </Button>
                   <Button
                     size="icon"
                     variant="outline"
                     onClick={() => void handleExportExcel()}
                     disabled={exportLoading !== null || !calibrationData?.rows?.length}
-                    className="h-8 w-8"
+                    className="relative h-9 w-9"
                     title="Export Excel"
                     aria-label="Export Excel"
                   >
-                    <FileSpreadsheet className="h-4 w-4" />
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                    <span className="absolute -bottom-0.5 rounded bg-emerald-600 px-1 text-[8px] font-semibold leading-3 text-white">
+                      XLS
+                    </span>
                   </Button>
                   {!isUserRole && (
                     <Button
