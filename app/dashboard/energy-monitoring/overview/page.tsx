@@ -76,6 +76,18 @@ const itemVariants = {
 
 const DISPLAY_TIMEZONE = "Asia/Jakarta";
 const DAY_MS = 24 * 60 * 60 * 1000;
+const OVERRIDE_SCOPE_ID = "cmmio2wjf0lyprk01sgkquky3";
+const OVERRIDE_DAY_KEY = "2026-03-18";
+const OVERRIDE_DAY_KWH_DELTA = 113.664;
+
+const applySpecialDayOverride = <T extends { dayKey: string; kWh: number }>(
+  rows: T[],
+): T[] =>
+  rows.map((row) =>
+    row.dayKey === OVERRIDE_DAY_KEY
+      ? { ...row, kWh: Number((row.kWh + OVERRIDE_DAY_KWH_DELTA).toFixed(3)) }
+      : row,
+  );
 
 const getJakartaDateTimeParts = (value: string | Date) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -628,7 +640,7 @@ export function EnergyOverviewPage({
     );
 
     if (!dailyCalibrationData?.rows?.length) {
-      return dailyBreakdownRows;
+      return applySpecialDayOverride(dailyBreakdownRows);
     }
 
     const adjustmentByDay = new Map<string, number>();
@@ -697,7 +709,7 @@ export function EnergyOverviewPage({
       });
     }
 
-    return [...dayMeta.entries()]
+    const calibratedRows = [...dayMeta.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([dayKey, meta]) => {
         const base = baseByDay.get(dayKey) ?? 0;
@@ -709,6 +721,8 @@ export function EnergyOverviewPage({
           kWh: Number(adjusted.toFixed(2)),
         };
       });
+
+    return applySpecialDayOverride(calibratedRows);
   }, [dailyBreakdownRows, dailyCalibrationData?.rows]);
 
   const calibratedDailyConsumption = useMemo(() => {
@@ -809,9 +823,42 @@ export function EnergyOverviewPage({
     const outlets = overviewData?.outletLocations ?? [];
     if (!outlets.length) return new Map<string, number>();
 
+    const applyOutletOverride = (map: Map<string, number>) => {
+      let fromKey: string | null = null;
+      let toKey: string | null = null;
+      if (globalRange.from) {
+        const fp = getJakartaDateTimeParts(new Date(globalRange.from));
+        fromKey = `${fp.year}-${fp.month}-${fp.day}`;
+      }
+      if (globalRange.to) {
+        const tp = getJakartaDateTimeParts(new Date(globalRange.to));
+        toKey = `${tp.year}-${tp.month}-${tp.day}`;
+      }
+
+      const inRange =
+        (!fromKey || OVERRIDE_DAY_KEY >= fromKey) &&
+        (!toKey || OVERRIDE_DAY_KEY <= toKey);
+
+      if (!inRange) return map;
+
+      // Apply only for the configured scope ID.
+      const targetScopeId = OVERRIDE_SCOPE_ID;
+
+      if (!map.has(targetScopeId)) return map;
+
+      const next = new Map(map);
+      next.set(
+        targetScopeId,
+        Number(((next.get(targetScopeId) ?? 0) + OVERRIDE_DAY_KWH_DELTA).toFixed(3)),
+      );
+      return next;
+    };
+
     if (!perScopeMidnight.size) {
-      return new Map(
+      return applyOutletOverride(
+        new Map(
         outlets.map((outlet) => [outlet.id, Number(outlet.usage.toFixed(2))]),
+        ),
       );
     }
 
@@ -854,8 +901,9 @@ export function EnergyOverviewPage({
       scopeConsumption.set(scopeId, Number(total.toFixed(2)));
     }
 
-    return scopeConsumption;
+    return applyOutletOverride(scopeConsumption);
   }, [
+    effectiveScopeId,
     globalRange.from,
     globalRange.preset,
     globalRange.to,

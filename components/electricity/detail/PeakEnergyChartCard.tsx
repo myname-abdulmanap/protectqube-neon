@@ -17,6 +17,7 @@ import { BatteryCharging } from 'lucide-react';
 import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
 
 interface PeakEnergyChartCardProps {
+	scopeId: string;
 	timeSeries: OutletDetailPayload['timeSeries'];
 	loadedFrom: string;
 	loadedTo: string;
@@ -24,6 +25,9 @@ interface PeakEnergyChartCardProps {
 
 const DISPLAY_TIMEZONE = 'Asia/Jakarta';
 const PER_HOUR_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000;
+const CALIBRATION_OVERRIDE_SCOPE_ID = 'cmmio2wjf0lyprk01sgkquky3';
+const CALIBRATION_OVERRIDE_DAY_KEY = '2026-03-18';
+const CALIBRATION_OVERRIDE_KWH_DELTA = 113.664;
 
 const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
@@ -69,7 +73,12 @@ function CustomTooltip({
 	);
 }
 
-const buildEnergySeries = (rows: OutletDetailPayload['timeSeries'], fromIso: string, toIso: string) => {
+const buildEnergySeries = (
+	scopeId: string,
+	rows: OutletDetailPayload['timeSeries'],
+	fromIso: string,
+	toIso: string,
+) => {
 	if (!fromIso || !toIso || !rows?.length) return [];
 
 	const fromMs = new Date(fromIso).getTime();
@@ -106,6 +115,24 @@ const buildEnergySeries = (rows: OutletDetailPayload['timeSeries'], fromIso: str
 		}
 	}
 
+	// Special override for calibration applies to one outlet only.
+	if (scopeId === CALIBRATION_OVERRIDE_SCOPE_ID) {
+		if (perHour) {
+			const targetHourKey = `${CALIBRATION_OVERRIDE_DAY_KEY} 23`;
+			if (deltaMap.has(targetHourKey)) {
+				deltaMap.set(
+					targetHourKey,
+					Number(((deltaMap.get(targetHourKey) ?? 0) + CALIBRATION_OVERRIDE_KWH_DELTA).toFixed(3)),
+				);
+			}
+		} else if (deltaMap.has(CALIBRATION_OVERRIDE_DAY_KEY)) {
+			deltaMap.set(
+				CALIBRATION_OVERRIDE_DAY_KEY,
+				Number(((deltaMap.get(CALIBRATION_OVERRIDE_DAY_KEY) ?? 0) + CALIBRATION_OVERRIDE_KWH_DELTA).toFixed(3)),
+			);
+		}
+	}
+
 	const fromP = getJakartaParts(new Date(fromIso));
 	const toP = getJakartaParts(new Date(toIso));
 	const fromKey = perHour
@@ -133,10 +160,10 @@ const buildEnergySeries = (rows: OutletDetailPayload['timeSeries'], fromIso: str
 	});
 };
 
-export function PeakEnergyChartCard({ timeSeries, loadedFrom, loadedTo }: PeakEnergyChartCardProps) {
+export function PeakEnergyChartCard({ scopeId, timeSeries, loadedFrom, loadedTo }: PeakEnergyChartCardProps) {
 	const series = useMemo(
-		() => buildEnergySeries(timeSeries ?? [], loadedFrom, loadedTo),
-		[timeSeries, loadedFrom, loadedTo],
+		() => buildEnergySeries(scopeId, timeSeries ?? [], loadedFrom, loadedTo),
+		[scopeId, timeSeries, loadedFrom, loadedTo],
 	);
 
 	const peakPoint = useMemo(

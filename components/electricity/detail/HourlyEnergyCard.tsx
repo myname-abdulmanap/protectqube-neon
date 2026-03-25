@@ -14,6 +14,8 @@ interface HourlyEnergyCardProps {
 
 const DAYS_PER_PAGE = 6;
 const DISPLAY_TIMEZONE = 'Asia/Jakarta';
+const CALIBRATION_OVERRIDE_SCOPE_ID = 'cmmio2wjf0lyprk01sgkquky3';
+const CALIBRATION_OVERRIDE_DAY_KEY = '2026-03-18';
 
 function buildPageRange(pageOffset: number): { from: string; to: string; label: string } {
 	const now = new Date();
@@ -78,27 +80,33 @@ function HourBarTooltip({
 	label,
 }: {
 	active?: boolean;
-	payload?: Array<{ value: number; payload: { hasData: boolean } }>;
+	payload?: Array<{ value: number; payload: { hasData: boolean; isCalibrationData?: boolean } }>;
 	label?: string;
 }) {
 	if (!active || !payload?.length) return null;
 	const val = Number(payload[0].value);
 	const hasData = payload[0].payload.hasData;
+	const isCalibrationData = payload[0].payload.isCalibrationData === true;
 	return (
 		<div className='rounded-md border border-border/50 bg-background shadow-xl overflow-hidden min-w-36'>
-			<div className='bg-violet-500 px-3 py-1.5'>
+			<div className={`${isCalibrationData ? 'bg-red-500' : 'bg-violet-500'} px-3 py-1.5`}>
 				<p className='text-[10px] font-bold uppercase tracking-widest text-violet-100'>{label}</p>
 			</div>
 			<div className='px-3 py-2.5'>
 				{!hasData ? (
 					<p className='text-xs text-muted-foreground'>Tidak ada data</p>
 				) : (
-					<div className='flex items-baseline gap-1.5'>
-						<span className='text-xl font-bold tabular-nums text-foreground'>
-							{val.toLocaleString('id-ID', { maximumFractionDigits: 3 })}
-						</span>
-						<span className='text-sm font-semibold text-muted-foreground'>kWh</span>
-					</div>
+					<>
+						<div className='flex items-baseline gap-1.5'>
+							<span className='text-xl font-bold tabular-nums text-foreground'>
+								{val.toLocaleString('id-ID', { maximumFractionDigits: 3 })}
+							</span>
+							<span className='text-sm font-semibold text-muted-foreground'>kWh</span>
+						</div>
+						{isCalibrationData && (
+							<p className='mt-1 text-[10px] font-semibold text-red-500'>Kalibrasi Data (PLN)</p>
+						)}
+					</>
 				)}
 			</div>
 		</div>
@@ -107,12 +115,15 @@ function HourBarTooltip({
 
 const KWH_LABEL_W = 6;
 
-function DayChart({ day }: { day: HourlyDailyEnergyDay }) {
+function DayChart({ day, scopeId }: { day: HourlyDailyEnergyDay; scopeId: string }) {
+	const isCalibrationDay =
+		scopeId === CALIBRATION_OVERRIDE_SCOPE_ID && day.date === CALIBRATION_OVERRIDE_DAY_KEY;
 	const chartData = day.hours.map((h) => ({
 		label: h.label,
 		value: h.energyKwh,
 		hasData: h.hasData,
 		isPeak: h.hour === day.peakHour,
+		isCalibrationData: isCalibrationDay,
 	}));
 
 	const maxVal = Math.max(...day.hours.map((h) => h.energyKwh), 0.001);
@@ -128,6 +139,9 @@ function DayChart({ day }: { day: HourlyDailyEnergyDay }) {
 					<div>
 						<p className='text-sm font-bold leading-tight'>{day.weekday}</p>
 						<p className='text-xs text-muted-foreground'>{day.label}</p>
+						{isCalibrationDay && (
+							<p className='text-[10px] font-semibold text-red-500'>Kalibrasi Data (PLN)</p>
+						)}
 					</div>
 					<div className='text-right'>
 						<p className='text-sm font-bold tabular-nums text-violet-600 dark:text-violet-400'>
@@ -186,13 +200,21 @@ function DayChart({ day }: { day: HourlyDailyEnergyDay }) {
 								<Cell
 									key={idx}
 									fill={
-										entry.isPeak
-											? '#7c3aed'
-											: entry.hasData
-												? entry.value >= maxVal * 0.7
-													? '#a78bfa'
-													: '#c4b5fd'
-												: 'hsl(var(--muted))'
+										entry.isCalibrationData
+											? entry.isPeak
+												? '#dc2626'
+												: entry.hasData
+													? entry.value >= maxVal * 0.7
+														? '#ef4444'
+														: '#fca5a5'
+													: 'hsl(var(--muted))'
+											: entry.isPeak
+												? '#7c3aed'
+												: entry.hasData
+													? entry.value >= maxVal * 0.7
+														? '#a78bfa'
+														: '#c4b5fd'
+													: 'hsl(var(--muted))'
 									}
 									opacity={entry.hasData ? 1 : 0.3}
 								/>
@@ -420,7 +442,7 @@ export function HourlyEnergyCard({ scopeId }: HourlyEnergyCardProps) {
 				) : (
 					<div className='grid grid-cols-1 sm:grid-cols-3 gap-4'>
 						{days.map((day) => (
-							<DayChart key={day.date} day={day} />
+							<DayChart key={day.date} day={day} scopeId={scopeId} />
 						))}
 					</div>
 				)}

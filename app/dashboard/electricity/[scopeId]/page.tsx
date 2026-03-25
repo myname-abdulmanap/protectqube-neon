@@ -1378,7 +1378,12 @@ export default function ElectricityOutletDetailPage() {
 					<motion.div variants={itemVariant} className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
 						<div className='relative'>
 							<DataLoadingOverlay isLoading={dataLoading} label={overlayLabel} />
-							<PeakEnergyChartCard timeSeries={timeSeries} loadedFrom={loadedFrom} loadedTo={loadedTo} />
+							<PeakEnergyChartCard
+								scopeId={scopeId}
+								timeSeries={timeSeries}
+								loadedFrom={loadedFrom}
+								loadedTo={loadedTo}
+							/>
 						</div>
 						<div className='relative'>
 							<DataLoadingOverlay isLoading={dataLoading} label={overlayLabel} />

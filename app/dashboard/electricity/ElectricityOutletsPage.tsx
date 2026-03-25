@@ -85,6 +85,15 @@ const applyStartPointOffset = (
   return Math.max(0, rawValue - Number(startPoint.initialKwh ?? 0));
 };
 
+const OVERRIDE_DAY_KWH_DELTA = 113.664;
+const OVERRIDE_YEAR = 2026;
+const OVERRIDE_MONTH = 2; // March (0-indexed)
+
+const shouldApplyMonthOverride = () => {
+  const now = new Date();
+  return now.getUTCFullYear() === OVERRIDE_YEAR && now.getUTCMonth() === OVERRIDE_MONTH;
+};
+
 const statusConfig = {
   online: {
     dot: "bg-emerald-500",
@@ -259,6 +268,10 @@ export default function ElectricityOutletsPage() {
             energyMetric?.timestamp,
           );
 
+          const energyMonthWithOverride = shouldApplyMonthOverride()
+            ? energyMonth + OVERRIDE_DAY_KWH_DELTA
+            : energyMonth;
+
           return {
             scopeId: summary.scopeId,
             name: outletName,
@@ -271,7 +284,7 @@ export default function ElectricityOutletsPage() {
             currentL1: Number(toVal("current_l1").toFixed(1)),
             currentL2: Number(toVal("current_l2").toFixed(1)),
             currentL3: Number(toVal("current_l3").toFixed(1)),
-            energyMonth: Number(energyMonth.toFixed(1)),
+            energyMonth: Number(energyMonthWithOverride.toFixed(3)),
           } satisfies OutletListItem;
         }),
       );
