@@ -636,7 +636,31 @@ export function EnergyOverviewPage({
     for (const row of dailyCalibrationData.rows) {
       if (!Number.isFinite(row.deltaPq) || row.deltaPq <= 0) continue;
 
-      const intervalStartAt = row.periodStartAt ?? row.prevReadingAt;
+      const periodStartAtDate = row.periodStartAt
+        ? new Date(row.periodStartAt)
+        : null;
+      const prevReadingAtDate = row.prevReadingAt
+        ? new Date(row.prevReadingAt)
+        : null;
+
+      const periodStartValid =
+        periodStartAtDate !== null &&
+        !Number.isNaN(periodStartAtDate.getTime());
+      const prevReadingValid =
+        prevReadingAtDate !== null &&
+        !Number.isNaN(prevReadingAtDate.getTime());
+
+      // Guard against malformed manual start date (e.g. wrong month/year) that
+      // can incorrectly spread one calibration row across many days.
+      const intervalStartAt =
+        periodStartValid &&
+        (!prevReadingValid ||
+          Math.abs(
+            periodStartAtDate.getTime() - prevReadingAtDate.getTime(),
+          ) <= 36 * 60 * 60 * 1000)
+          ? row.periodStartAt
+          : row.prevReadingAt;
+
       if (!intervalStartAt) continue;
 
       // Always align calibration allocation to full day buckets (00:00-00:00).
