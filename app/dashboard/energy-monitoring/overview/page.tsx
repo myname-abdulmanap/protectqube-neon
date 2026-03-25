@@ -578,7 +578,7 @@ export function EnergyOverviewPage({
 
     for (const row of dailyCalibrationData.rows) {
       if (!row.prevReadingAt) continue;
-      if (!Number.isFinite(row.deltaPq)) continue;
+      if (!Number.isFinite(row.deltaPq) || row.deltaPq <= 0) continue;
 
       const startKey = toJakartaDayKey(row.prevReadingAt);
       const endKey = toJakartaDayKey(row.readingAt);

@@ -46,6 +46,9 @@ export default function EnergyCalibrationPage() {
     string | null
   >(null);
 
+  const [calibrationStartTimestamp, setCalibrationStartTimestamp] =
+    useState<string>("");
+
   const effectiveTenantId = tenantFilter === "all" ? undefined : tenantFilter;
   const effectiveScopeId = scopeFilter === "all" ? undefined : scopeFilter;
 
@@ -185,7 +188,25 @@ export default function EnergyCalibrationPage() {
     setCalibrationPln("");
     setCalibrationPq("");
     setCalibrationNote("");
+    setCalibrationStartTimestamp("");
   }, []);
+
+  const deleteCalibrationEntry = useCallback(
+    async (id: string) => {
+      if (!confirm("Hapus data kalibrasi ini? Aksi tidak bisa dibatalkan.")) return;
+      try {
+        setCalibrationLoading(true);
+        setCalibrationError(null);
+        await energyDashboardApi.deleteCalibration(id);
+        await loadCalibrationHistory();
+      } catch (error) {
+        setCalibrationError(extractApiError(error));
+      } finally {
+        setCalibrationLoading(false);
+      }
+    },
+    [extractApiError, loadCalibrationHistory],
+  );
 
   const submitCalibration = useCallback(async () => {
     if (!effectiveScopeId) return;
@@ -205,6 +226,9 @@ export default function EnergyCalibrationPage() {
       setCalibrationError(null);
       const payload = {
         scopeId: effectiveScopeId,
+        startTimestamp: calibrationStartTimestamp
+          ? new Date(calibrationStartTimestamp).toISOString()
+          : undefined,
         timestamp: new Date(calibrationTimestamp).toISOString(),
         kwhPln: pln,
         kwhPq: pq,
@@ -228,6 +252,7 @@ export default function EnergyCalibrationPage() {
       setCalibrationLoading(false);
     }
   }, [
+    calibrationStartTimestamp,
     calibrationNote,
     calibrationPq,
     calibrationPln,
@@ -293,13 +318,23 @@ export default function EnergyCalibrationPage() {
                   tersebut.
                 </div>
 
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
+                  <Input
+                    type="datetime-local"
+                    value={calibrationStartTimestamp}
+                    onChange={(event) =>
+                      setCalibrationStartTimestamp(event.target.value)
+                    }
+                    placeholder="Start Date"
+                    className="h-8 text-xs"
+                  />
                   <Input
                     type="datetime-local"
                     value={calibrationTimestamp}
                     onChange={(event) =>
                       setCalibrationTimestamp(event.target.value)
                     }
+                    placeholder="End Date"
                     className="h-8 text-xs"
                   />
                   <Input
@@ -354,10 +389,10 @@ export default function EnergyCalibrationPage() {
                     Avg GAP KWH: {summary.avgGapKwh}
                   </div>
                   <div className="rounded border p-2">
-                    Avg GAP %: {summary.avgGapPercent}%
+                    Avg GAP %: {summary.avgGapPercent.toFixed(2)}%
                   </div>
                   <div className="rounded border p-2">
-                    Avg Accuracy: {summary.avgAccuracyPercent}%
+                    Avg Accuracy: {summary.avgAccuracyPercent.toFixed(2)}%
                   </div>
                 </div>
 
@@ -415,31 +450,47 @@ export default function EnergyCalibrationPage() {
                               {row.gapKwh}
                             </td>
                             <td className={`px-2 py-1 text-right ${gapClass}`}>
-                              {row.gapPercent}
+                              {row.gapPercent.toFixed(2)}%
                             </td>
                             <td className="px-2 py-1 text-right">
-                              {row.accuracyPercent}
+                              {row.accuracyPercent.toFixed(2)}%
                             </td>
                             {!isUserRole && (
                               <td className="px-2 py-1">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 px-2 text-xs"
-                                  onClick={() => {
-                                    setEditingCalibrationId(row.id);
-                                    setCalibrationTimestamp(
-                                      toLocalInputValue(row.readingAt),
-                                    );
-                                    setCalibrationPln(String(row.plnEnergyKwh));
-                                    setCalibrationPq(
-                                      String(row.protectCubeEnergyKwh),
-                                    );
-                                    setCalibrationNote(row.note ?? "");
-                                  }}
-                                >
-                                  Edit
-                                </Button>
+                                <div className="flex gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => {
+                                      setEditingCalibrationId(row.id);
+                                      setCalibrationStartTimestamp(
+                                        row.periodStartAt
+                                          ? toLocalInputValue(row.periodStartAt)
+                                          : "",
+                                      );
+                                      setCalibrationTimestamp(
+                                        toLocalInputValue(row.readingAt),
+                                      );
+                                      setCalibrationPln(String(row.plnEnergyKwh));
+                                      setCalibrationPq(
+                                        String(row.protectCubeEnergyKwh),
+                                      );
+                                      setCalibrationNote(row.note ?? "");
+                                    }}
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs text-red-500 hover:text-red-600"
+                                    disabled={calibrationLoading}
+                                    onClick={() => void deleteCalibrationEntry(row.id)}
+                                  >
+                                    Hapus
+                                  </Button>
+                                </div>
                               </td>
                             )}
                           </tr>

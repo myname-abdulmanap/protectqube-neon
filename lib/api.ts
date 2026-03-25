@@ -626,6 +626,7 @@ export interface CalibrationHistoryRow {
 	firmwareVersion: string | null;
 	date: string;
 	intervalLabel: string;
+	periodStartAt: string | null;
 	prevReadingAt: string | null;
 	intervalDays: number;
 	readingAt: string;
@@ -1462,6 +1463,7 @@ export const energyDashboardApi = {
 		kwhPq?: number;
 		pqDeviceId?: string;
 		note?: string;
+		startTimestamp?: string;
 	}): Promise<ApiResponse<{ id: string }>> => {
 		const response = await apiClient.post<ApiResponse<{ id: string }>>('/energy-dashboard/calibration', data);
 		return response.data;
@@ -1475,9 +1477,14 @@ export const energyDashboardApi = {
 			pqDeviceId?: string;
 			note?: string | null;
 			scopeId?: string;
+			startTimestamp?: string | null;
 		},
 	): Promise<ApiResponse<{ id: string }>> => {
 		const response = await apiClient.put<ApiResponse<{ id: string }>>(`/energy-dashboard/calibration/${id}`, data);
+		return response.data;
+	},
+	deleteCalibration: async (id: string): Promise<ApiResponse<void>> => {
+		const response = await apiClient.delete<ApiResponse<void>>(`/energy-dashboard/calibration/${id}`);
 		return response.data;
 	},
 };
