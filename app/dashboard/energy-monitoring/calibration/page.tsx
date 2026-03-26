@@ -358,26 +358,33 @@ export default function EnergyCalibrationPage() {
     return `${pad(value.getHours())}.${pad(value.getMinutes())}`;
   }, []);
 
-  const formatTooltipDateTime = useCallback((iso: string | null | undefined) => {
-    if (!iso) return "-";
-    const value = new Date(iso);
-    if (Number.isNaN(value.getTime())) return "-";
-    return value.toLocaleString("id-ID", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
-  }, []);
+  const formatTooltipDateTime = useCallback(
+    (iso: string | null | undefined) => {
+      if (!iso) return "-";
+      const value = new Date(iso);
+      if (Number.isNaN(value.getTime())) return "-";
+      return value.toLocaleString("id-ID", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    },
+    [],
+  );
 
-  const formatOffsetSeconds = useCallback((value: number | null | undefined) => {
-    if (value === null || value === undefined || Number.isNaN(value)) return "-";
-    if (value === 0) return "tepat di detik yang sama";
-    return value > 0 ? `+${value} detik` : `${value} detik`;
-  }, []);
+  const formatOffsetSeconds = useCallback(
+    (value: number | null | undefined) => {
+      if (value === null || value === undefined || Number.isNaN(value))
+        return "-";
+      if (value === 0) return "tepat di detik yang sama";
+      return value > 0 ? `+${value} detik` : `${value} detik`;
+    },
+    [],
+  );
 
   const formatTableDateRange = useCallback(
     (
@@ -556,430 +563,456 @@ export default function EnergyCalibrationPage() {
     <TooltipProvider>
       <PageTransition>
         <div className="space-y-3 w-full max-w-[1700px] mx-auto px-3 overflow-x-hidden">
-        <Card className="border border-border/70 shadow-sm">
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm">History Kalibrasi Energy</CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select value={tenantFilter} onValueChange={setTenantFilter}>
-                <SelectTrigger className="h-8 w-[150px] text-xs">
-                  <SelectValue placeholder="Tenant" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredTenants.length > 0 && (
-                    <SelectItem value="all">All Tenants</SelectItem>
-                  )}
-                  {filteredTenants.map((tenant) => (
-                    <SelectItem key={tenant.id} value={tenant.id}>
-                      {tenant.name}
-                    </SelectItem>
-                  ))}
-                  {filteredTenants.length === 0 && (
-                    <SelectItem value="none" disabled>
-                      No tenants available
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+          <Card className="border border-border/70 shadow-sm">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm">
+                History Kalibrasi Energy
+              </CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={tenantFilter} onValueChange={setTenantFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-xs">
+                    <SelectValue placeholder="Tenant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredTenants.length > 0 && (
+                      <SelectItem value="all">All Tenants</SelectItem>
+                    )}
+                    {filteredTenants.map((tenant) => (
+                      <SelectItem key={tenant.id} value={tenant.id}>
+                        {tenant.name}
+                      </SelectItem>
+                    ))}
+                    {filteredTenants.length === 0 && (
+                      <SelectItem value="none" disabled>
+                        No tenants available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
 
-              <Select value={scopeFilter} onValueChange={setScopeFilter}>
-                <SelectTrigger className="h-8 w-[150px] text-xs">
-                  <SelectValue placeholder="Outlet" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredScopes && filteredScopes.length > 0 && (
-                    <SelectItem value="all">All Outlets</SelectItem>
-                  )}
-                  {(filteredScopes ?? []).map((scope) => (
-                    <SelectItem key={scope.id} value={scope.id}>
-                      {scope.name}
-                    </SelectItem>
-                  ))}
-                  {(!filteredScopes || filteredScopes.length === 0) && (
-                    <SelectItem value="none" disabled>
-                      No outlets available
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+                <Select value={scopeFilter} onValueChange={setScopeFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-xs">
+                    <SelectValue placeholder="Outlet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredScopes && filteredScopes.length > 0 && (
+                      <SelectItem value="all">All Outlets</SelectItem>
+                    )}
+                    {(filteredScopes ?? []).map((scope) => (
+                      <SelectItem key={scope.id} value={scope.id}>
+                        {scope.name}
+                      </SelectItem>
+                    ))}
+                    {(!filteredScopes || filteredScopes.length === 0) && (
+                      <SelectItem value="none" disabled>
+                        No outlets available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
 
-              <DateFilter value={globalRange} onChange={setGlobalRange} />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {!effectiveScopeId ? (
-              <p className="text-xs text-muted-foreground">
-                Pilih outlet spesifik untuk input dan melihat history kalibrasi.
-              </p>
-            ) : (
-              <>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => void handleExportPdf()}
-                    disabled={
-                      exportLoading !== null || !calibrationData?.rows?.length
-                    }
-                    className="relative h-9 w-9"
-                    title="Export PDF"
-                    aria-label="Export PDF"
-                  >
-                    <FileText className="h-4 w-4 text-red-600" />
-                    <span className="absolute -bottom-0.5 rounded bg-red-600 px-1 text-[8px] font-semibold leading-3 text-white">
-                      PDF
-                    </span>
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => void handleExportExcel()}
-                    disabled={
-                      exportLoading !== null || !calibrationData?.rows?.length
-                    }
-                    className="relative h-9 w-9"
-                    title="Export Excel"
-                    aria-label="Export Excel"
-                  >
-                    <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                    <span className="absolute -bottom-0.5 rounded bg-emerald-600 px-1 text-[8px] font-semibold leading-3 text-white">
-                      XLS
-                    </span>
-                  </Button>
-                  {!isUserRole && (
+                <DateFilter value={globalRange} onChange={setGlobalRange} />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!effectiveScopeId ? (
+                <p className="text-xs text-muted-foreground">
+                  Pilih outlet spesifik untuk input dan melihat history
+                  kalibrasi.
+                </p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2">
                     <Button
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() => {
-                        resetCalibrationForm();
-                        setIsModalOpen(true);
-                      }}
+                      size="icon"
+                      variant="outline"
+                      onClick={() => void handleExportPdf()}
+                      disabled={
+                        exportLoading !== null || !calibrationData?.rows?.length
+                      }
+                      className="relative h-9 w-9"
+                      title="Export PDF"
+                      aria-label="Export PDF"
                     >
-                      <Plus className="mr-1 h-3.5 w-3.5" />
-                      Tambah
+                      <FileText className="h-4 w-4 text-red-600" />
+                      <span className="absolute -bottom-0.5 rounded bg-red-600 px-1 text-[8px] font-semibold leading-3 text-white">
+                        PDF
+                      </span>
                     </Button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-4">
-                  <div className="rounded border p-2">
-                    Rows: {summary.totalRows}
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => void handleExportExcel()}
+                      disabled={
+                        exportLoading !== null || !calibrationData?.rows?.length
+                      }
+                      className="relative h-9 w-9"
+                      title="Export Excel"
+                      aria-label="Export Excel"
+                    >
+                      <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                      <span className="absolute -bottom-0.5 rounded bg-emerald-600 px-1 text-[8px] font-semibold leading-3 text-white">
+                        XLS
+                      </span>
+                    </Button>
+                    {!isUserRole && (
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => {
+                          resetCalibrationForm();
+                          setIsModalOpen(true);
+                        }}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Tambah
+                      </Button>
+                    )}
                   </div>
-                  <div className="rounded border p-2">
-                    Avg GAP KWH: {summary.avgGapKwh}
-                  </div>
-                  <div className="rounded border p-2">
-                    Avg GAP %: {summary.avgGapPercent.toFixed(2)}%
-                  </div>
-                  <div className="rounded border p-2">
-                    Avg Accuracy:{" "}
-                    {Math.min(100, summary.avgAccuracyPercent).toFixed(2)}%
-                  </div>
-                </div>
 
-                {calibrationError && (
-                  <div className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive">
-                    {calibrationError}
-                  </div>
-                )}
-
-                <div className="max-h-[520px] overflow-auto rounded border">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-background">
-                      <tr className="border-b">
-                        <th className="px-2 py-1 text-left">Date</th>
-                        <th className="px-2 py-1 text-left">Time Interval</th>
-                        <th className="px-2 py-1 text-right">Raw PLN</th>
-                        <th className="px-2 py-1 text-right">
-                          Raw ProtectCube
-                        </th>
-                        <th className="px-2 py-1 text-right">Delta PLN</th>
-                        <th className="px-2 py-1 text-right">Delta PQ</th>
-                        <th className="px-2 py-1 text-right">GAP (kWh)</th>
-                        <th className="px-2 py-1 text-right">GAP (%)</th>
-                        <th className="px-2 py-1 text-right">Accuracy</th>
-                        <th className="px-2 py-1 text-right">CT Ratio</th>
-                        <th className="px-2 py-1 text-left">Status</th>
-                        {!isUserRole && (
-                          <th className="px-2 py-1 text-left">Action</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(calibrationData?.rows ?? []).map((row) => {
-                        const anchorRow = isAnchorRow(row);
-                        const gapClass = anchorRow
-                          ? ""
-                          : Math.abs(row.gapPercent) > 5
-                            ? "text-red-600"
-                            : "text-emerald-600";
-                        const tableDateRange = formatTableDateRange(
-                          row.periodStartAt,
-                          row.readingAt,
-                        );
-                        const tableTimeInterval = formatTableTimeInterval(
-                          row.periodStartAt,
-                          row.readingAt,
-                        );
-                        return (
-                          <tr key={row.id} className="border-b last:border-0">
-                            <td className="px-2 py-1">{tableDateRange}</td>
-                            <td className="px-2 py-1">{tableTimeInterval}</td>
-                            <td className="px-2 py-1 text-right">
-                              {row.plnEnergyKwh}
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="cursor-help text-right underline decoration-dotted underline-offset-2"
-                                  >
-                                    {row.protectCubeEnergyKwh}
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={6} className="max-w-[320px] space-y-1 px-3 py-2 text-[11px] leading-4">
-                                  <div className="font-semibold">Detail raw ProtectCube</div>
-                                  <div>Raw: {row.protectCubeEnergyKwh} kWh</div>
-                                  <div>
-                                    Timestamp raw: {formatTooltipDateTime(row.protectCubeSampleAt)}
-                                  </div>
-                                  <div>
-                                    Selisih ke waktu baca: {row.protectCubeSampleAt ? formatOffsetSeconds(row.protectCubeSampleOffsetSeconds) : "raw terdekat tidak ditemukan"}
-                                  </div>
-                                  <div>Sumber: raw ProtectCube terdekat</div>
-                                </TooltipContent>
-                              </Tooltip>
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              {anchorRow ? "-" : row.deltaPln}
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              {anchorRow ? "-" : row.deltaPq}
-                            </td>
-                            <td className={`px-2 py-1 text-right ${gapClass}`}>
-                              {anchorRow ? "-" : row.gapKwh}
-                            </td>
-                            <td className={`px-2 py-1 text-right ${gapClass}`}>
-                              {anchorRow
-                                ? "-"
-                                : `${row.gapPercent.toFixed(2)}%`}
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              {anchorRow
-                                ? "-"
-                                : `${row.accuracyPercent.toFixed(2)}%`}
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              {row.ctRatio !== null && row.ctRatio !== undefined
-                                ? row.ctRatio
-                                : "-"}
-                            </td>
-                            <td className="px-2 py-1 text-left">
-                              {row.note ?? "-"}
-                            </td>
-                            {!isUserRole && (
-                              <td className="px-2 py-1">
-                                <div className="flex gap-1">
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-7 w-7"
-                                    title="Edit calibration"
-                                    aria-label="Edit calibration"
-                                    onClick={() => {
-                                      setEditingCalibrationId(row.id);
-                                      setCalibrationStartTimestamp(
-                                        row.periodStartAt
-                                          ? toLocalInputValue(row.periodStartAt)
-                                          : "",
-                                      );
-                                      setCalibrationTimestamp(
-                                        toLocalInputValue(row.readingAt),
-                                      );
-                                      setCalibrationPln(
-                                        String(row.plnEnergyKwh),
-                                      );
-                                      setCalibrationPq(
-                                        String(row.protectCubeEnergyKwh),
-                                      );
-                                      setCalibrationNote(row.note ?? "");
-                                      setCalibrationCtRatio(
-                                        row.ctRatio !== null &&
-                                          row.ctRatio !== undefined
-                                          ? String(row.ctRatio)
-                                          : "",
-                                      );
-                                      setIsModalOpen(true);
-                                    }}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-7 w-7 text-red-500 hover:text-red-600"
-                                    disabled={calibrationLoading}
-                                    title="Delete calibration"
-                                    aria-label="Delete calibration"
-                                    onClick={() =>
-                                      void deleteCalibrationEntry(row.id)
-                                    }
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })}
-                      {!calibrationLoading &&
-                        (calibrationData?.rows.length ?? 0) === 0 && (
-                          <tr>
-                            <td
-                              colSpan={isUserRole ? 11 : 12}
-                              className="px-2 py-3 text-center text-muted-foreground"
-                            >
-                              Belum ada data kalibrasi untuk outlet dan range
-                              tanggal yang dipilih
-                            </td>
-                          </tr>
-                        )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="rounded border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-                  Anchor pertama tetap ditampilkan sebagai baseline. Nilai
-                  Delta, GAP, dan Accuracy akan terhitung setelah ada anchor
-                  hari berikutnya.
-                </div>
-
-                {/* Calibration form modal */}
-                <Dialog
-                  open={isModalOpen}
-                  onOpenChange={(open) => {
-                    setIsModalOpen(open);
-                    if (!open) resetCalibrationForm();
-                  }}
-                >
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>
-                        {editingCalibrationId
-                          ? "Edit Kalibrasi"
-                          : "Tambah Kalibrasi"}
-                      </DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-3 py-2">
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">
-                          Start Date
-                        </label>
-                        <Input
-                          type="datetime-local"
-                          value={calibrationStartTimestamp}
-                          onChange={(e) =>
-                            setCalibrationStartTimestamp(e.target.value)
-                          }
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">
-                          End Date (Reading)
-                        </label>
-                        <Input
-                          type="datetime-local"
-                          value={calibrationTimestamp}
-                          onChange={(e) =>
-                            setCalibrationTimestamp(e.target.value)
-                          }
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">
-                          PLN Energy (kWh)
-                        </label>
-                        <Input
-                          type="number"
-                          step="0.0001"
-                          value={calibrationPln}
-                          onChange={(e) => setCalibrationPln(e.target.value)}
-                          placeholder="0.0000"
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">
-                          Raw ProtectCube (opsional)
-                        </label>
-                        <Input
-                          type="number"
-                          step="0.0001"
-                          value={calibrationPq}
-                          onChange={(e) => setCalibrationPq(e.target.value)}
-                          placeholder="0.0000"
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">
-                          CT Ratio (opsional)
-                        </label>
-                        <Input
-                          type="number"
-                          step="0.0001"
-                          value={calibrationCtRatio}
-                          onChange={(e) =>
-                            setCalibrationCtRatio(e.target.value)
-                          }
-                          placeholder="contoh: 200"
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground">
-                          Status (opsional)
-                        </label>
-                        <Input
-                          value={calibrationNote}
-                          onChange={(e) => setCalibrationNote(e.target.value)}
-                          placeholder="Status"
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                      {calibrationError && (
-                        <div className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive">
-                          {calibrationError}
-                        </div>
-                      )}
+                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-4">
+                    <div className="rounded border p-2">
+                      Rows: {summary.totalRows}
                     </div>
-                    <DialogFooter>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={resetCalibrationForm}
-                      >
-                        Batal
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={() => void submitCalibration()}
-                        disabled={calibrationLoading}
-                      >
-                        {editingCalibrationId ? "Update" : "Tambah"}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                    <div className="rounded border p-2">
+                      Avg GAP KWH: {summary.avgGapKwh}
+                    </div>
+                    <div className="rounded border p-2">
+                      Avg GAP %: {summary.avgGapPercent.toFixed(2)}%
+                    </div>
+                    <div className="rounded border p-2">
+                      Avg Accuracy:{" "}
+                      {Math.min(100, summary.avgAccuracyPercent).toFixed(2)}%
+                    </div>
+                  </div>
+
+                  {calibrationError && (
+                    <div className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive">
+                      {calibrationError}
+                    </div>
+                  )}
+
+                  <div className="max-h-[520px] overflow-auto rounded border">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-background">
+                        <tr className="border-b">
+                          <th className="px-2 py-1 text-left">Date</th>
+                          <th className="px-2 py-1 text-left">Time Interval</th>
+                          <th className="px-2 py-1 text-right">Raw PLN</th>
+                          <th className="px-2 py-1 text-right">
+                            Raw ProtectCube
+                          </th>
+                          <th className="px-2 py-1 text-right">Delta PLN</th>
+                          <th className="px-2 py-1 text-right">Delta PQ</th>
+                          <th className="px-2 py-1 text-right">GAP (kWh)</th>
+                          <th className="px-2 py-1 text-right">GAP (%)</th>
+                          <th className="px-2 py-1 text-right">Accuracy</th>
+                          <th className="px-2 py-1 text-right">CT Ratio</th>
+                          <th className="px-2 py-1 text-left">Status</th>
+                          {!isUserRole && (
+                            <th className="px-2 py-1 text-left">Action</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(calibrationData?.rows ?? []).map((row) => {
+                          const anchorRow = isAnchorRow(row);
+                          const gapClass = anchorRow
+                            ? ""
+                            : Math.abs(row.gapPercent) > 5
+                              ? "text-red-600"
+                              : "text-emerald-600";
+                          const tableDateRange = formatTableDateRange(
+                            row.periodStartAt,
+                            row.readingAt,
+                          );
+                          const tableTimeInterval = formatTableTimeInterval(
+                            row.periodStartAt,
+                            row.readingAt,
+                          );
+                          return (
+                            <tr key={row.id} className="border-b last:border-0">
+                              <td className="px-2 py-1">{tableDateRange}</td>
+                              <td className="px-2 py-1">{tableTimeInterval}</td>
+                              <td className="px-2 py-1 text-right">
+                                {row.plnEnergyKwh}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="cursor-help text-right underline decoration-dotted underline-offset-2"
+                                    >
+                                      {row.protectCubeEnergyKwh}
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side="top"
+                                    sideOffset={6}
+                                    className="max-w-[320px] space-y-1 px-3 py-2 text-[11px] leading-4"
+                                  >
+                                    <div className="font-semibold">
+                                      Detail raw ProtectCube
+                                    </div>
+                                    <div>
+                                      Raw: {row.protectCubeEnergyKwh} kWh
+                                    </div>
+                                    <div>
+                                      Timestamp raw:{" "}
+                                      {formatTooltipDateTime(
+                                        row.protectCubeSampleAt,
+                                      )}
+                                    </div>
+                                    <div>
+                                      Selisih ke waktu baca:{" "}
+                                      {row.protectCubeSampleAt
+                                        ? formatOffsetSeconds(
+                                            row.protectCubeSampleOffsetSeconds,
+                                          )
+                                        : "raw terdekat tidak ditemukan"}
+                                    </div>
+                                    <div>Sumber: raw ProtectCube terdekat</div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                {anchorRow ? "-" : row.deltaPln}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                {anchorRow ? "-" : row.deltaPq}
+                              </td>
+                              <td
+                                className={`px-2 py-1 text-right ${gapClass}`}
+                              >
+                                {anchorRow ? "-" : row.gapKwh}
+                              </td>
+                              <td
+                                className={`px-2 py-1 text-right ${gapClass}`}
+                              >
+                                {anchorRow
+                                  ? "-"
+                                  : `${row.gapPercent.toFixed(2)}%`}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                {anchorRow
+                                  ? "-"
+                                  : `${row.accuracyPercent.toFixed(2)}%`}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                {row.ctRatio !== null &&
+                                row.ctRatio !== undefined
+                                  ? row.ctRatio
+                                  : "-"}
+                              </td>
+                              <td className="px-2 py-1 text-left">
+                                {row.note ?? "-"}
+                              </td>
+                              {!isUserRole && (
+                                <td className="px-2 py-1">
+                                  <div className="flex gap-1">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      title="Edit calibration"
+                                      aria-label="Edit calibration"
+                                      onClick={() => {
+                                        setEditingCalibrationId(row.id);
+                                        setCalibrationStartTimestamp(
+                                          row.periodStartAt
+                                            ? toLocalInputValue(
+                                                row.periodStartAt,
+                                              )
+                                            : "",
+                                        );
+                                        setCalibrationTimestamp(
+                                          toLocalInputValue(row.readingAt),
+                                        );
+                                        setCalibrationPln(
+                                          String(row.plnEnergyKwh),
+                                        );
+                                        setCalibrationPq(
+                                          String(row.protectCubeEnergyKwh),
+                                        );
+                                        setCalibrationNote(row.note ?? "");
+                                        setCalibrationCtRatio(
+                                          row.ctRatio !== null &&
+                                            row.ctRatio !== undefined
+                                            ? String(row.ctRatio)
+                                            : "",
+                                        );
+                                        setIsModalOpen(true);
+                                      }}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7 text-red-500 hover:text-red-600"
+                                      disabled={calibrationLoading}
+                                      title="Delete calibration"
+                                      aria-label="Delete calibration"
+                                      onClick={() =>
+                                        void deleteCalibrationEntry(row.id)
+                                      }
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                        {!calibrationLoading &&
+                          (calibrationData?.rows.length ?? 0) === 0 && (
+                            <tr>
+                              <td
+                                colSpan={isUserRole ? 11 : 12}
+                                className="px-2 py-3 text-center text-muted-foreground"
+                              >
+                                Belum ada data kalibrasi untuk outlet dan range
+                                tanggal yang dipilih
+                              </td>
+                            </tr>
+                          )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="rounded border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                    Anchor pertama tetap ditampilkan sebagai baseline. Nilai
+                    Delta, GAP, dan Accuracy akan terhitung setelah ada anchor
+                    hari berikutnya.
+                  </div>
+
+                  {/* Calibration form modal */}
+                  <Dialog
+                    open={isModalOpen}
+                    onOpenChange={(open) => {
+                      setIsModalOpen(open);
+                      if (!open) resetCalibrationForm();
+                    }}
+                  >
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>
+                          {editingCalibrationId
+                            ? "Edit Kalibrasi"
+                            : "Tambah Kalibrasi"}
+                        </DialogTitle>
+                      </DialogHeader>
+                      <div className="grid gap-3 py-2">
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">
+                            Start Date
+                          </label>
+                          <Input
+                            type="datetime-local"
+                            value={calibrationStartTimestamp}
+                            onChange={(e) =>
+                              setCalibrationStartTimestamp(e.target.value)
+                            }
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">
+                            End Date (Reading)
+                          </label>
+                          <Input
+                            type="datetime-local"
+                            value={calibrationTimestamp}
+                            onChange={(e) =>
+                              setCalibrationTimestamp(e.target.value)
+                            }
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">
+                            PLN Energy (kWh)
+                          </label>
+                          <Input
+                            type="number"
+                            step="0.0001"
+                            value={calibrationPln}
+                            onChange={(e) => setCalibrationPln(e.target.value)}
+                            placeholder="0.0000"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">
+                            Raw ProtectCube (opsional)
+                          </label>
+                          <Input
+                            type="number"
+                            step="0.0001"
+                            value={calibrationPq}
+                            onChange={(e) => setCalibrationPq(e.target.value)}
+                            placeholder="0.0000"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">
+                            CT Ratio (opsional)
+                          </label>
+                          <Input
+                            type="number"
+                            step="0.0001"
+                            value={calibrationCtRatio}
+                            onChange={(e) =>
+                              setCalibrationCtRatio(e.target.value)
+                            }
+                            placeholder="contoh: 200"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">
+                            Status (opsional)
+                          </label>
+                          <Input
+                            value={calibrationNote}
+                            onChange={(e) => setCalibrationNote(e.target.value)}
+                            placeholder="Status"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        {calibrationError && (
+                          <div className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive">
+                            {calibrationError}
+                          </div>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={resetCalibrationForm}
+                        >
+                          Batal
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => void submitCalibration()}
+                          disabled={calibrationLoading}
+                        >
+                          {editingCalibrationId ? "Update" : "Tambah"}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </PageTransition>
     </TooltipProvider>

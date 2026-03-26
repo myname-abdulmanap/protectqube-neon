@@ -51,6 +51,7 @@ const formatDateTime = (value: string | null): string => {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   });
 };
 
@@ -269,6 +270,7 @@ export default function DeviceHealthPage() {
                 <TableHead className="text-xs">Status Saat Ini</TableHead>
                 <TableHead className="text-xs">Offline Sejak</TableHead>
                 <TableHead className="text-xs">Jumlah Offline</TableHead>
+                <TableHead className="text-xs">Uptime</TableHead>
                 <TableHead className="text-xs">Last Seen</TableHead>
               </TableRow>
             </TableHeader>
@@ -322,6 +324,9 @@ export default function DeviceHealthPage() {
                     </TableCell>
                     <TableCell className="text-xs">
                       {row.offlineCount}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {row.uptime || "-"}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {formatDateTime(row.lastSeenAt)}
