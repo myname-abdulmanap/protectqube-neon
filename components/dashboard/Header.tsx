@@ -84,7 +84,7 @@ export default function Header({ user }: HeaderProps) {
   // Determine accessible tenants based on user role and scopes
   const accessibleTenants = useMemo(() => {
     const isSuperAdmin = user?.role === "SUPERADMIN";
-    
+
     // Superadmin can see all tenants
     if (isSuperAdmin) {
       return tenants;
@@ -100,14 +100,15 @@ export default function Header({ user }: HeaderProps) {
         accessibleTenantIds.add(scope.tenantId);
       }
     }
-    
+
     return tenants.filter((t) => accessibleTenantIds.has(t.id));
   }, [user, tenants, scopeList]);
 
   // Auto-select tenant when landing on /overview without a tenantId
   // For non-superadmin, always redirect to their single accessible tenant
   useEffect(() => {
-    if (didAutoRedirect.current || !isOnOverviewPage || tenantIdFromPath) return;
+    if (didAutoRedirect.current || !isOnOverviewPage || tenantIdFromPath)
+      return;
     if (!tenants.length && !scopeList?.length) return; // still loading
 
     const isSuperAdmin = user?.role === "SUPERADMIN";
@@ -130,9 +131,19 @@ export default function Header({ user }: HeaderProps) {
     // Non-superadmin: must redirect to their single accessible tenant
     if (accessibleTenants.length === 1) {
       didAutoRedirect.current = true;
-      router.push(`/dashboard/energy-monitoring/overview/${accessibleTenants[0].id}`);
+      router.push(
+        `/dashboard/energy-monitoring/overview/${accessibleTenants[0].id}`,
+      );
     }
-  }, [isOnOverviewPage, tenantIdFromPath, tenants, scopeList, user, accessibleTenants, router]);
+  }, [
+    isOnOverviewPage,
+    tenantIdFromPath,
+    tenants,
+    scopeList,
+    user,
+    accessibleTenants,
+    router,
+  ]);
 
   const handleLogout = async () => {
     authToken.remove();

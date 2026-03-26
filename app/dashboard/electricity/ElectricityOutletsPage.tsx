@@ -92,7 +92,10 @@ const OVERRIDE_MONTH = 2; // March (0-indexed)
 
 const shouldApplyMonthOverride = () => {
   const now = new Date();
-  return now.getUTCFullYear() === OVERRIDE_YEAR && now.getUTCMonth() === OVERRIDE_MONTH;
+  return (
+    now.getUTCFullYear() === OVERRIDE_YEAR &&
+    now.getUTCMonth() === OVERRIDE_MONTH
+  );
 };
 
 const shouldApplyScopeOverride = (scopeId: string) =>
@@ -272,7 +275,9 @@ export default function ElectricityOutletsPage() {
             energyMetric?.timestamp,
           );
 
-          const energyMonthWithOverride = shouldApplyScopeOverride(summary.scopeId)
+          const energyMonthWithOverride = shouldApplyScopeOverride(
+            summary.scopeId,
+          )
             ? energyMonth + OVERRIDE_DAY_KWH_DELTA
             : energyMonth;
 

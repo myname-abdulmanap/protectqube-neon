@@ -128,11 +128,16 @@ const buildLast7DayKeys = (referenceDate: Date = new Date()) =>
   buildLastDayKeys(referenceDate, 7);
 
 const toJakartaDayKey = (value: Date | string): string => {
-  const p = getJakartaDateTimeParts(value instanceof Date ? value : new Date(value));
+  const p = getJakartaDateTimeParts(
+    value instanceof Date ? value : new Date(value),
+  );
   return `${p.year}-${p.month}-${p.day}`;
 };
 
-const listDayKeysBetween = (startKey: string, endKeyExclusive: string): string[] => {
+const listDayKeysBetween = (
+  startKey: string,
+  endKeyExclusive: string,
+): string[] => {
   const keys: string[] = [];
   let cursor = new Date(`${startKey}T00:00:00+07:00`);
   const end = new Date(`${endKeyExclusive}T00:00:00+07:00`);
@@ -243,7 +248,8 @@ export function EnergyOverviewPage({
 
   // Filter tenants to only show those with accessible scopes
   const filteredTenants = useMemo(() => {
-    if (!tenants || !allScopes || !accessibleScopeIds.length) return tenants ?? [];
+    if (!tenants || !allScopes || !accessibleScopeIds.length)
+      return tenants ?? [];
     const accessibleTenantIds = new Set<string>();
     for (const scope of allScopes) {
       if (accessibleScopeIds.includes(scope.id)) {
@@ -264,8 +270,8 @@ export function EnergyOverviewPage({
   useEffect(() => {
     setFilterSlot(
       <div className="flex items-center gap-1">
-        <Select 
-          value={tenantFilter} 
+        <Select
+          value={tenantFilter}
           onValueChange={setTenantFilter}
           disabled={!!forcedTenantId}
         >
@@ -674,9 +680,8 @@ export function EnergyOverviewPage({
       const intervalStartAt =
         periodStartValid &&
         (!prevReadingValid ||
-          Math.abs(
-            periodStartAtDate.getTime() - prevReadingAtDate.getTime(),
-          ) <= 36 * 60 * 60 * 1000)
+          Math.abs(periodStartAtDate.getTime() - prevReadingAtDate.getTime()) <=
+            36 * 60 * 60 * 1000)
           ? row.periodStartAt
           : row.prevReadingAt;
 
@@ -698,7 +703,9 @@ export function EnergyOverviewPage({
 
       if (!dayKeys.length) continue;
 
-      const baseValues = dayKeys.map((key) => Math.max(0, baseByDay.get(key) ?? 0));
+      const baseValues = dayKeys.map((key) =>
+        Math.max(0, baseByDay.get(key) ?? 0),
+      );
       const baseTotal = baseValues.reduce((sum, value) => sum + value, 0);
       const targetTotal = Math.max(0, Number(row.deltaPq));
 
@@ -736,7 +743,8 @@ export function EnergyOverviewPage({
     // Ensure override is added on top of the raw daily baseline,
     // so it never collapses to only +113.664 when calibrated value is near zero.
     const rawOverrideBase =
-      dailyBreakdownRows.find((row) => row.dayKey === OVERRIDE_DAY_KEY)?.kWh ?? 0;
+      dailyBreakdownRows.find((row) => row.dayKey === OVERRIDE_DAY_KEY)?.kWh ??
+      0;
 
     return calibratedRows.map((row) =>
       row.dayKey === OVERRIDE_DAY_KEY
@@ -744,14 +752,17 @@ export function EnergyOverviewPage({
             ...row,
             kWh: Number(
               (
-                Math.max(row.kWh, rawOverrideBase) +
-                OVERRIDE_DAY_KWH_DELTA
+                Math.max(row.kWh, rawOverrideBase) + OVERRIDE_DAY_KWH_DELTA
               ).toFixed(3),
             ),
           }
         : row,
     );
-  }, [dailyBreakdownRows, dailyCalibrationData?.rows, isOverrideScopeInSelection]);
+  }, [
+    dailyBreakdownRows,
+    dailyCalibrationData?.rows,
+    isOverrideScopeInSelection,
+  ]);
 
   const calibratedDailyConsumption = useMemo(() => {
     if (!calibratedBreakdownRows?.length) return null;
@@ -877,7 +888,9 @@ export function EnergyOverviewPage({
       const next = new Map(map);
       next.set(
         targetScopeId,
-        Number(((next.get(targetScopeId) ?? 0) + OVERRIDE_DAY_KWH_DELTA).toFixed(3)),
+        Number(
+          ((next.get(targetScopeId) ?? 0) + OVERRIDE_DAY_KWH_DELTA).toFixed(3),
+        ),
       );
       return next;
     };
@@ -885,7 +898,7 @@ export function EnergyOverviewPage({
     if (!perScopeMidnight.size) {
       return applyOutletOverride(
         new Map(
-        outlets.map((outlet) => [outlet.id, Number(outlet.usage.toFixed(2))]),
+          outlets.map((outlet) => [outlet.id, Number(outlet.usage.toFixed(2))]),
         ),
       );
     }
@@ -1242,9 +1255,7 @@ export function EnergyOverviewPage({
                 showDateFilter={false}
               />
             </motion.div>
-
           </div>
-
 
           {/* Right Column - Map + Avg Hourly */}
           <div className="min-w-0 space-y-3">

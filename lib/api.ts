@@ -637,6 +637,7 @@ export interface CalibrationHistoryRow {
 	gapKwh: number;
 	gapPercent: number;
 	accuracyPercent: number;
+	ctRatio: number | null;
 	note: string | null;
 	createdBy: string | null;
 	createdAt: string;
@@ -1462,6 +1463,7 @@ export const energyDashboardApi = {
 		kwhPln: number;
 		kwhPq?: number;
 		pqDeviceId?: string;
+		ctRatio?: number;
 		note?: string;
 		startTimestamp?: string;
 	}): Promise<ApiResponse<{ id: string }>> => {
@@ -1475,6 +1477,7 @@ export const energyDashboardApi = {
 			kwhPln?: number;
 			kwhPq?: number;
 			pqDeviceId?: string;
+			ctRatio?: number | null;
 			note?: string | null;
 			scopeId?: string;
 			startTimestamp?: string | null;

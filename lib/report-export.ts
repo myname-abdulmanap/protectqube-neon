@@ -41,6 +41,73 @@ export const exportToExcel = async (fileName: string, sheets: ReportSheet[]): Pr
 	XLSX.writeFile(workbook, fileName);
 };
 
+export const exportToExcelStyled = async (fileName: string, sheets: ReportSheet[]): Promise<void> => {
+	const ExcelJS = await import('exceljs');
+	const workbook = new ExcelJS.Workbook();
+
+	const HEADER_BG = 'FFEA580C'; // brand orange
+	const ROW_ALT_BG = 'FFFFF7ED'; // warm light orange
+	const WHITE = 'FFFFFFFF';
+	const BORDER_COLOR = 'FFCB6430';
+
+	for (const sheet of sheets) {
+		const ws = workbook.addWorksheet(sheet.name.slice(0, 31));
+		if (!sheet.rows.length) continue;
+
+		const colKeys = Object.keys(sheet.rows[0]!);
+
+		ws.columns = colKeys.map((key) => {
+			const maxLen = Math.max(key.length, ...sheet.rows.map((r) => String(r[key] ?? '').length));
+			return { header: key, key, width: Math.min(maxLen + 3, 42) };
+		});
+
+		// Style header row
+		const headerRow = ws.getRow(1);
+		headerRow.height = 26;
+		headerRow.eachCell((cell) => {
+			cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_BG } };
+			cell.font = { bold: true, color: { argb: WHITE }, size: 10, name: 'Calibri' };
+			cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+			cell.border = {
+				bottom: { style: 'medium', color: { argb: BORDER_COLOR } },
+				right: { style: 'thin', color: { argb: BORDER_COLOR } },
+			};
+		});
+
+		// Add data rows
+		sheet.rows.forEach((rowData, i) => {
+			const row = ws.addRow(colKeys.map((k) => rowData[k] ?? ''));
+			const bg = i % 2 === 0 ? WHITE : ROW_ALT_BG;
+			row.height = 17;
+			row.eachCell({ includeEmpty: true }, (cell) => {
+				cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+				cell.font = { size: 9, name: 'Calibri' };
+				cell.alignment = { vertical: 'middle' };
+				cell.border = {
+					bottom: { style: 'hair', color: { argb: 'FFD1D5DB' } },
+					right: { style: 'hair', color: { argb: 'FFD1D5DB' } },
+				};
+			});
+		});
+
+		// Freeze header row
+		ws.views = [{ state: 'frozen', ySplit: 1 }];
+	}
+
+	const buffer = await workbook.xlsx.writeBuffer();
+	const blob = new Blob([buffer as BlobPart], {
+		type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+	});
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = fileName;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+};
+
 const BRAND_COLOR: [number, number, number] = [234, 88, 12];
 const BRAND_DARK: [number, number, number] = [154, 52, 18];
 const BRAND_LIGHT: [number, number, number] = [255, 237, 213];

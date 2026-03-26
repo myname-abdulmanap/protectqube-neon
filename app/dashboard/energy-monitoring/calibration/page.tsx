@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { useScopes, useTenants } from "@/lib/use-energy-data";
 import { energyDashboardApi, type CalibrationHistoryData } from "@/lib/api";
-import { exportToExcel, exportToPdf } from "@/lib/report-export";
+import { exportToExcelStyled, exportToPdf } from "@/lib/report-export";
 import { useHeaderPage } from "@/components/providers/HeaderPageProvider";
 import { useAuth } from "@/lib/auth-context";
 
@@ -54,6 +54,7 @@ export default function EnergyCalibrationPage() {
   const [calibrationPln, setCalibrationPln] = useState<string>("");
   const [calibrationPq, setCalibrationPq] = useState<string>("");
   const [calibrationNote, setCalibrationNote] = useState<string>("");
+  const [calibrationCtRatio, setCalibrationCtRatio] = useState<string>("");
   const [editingCalibrationId, setEditingCalibrationId] = useState<
     string | null
   >(null);
@@ -77,8 +78,9 @@ export default function EnergyCalibrationPage() {
 
   // Filter tenants to only show those with accessible scopes
   const filteredTenants = useMemo(() => {
-    if (!tenants || !allScopes || !accessibleScopeIds.length) return tenants ?? [];
-    
+    if (!tenants || !allScopes || !accessibleScopeIds.length)
+      return tenants ?? [];
+
     // Find which tenants the user's accessible scopes belong to
     const accessibleTenantIds = new Set<string>();
     for (const scope of allScopes) {
@@ -86,7 +88,7 @@ export default function EnergyCalibrationPage() {
         accessibleTenantIds.add(scope.tenantId);
       }
     }
-    
+
     return tenants.filter((tenant) => accessibleTenantIds.has(tenant.id));
   }, [tenants, allScopes, accessibleScopeIds]);
 
@@ -200,13 +202,15 @@ export default function EnergyCalibrationPage() {
     setCalibrationPln("");
     setCalibrationPq("");
     setCalibrationNote("");
+    setCalibrationCtRatio("");
     setCalibrationStartTimestamp("");
     setIsModalOpen(false);
   }, []);
 
   const deleteCalibrationEntry = useCallback(
     async (id: string) => {
-      if (!confirm("Hapus data kalibrasi ini? Aksi tidak bisa dibatalkan.")) return;
+      if (!confirm("Hapus data kalibrasi ini? Aksi tidak bisa dibatalkan."))
+        return;
       try {
         setCalibrationLoading(true);
         setCalibrationError(null);
@@ -246,6 +250,8 @@ export default function EnergyCalibrationPage() {
         kwhPln: pln,
         kwhPq: pq,
         note: calibrationNote || undefined,
+        ctRatio:
+          calibrationCtRatio !== "" ? Number(calibrationCtRatio) : undefined,
       };
 
       if (editingCalibrationId) {
@@ -267,6 +273,7 @@ export default function EnergyCalibrationPage() {
   }, [
     calibrationStartTimestamp,
     calibrationNote,
+    calibrationCtRatio,
     calibrationPq,
     calibrationPln,
     calibrationTimestamp,
@@ -305,7 +312,9 @@ export default function EnergyCalibrationPage() {
 
   const selectedTenantName = useMemo(() => {
     if (!effectiveTenantId || !tenants?.length) return null;
-    return tenants.find((tenant) => tenant.id === effectiveTenantId)?.name ?? null;
+    return (
+      tenants.find((tenant) => tenant.id === effectiveTenantId)?.name ?? null
+    );
   }, [effectiveTenantId, tenants]);
 
   const formatExportDateTime = useCallback((iso: string | null | undefined) => {
@@ -321,18 +330,6 @@ export default function EnergyCalibrationPage() {
       hour12: false,
     });
   }, []);
-
-  const formatCalibrationHistoryRange = useCallback(
-    (startIso: string | null | undefined, endIso: string | null | undefined) => {
-      const startLabel = formatExportDateTime(startIso);
-      const endLabel = formatExportDateTime(endIso);
-      if (startLabel === "-" && endLabel === "-") return "-";
-      if (startLabel === "-") return endLabel;
-      if (endLabel === "-") return startLabel;
-      return `${startLabel} - ${endLabel}`;
-    },
-    [formatExportDateTime],
-  );
 
   const formatDateOnly = useCallback((iso: string | null | undefined) => {
     if (!iso) return "-";
@@ -356,7 +353,10 @@ export default function EnergyCalibrationPage() {
   }, []);
 
   const formatTableDateRange = useCallback(
-    (startIso: string | null | undefined, endIso: string | null | undefined) => {
+    (
+      startIso: string | null | undefined,
+      endIso: string | null | undefined,
+    ) => {
       const effectiveEnd = endIso ?? null;
       const effectiveStart = startIso ?? effectiveEnd;
       const startLabel = formatDateOnly(effectiveStart);
@@ -371,7 +371,10 @@ export default function EnergyCalibrationPage() {
   );
 
   const formatTableTimeInterval = useCallback(
-    (startIso: string | null | undefined, endIso: string | null | undefined) => {
+    (
+      startIso: string | null | undefined,
+      endIso: string | null | undefined,
+    ) => {
       const effectiveEnd = endIso ?? null;
       const effectiveStart = startIso ?? effectiveEnd;
       return `${formatTimeOnly(effectiveStart)} - ${formatTimeOnly(effectiveEnd)}`;
@@ -389,7 +392,7 @@ export default function EnergyCalibrationPage() {
     if (!calibrationData?.rows?.length) return;
     try {
       setExportLoading("excel");
-      await exportToExcel(
+      await exportToExcelStyled(
         `calibration-history-${selectedScopeName ?? effectiveScopeId ?? "scope"}-${new Date().toISOString().slice(0, 10)}.xlsx`,
         [
           {
@@ -403,7 +406,9 @@ export default function EnergyCalibrationPage() {
                 "Avg GAP KWH": summary.avgGapKwh,
                 "Avg GAP %": Number(summary.avgGapPercent.toFixed(2)),
                 "Avg Accuracy %": Number(summary.avgAccuracyPercent.toFixed(2)),
-                "Tanggal Export": formatExportDateTime(new Date().toISOString()),
+                "Tanggal Export": formatExportDateTime(
+                  new Date().toISOString(),
+                ),
               },
             ],
           },
@@ -413,10 +418,6 @@ export default function EnergyCalibrationPage() {
               const anchorRow = isAnchorRow(row);
               return {
                 Date: formatTableDateRange(row.periodStartAt, row.readingAt),
-                "Calibration History": formatCalibrationHistoryRange(
-                  row.periodStartAt,
-                  row.readingAt,
-                ),
                 "Time Interval": formatTableTimeInterval(
                   row.periodStartAt,
                   row.readingAt,
@@ -427,8 +428,11 @@ export default function EnergyCalibrationPage() {
                 "Delta PQ": anchorRow ? "-" : row.deltaPq,
                 "GAP (kWh)": anchorRow ? "-" : row.gapKwh,
                 "GAP (%)": anchorRow ? "-" : Number(row.gapPercent.toFixed(2)),
-                Accuracy: anchorRow ? "-" : Number(row.accuracyPercent.toFixed(2)),
-                Note: row.note ?? "-",
+                Accuracy: anchorRow
+                  ? "-"
+                  : Number(row.accuracyPercent.toFixed(2)),
+                "CT Ratio": row.ctRatio ?? "-",
+                Status: row.note ?? "-",
               };
             }),
           },
@@ -441,7 +445,6 @@ export default function EnergyCalibrationPage() {
     activeRangeLabel,
     calibrationData?.rows,
     effectiveScopeId,
-    formatCalibrationHistoryRange,
     formatExportDateTime,
     formatTableDateRange,
     formatTableTimeInterval,
@@ -476,7 +479,6 @@ export default function EnergyCalibrationPage() {
             title: "Calibration History",
             columns: [
               "Date",
-              "Calibration History",
               "Time Interval",
               "Raw PLN",
               "Raw PQ",
@@ -485,13 +487,11 @@ export default function EnergyCalibrationPage() {
               "GAP",
               "GAP %",
               "Accuracy",
+              "CT Ratio",
+              "Status",
             ],
             rows: calibrationData.rows.map((row) => [
               formatTableDateRange(row.periodStartAt, row.readingAt),
-              formatCalibrationHistoryRange(
-                row.periodStartAt,
-                row.readingAt,
-              ),
               formatTableTimeInterval(row.periodStartAt, row.readingAt),
               row.plnEnergyKwh,
               row.protectCubeEnergyKwh,
@@ -500,6 +500,8 @@ export default function EnergyCalibrationPage() {
               isAnchorRow(row) ? "-" : row.gapKwh,
               isAnchorRow(row) ? "-" : `${row.gapPercent.toFixed(2)}%`,
               isAnchorRow(row) ? "-" : `${row.accuracyPercent.toFixed(2)}%`,
+              row.ctRatio ?? "-",
+              row.note ?? "-",
             ]),
           },
         ],
@@ -511,7 +513,6 @@ export default function EnergyCalibrationPage() {
     activeRangeLabel,
     calibrationData?.rows,
     effectiveScopeId,
-    formatCalibrationHistoryRange,
     formatExportDateTime,
     formatTableDateRange,
     formatTableTimeInterval,
@@ -549,32 +550,32 @@ export default function EnergyCalibrationPage() {
                       No tenants available
                     </SelectItem>
                   )}
-              </SelectContent>
-            </Select>
+                </SelectContent>
+              </Select>
 
-            <Select value={scopeFilter} onValueChange={setScopeFilter}>
-              <SelectTrigger className="h-8 w-[150px] text-xs">
-                <SelectValue placeholder="Outlet" />
-              </SelectTrigger>
-              <SelectContent>
-                {filteredScopes && filteredScopes.length > 0 && (
-                  <SelectItem value="all">All Outlets</SelectItem>
-                )}
-                {(filteredScopes ?? []).map((scope) => (
-                  <SelectItem key={scope.id} value={scope.id}>
-                    {scope.name}
-                  </SelectItem>
-                ))}
-                {(!filteredScopes || filteredScopes.length === 0) && (
-                  <SelectItem value="none" disabled>
-                    No outlets available
-                  </SelectItem>
-                )}
-              </SelectContent>
-            </Select>
+              <Select value={scopeFilter} onValueChange={setScopeFilter}>
+                <SelectTrigger className="h-8 w-[150px] text-xs">
+                  <SelectValue placeholder="Outlet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredScopes && filteredScopes.length > 0 && (
+                    <SelectItem value="all">All Outlets</SelectItem>
+                  )}
+                  {(filteredScopes ?? []).map((scope) => (
+                    <SelectItem key={scope.id} value={scope.id}>
+                      {scope.name}
+                    </SelectItem>
+                  ))}
+                  {(!filteredScopes || filteredScopes.length === 0) && (
+                    <SelectItem value="none" disabled>
+                      No outlets available
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
 
-            <DateFilter value={globalRange} onChange={setGlobalRange} />
-          </div>
+              <DateFilter value={globalRange} onChange={setGlobalRange} />
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {!effectiveScopeId ? (
@@ -588,7 +589,9 @@ export default function EnergyCalibrationPage() {
                     size="icon"
                     variant="outline"
                     onClick={() => void handleExportPdf()}
-                    disabled={exportLoading !== null || !calibrationData?.rows?.length}
+                    disabled={
+                      exportLoading !== null || !calibrationData?.rows?.length
+                    }
                     className="relative h-9 w-9"
                     title="Export PDF"
                     aria-label="Export PDF"
@@ -602,7 +605,9 @@ export default function EnergyCalibrationPage() {
                     size="icon"
                     variant="outline"
                     onClick={() => void handleExportExcel()}
-                    disabled={exportLoading !== null || !calibrationData?.rows?.length}
+                    disabled={
+                      exportLoading !== null || !calibrationData?.rows?.length
+                    }
                     className="relative h-9 w-9"
                     title="Export Excel"
                     aria-label="Export Excel"
@@ -638,7 +643,8 @@ export default function EnergyCalibrationPage() {
                     Avg GAP %: {summary.avgGapPercent.toFixed(2)}%
                   </div>
                   <div className="rounded border p-2">
-                    Avg Accuracy: {Math.min(100, summary.avgAccuracyPercent).toFixed(2)}%
+                    Avg Accuracy:{" "}
+                    {Math.min(100, summary.avgAccuracyPercent).toFixed(2)}%
                   </div>
                 </div>
 
@@ -655,22 +661,27 @@ export default function EnergyCalibrationPage() {
                         <th className="px-2 py-1 text-left">Date</th>
                         <th className="px-2 py-1 text-left">Time Interval</th>
                         <th className="px-2 py-1 text-right">Raw PLN</th>
-                        <th className="px-2 py-1 text-right">Raw ProtectCube</th>
+                        <th className="px-2 py-1 text-right">
+                          Raw ProtectCube
+                        </th>
                         <th className="px-2 py-1 text-right">Delta PLN</th>
                         <th className="px-2 py-1 text-right">Delta PQ</th>
                         <th className="px-2 py-1 text-right">GAP (kWh)</th>
                         <th className="px-2 py-1 text-right">GAP (%)</th>
                         <th className="px-2 py-1 text-right">Accuracy</th>
-                        {!isUserRole && <th className="px-2 py-1 text-left">Action</th>}
+                        <th className="px-2 py-1 text-right">CT Ratio</th>
+                        <th className="px-2 py-1 text-left">Status</th>
+                        {!isUserRole && (
+                          <th className="px-2 py-1 text-left">Action</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
                       {(calibrationData?.rows ?? []).map((row) => {
                         const anchorRow = isAnchorRow(row);
-                        const gapClass =
-                          anchorRow
-                            ? ""
-                            : Math.abs(row.gapPercent) > 5
+                        const gapClass = anchorRow
+                          ? ""
+                          : Math.abs(row.gapPercent) > 5
                             ? "text-red-600"
                             : "text-emerald-600";
                         const tableDateRange = formatTableDateRange(
@@ -701,10 +712,22 @@ export default function EnergyCalibrationPage() {
                               {anchorRow ? "-" : row.gapKwh}
                             </td>
                             <td className={`px-2 py-1 text-right ${gapClass}`}>
-                              {anchorRow ? "-" : `${row.gapPercent.toFixed(2)}%`}
+                              {anchorRow
+                                ? "-"
+                                : `${row.gapPercent.toFixed(2)}%`}
                             </td>
                             <td className="px-2 py-1 text-right">
-                              {anchorRow ? "-" : `${row.accuracyPercent.toFixed(2)}%`}
+                              {anchorRow
+                                ? "-"
+                                : `${row.accuracyPercent.toFixed(2)}%`}
+                            </td>
+                            <td className="px-2 py-1 text-right">
+                              {row.ctRatio !== null && row.ctRatio !== undefined
+                                ? row.ctRatio
+                                : "-"}
+                            </td>
+                            <td className="px-2 py-1 text-left">
+                              {row.note ?? "-"}
                             </td>
                             {!isUserRole && (
                               <td className="px-2 py-1">
@@ -725,11 +748,19 @@ export default function EnergyCalibrationPage() {
                                       setCalibrationTimestamp(
                                         toLocalInputValue(row.readingAt),
                                       );
-                                      setCalibrationPln(String(row.plnEnergyKwh));
+                                      setCalibrationPln(
+                                        String(row.plnEnergyKwh),
+                                      );
                                       setCalibrationPq(
                                         String(row.protectCubeEnergyKwh),
                                       );
                                       setCalibrationNote(row.note ?? "");
+                                      setCalibrationCtRatio(
+                                        row.ctRatio !== null &&
+                                          row.ctRatio !== undefined
+                                          ? String(row.ctRatio)
+                                          : "",
+                                      );
                                       setIsModalOpen(true);
                                     }}
                                   >
@@ -742,7 +773,9 @@ export default function EnergyCalibrationPage() {
                                     disabled={calibrationLoading}
                                     title="Delete calibration"
                                     aria-label="Delete calibration"
-                                    onClick={() => void deleteCalibrationEntry(row.id)}
+                                    onClick={() =>
+                                      void deleteCalibrationEntry(row.id)
+                                    }
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
@@ -756,7 +789,7 @@ export default function EnergyCalibrationPage() {
                         (calibrationData?.rows.length ?? 0) === 0 && (
                           <tr>
                             <td
-                              colSpan={isUserRole ? 9 : 10}
+                              colSpan={isUserRole ? 11 : 12}
                               className="px-2 py-3 text-center text-muted-foreground"
                             >
                               Belum ada data kalibrasi untuk outlet dan range
@@ -769,9 +802,9 @@ export default function EnergyCalibrationPage() {
                 </div>
 
                 <div className="rounded border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-                  Anchor pertama tetap ditampilkan sebagai baseline. Nilai Delta,
-                  GAP, dan Accuracy akan terhitung setelah ada anchor hari
-                  berikutnya.
+                  Anchor pertama tetap ditampilkan sebagai baseline. Nilai
+                  Delta, GAP, dan Accuracy akan terhitung setelah ada anchor
+                  hari berikutnya.
                 </div>
 
                 {/* Calibration form modal */}
@@ -845,12 +878,27 @@ export default function EnergyCalibrationPage() {
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs text-muted-foreground">
-                          Catatan (opsional)
+                          CT Ratio (opsional)
+                        </label>
+                        <Input
+                          type="number"
+                          step="0.0001"
+                          value={calibrationCtRatio}
+                          onChange={(e) =>
+                            setCalibrationCtRatio(e.target.value)
+                          }
+                          placeholder="contoh: 200"
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">
+                          Status (opsional)
                         </label>
                         <Input
                           value={calibrationNote}
                           onChange={(e) => setCalibrationNote(e.target.value)}
-                          placeholder="Catatan"
+                          placeholder="Status"
                           className="h-8 text-xs"
                         />
                       </div>
