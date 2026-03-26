@@ -26,6 +26,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useScopes, useTenants } from "@/lib/use-energy-data";
 import { energyDashboardApi, type CalibrationHistoryData } from "@/lib/api";
 import { exportToExcelStyled, exportToPdf } from "@/lib/report-export";
@@ -352,6 +358,27 @@ export default function EnergyCalibrationPage() {
     return `${pad(value.getHours())}.${pad(value.getMinutes())}`;
   }, []);
 
+  const formatTooltipDateTime = useCallback((iso: string | null | undefined) => {
+    if (!iso) return "-";
+    const value = new Date(iso);
+    if (Number.isNaN(value.getTime())) return "-";
+    return value.toLocaleString("id-ID", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  }, []);
+
+  const formatOffsetSeconds = useCallback((value: number | null | undefined) => {
+    if (value === null || value === undefined || Number.isNaN(value)) return "-";
+    if (value === 0) return "tepat di detik yang sama";
+    return value > 0 ? `+${value} detik` : `${value} detik`;
+  }, []);
+
   const formatTableDateRange = useCallback(
     (
       startIso: string | null | undefined,
@@ -526,8 +553,9 @@ export default function EnergyCalibrationPage() {
   ]);
 
   return (
-    <PageTransition>
-      <div className="space-y-3 w-full max-w-[1700px] mx-auto px-3 overflow-x-hidden">
+    <TooltipProvider>
+      <PageTransition>
+        <div className="space-y-3 w-full max-w-[1700px] mx-auto px-3 overflow-x-hidden">
         <Card className="border border-border/70 shadow-sm">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm">History Kalibrasi Energy</CardTitle>
@@ -700,7 +728,27 @@ export default function EnergyCalibrationPage() {
                               {row.plnEnergyKwh}
                             </td>
                             <td className="px-2 py-1 text-right">
-                              {row.protectCubeEnergyKwh}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="cursor-help text-right underline decoration-dotted underline-offset-2"
+                                  >
+                                    {row.protectCubeEnergyKwh}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={6} className="max-w-[320px] space-y-1 px-3 py-2 text-[11px] leading-4">
+                                  <div className="font-semibold">Detail raw ProtectCube</div>
+                                  <div>Raw: {row.protectCubeEnergyKwh} kWh</div>
+                                  <div>
+                                    Timestamp raw: {formatTooltipDateTime(row.protectCubeSampleAt)}
+                                  </div>
+                                  <div>
+                                    Selisih ke waktu baca: {row.protectCubeSampleAt ? formatOffsetSeconds(row.protectCubeSampleOffsetSeconds) : "raw terdekat tidak ditemukan"}
+                                  </div>
+                                  <div>Sumber: raw ProtectCube terdekat</div>
+                                </TooltipContent>
+                              </Tooltip>
                             </td>
                             <td className="px-2 py-1 text-right">
                               {anchorRow ? "-" : row.deltaPln}
@@ -932,7 +980,8 @@ export default function EnergyCalibrationPage() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </PageTransition>
+        </div>
+      </PageTransition>
+    </TooltipProvider>
   );
 }

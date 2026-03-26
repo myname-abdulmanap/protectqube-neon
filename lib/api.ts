@@ -632,6 +632,9 @@ export interface CalibrationHistoryRow {
 	readingAt: string;
 	plnEnergyKwh: number;
 	protectCubeEnergyKwh: number;
+	protectCubeSampleAt: string | null;
+	protectCubeSampleOffsetSeconds: number | null;
+	protectCubeSampleSource: "raw";
 	deltaPln: number;
 	deltaPq: number;
 	gapKwh: number;
