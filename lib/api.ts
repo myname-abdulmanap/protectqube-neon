@@ -194,6 +194,7 @@ export interface DeviceHealth {
 	scopeName: string;
 	region: string;
 	currentStatus: string;
+	uptime: string | null;
 	lastSeenAt: string | null;
 	offlineSinceAt: string | null;
 	lastOfflineAt: string | null;
