@@ -230,6 +230,11 @@ export function EnergyOverviewPage({
   const { data: allScopes } = useScopes(undefined);
   const { data: scopes } = useScopes(effectiveTenantId);
 
+  const isOverrideScopeInSelection = useMemo(() => {
+    if (!scopes || scopes.length === 0) return false;
+    return scopes.some((scope) => scope.id === OVERRIDE_SCOPE_ID);
+  }, [scopes]);
+
   // Get user's accessible scope IDs
   const accessibleScopeIds = useMemo(() => {
     if (!user?.scopeIds || user.scopeIds.length === 0) return [];
@@ -640,7 +645,9 @@ export function EnergyOverviewPage({
     );
 
     if (!dailyCalibrationData?.rows?.length) {
-      return applySpecialDayOverride(dailyBreakdownRows);
+      return isOverrideScopeInSelection
+        ? applySpecialDayOverride(dailyBreakdownRows)
+        : dailyBreakdownRows;
     }
 
     const adjustmentByDay = new Map<string, number>();
@@ -722,8 +729,29 @@ export function EnergyOverviewPage({
         };
       });
 
-    return applySpecialDayOverride(calibratedRows);
-  }, [dailyBreakdownRows, dailyCalibrationData?.rows]);
+    if (!isOverrideScopeInSelection) {
+      return calibratedRows;
+    }
+
+    // Ensure override is added on top of the raw daily baseline,
+    // so it never collapses to only +113.664 when calibrated value is near zero.
+    const rawOverrideBase =
+      dailyBreakdownRows.find((row) => row.dayKey === OVERRIDE_DAY_KEY)?.kWh ?? 0;
+
+    return calibratedRows.map((row) =>
+      row.dayKey === OVERRIDE_DAY_KEY
+        ? {
+            ...row,
+            kWh: Number(
+              (
+                Math.max(row.kWh, rawOverrideBase) +
+                OVERRIDE_DAY_KWH_DELTA
+              ).toFixed(3),
+            ),
+          }
+        : row,
+    );
+  }, [dailyBreakdownRows, dailyCalibrationData?.rows, isOverrideScopeInSelection]);
 
   const calibratedDailyConsumption = useMemo(() => {
     if (!calibratedBreakdownRows?.length) return null;

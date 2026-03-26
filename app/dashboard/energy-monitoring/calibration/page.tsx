@@ -380,7 +380,8 @@ export default function EnergyCalibrationPage() {
   );
 
   const isAnchorRow = useCallback(
-    (row: CalibrationHistoryData["rows"][number]) => row.intervalLabel === "Anchor awal",
+    (row: CalibrationHistoryData["rows"][number]) =>
+      row.prevReadingAt === null || row.intervalLabel === "Anchor awal",
     [],
   );
 

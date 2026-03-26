@@ -86,6 +86,7 @@ const applyStartPointOffset = (
 };
 
 const OVERRIDE_DAY_KWH_DELTA = 113.664;
+const OVERRIDE_SCOPE_ID = "cmmio2wjf0lyprk01sgkquky3";
 const OVERRIDE_YEAR = 2026;
 const OVERRIDE_MONTH = 2; // March (0-indexed)
 
@@ -93,6 +94,9 @@ const shouldApplyMonthOverride = () => {
   const now = new Date();
   return now.getUTCFullYear() === OVERRIDE_YEAR && now.getUTCMonth() === OVERRIDE_MONTH;
 };
+
+const shouldApplyScopeOverride = (scopeId: string) =>
+  scopeId === OVERRIDE_SCOPE_ID && shouldApplyMonthOverride();
 
 const statusConfig = {
   online: {
@@ -268,7 +272,7 @@ export default function ElectricityOutletsPage() {
             energyMetric?.timestamp,
           );
 
-          const energyMonthWithOverride = shouldApplyMonthOverride()
+          const energyMonthWithOverride = shouldApplyScopeOverride(summary.scopeId)
             ? energyMonth + OVERRIDE_DAY_KWH_DELTA
             : energyMonth;
 
