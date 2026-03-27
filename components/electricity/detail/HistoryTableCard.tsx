@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { History, ChevronLeft, ChevronRight, Loader2, ServerCrash, Search, X } from 'lucide-react';
+import { History, ChevronLeft, ChevronRight, Loader2, ServerCrash, Search, X, BarChart3 } from 'lucide-react';
 import { energyDashboardApi, type HistoryRow } from '@/lib/api';
 import type { DateRange } from '@/components/electricity/detail/DateFilter';
 import { cn } from '@/lib/utils';
@@ -347,9 +347,22 @@ export function HistoryTableCard({ scopeId, dateRange, dataLoading = false }: Hi
 											colSpan={FLAT_COLS.length}
 											className='text-center text-sm text-muted-foreground py-10'
 										>
-											{isSearchActive
-												? `Tidak ada data yang cocok dengan "${searchQuery}"`
-												: 'Tidak ada data untuk periode ini'}
+											{isSearchActive ? (
+												`Tidak ada data yang cocok dengan "${searchQuery}"`
+											) : (
+												<>
+													<div className='relative h-37.5 w-full flex flex-col items-center justify-center rounded-md overflow-hidden bg-muted/5'>
+														<div className='relative z-10 flex flex-col items-center'>
+															<div className='mb-2 p-2 rounded-xl bg-background/60 border border-border/60 shadow-sm'>
+																<BarChart3 className='w-4 h-4 text-muted-foreground/40' />
+															</div>
+															<p className='text-[10px] font-bold text-muted-foreground/60 uppercase tracking-[0.2em]'>
+																Tidak Ada Data
+															</p>
+														</div>
+													</div>
+												</>
+											)}
 										</TableCell>
 									</TableRow>
 								)}

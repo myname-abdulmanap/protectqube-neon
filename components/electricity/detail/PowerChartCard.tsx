@@ -13,10 +13,10 @@ import {
 	ResponsiveContainer,
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Zap } from 'lucide-react';
+import { BarChart3, Zap } from 'lucide-react';
 import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
 
-interface PeakPowerChartCardProps {
+interface PowerChartCardProps {
 	timeSeries: OutletDetailPayload['timeSeries'];
 	loadedFrom: string;
 	loadedTo: string;
@@ -118,7 +118,7 @@ const buildSeries = (rows: OutletDetailPayload['timeSeries'], fromIso: string, t
 		});
 };
 
-export function PeakPowerChartCard({ timeSeries, loadedFrom, loadedTo }: PeakPowerChartCardProps) {
+export function PowerChartCard({ timeSeries, loadedFrom, loadedTo }: PowerChartCardProps) {
 	const series = useMemo(
 		() => buildSeries(timeSeries ?? [], loadedFrom, loadedTo),
 		[timeSeries, loadedFrom, loadedTo],
@@ -137,12 +137,6 @@ export function PeakPowerChartCard({ timeSeries, loadedFrom, loadedTo }: PeakPow
 		return Number((series.reduce((s, p) => s + p.value, 0) / series.length).toFixed(2));
 	}, [series]);
 
-	const yDomain = useMemo(() => {
-		if (!series.length) return [0, 10];
-		const max = Math.max(...series.map((p) => p.value));
-		return [0, Number((max * 1.15).toFixed(1))];
-	}, [series]);
-
 	const xInterval = (() => {
 		const n = series.length;
 		if (n <= 12) return 0;
@@ -156,14 +150,29 @@ export function PeakPowerChartCard({ timeSeries, loadedFrom, loadedTo }: PeakPow
 			<CardHeader className='px-5 pt-5 pb-0 gap-0 shrink-0'>
 				<CardTitle className='text-lg font-bold flex items-center gap-2'>
 					<Zap className='h-5 w-5 text-red-500' />
-					Peak Power
+					Power
 				</CardTitle>
 			</CardHeader>
 
 			<CardContent className='px-5 pb-5 pt-4 flex flex-col flex-1 gap-4'>
 				{series.length === 0 ? (
-					<div className='flex-1 flex items-center justify-center text-sm text-muted-foreground'>
-						Tidak ada data power untuk periode ini
+					<div className='relative h-37.5 w-full flex flex-col items-center justify-center rounded-md overflow-hidden bg-muted/5'>
+						<div
+							className='absolute inset-0 opacity-[0.08] dark:opacity-[0.15]'
+							style={{
+								backgroundImage: `radial-gradient(circle, currentColor 1px, transparent 1px)`,
+								backgroundSize: '12px 12px',
+							}}
+						/>
+
+						<div className='relative z-10 flex flex-col items-center'>
+							<div className='mb-2 p-2 rounded-xl bg-background/60 border border-border/60 shadow-sm'>
+								<BarChart3 className='w-4 h-4 text-muted-foreground/40' />
+							</div>
+							<p className='text-[10px] font-bold text-muted-foreground/60 uppercase tracking-[0.2em]'>
+								Tidak Ada Data
+							</p>
+						</div>
 					</div>
 				) : (
 					<div className='flex-1 min-h-0' style={{ minHeight: 180 }}>
@@ -175,7 +184,12 @@ export function PeakPowerChartCard({ timeSeries, loadedFrom, loadedTo }: PeakPow
 										<stop offset='100%' stopColor='#ef4444' stopOpacity={0} />
 									</linearGradient>
 								</defs>
-								<CartesianGrid strokeDasharray='3 3' vertical={false} opacity={0.2} />
+								<CartesianGrid
+									strokeDasharray='3 3'
+									vertical={false}
+									stroke='hsl(var(--border))'
+									opacity={0.3}
+								/>
 								<XAxis
 									dataKey='label'
 									tick={{ fontSize: 10 }}
@@ -187,15 +201,18 @@ export function PeakPowerChartCard({ timeSeries, loadedFrom, loadedTo }: PeakPow
 									tick={{ fontSize: 10 }}
 									tickLine={false}
 									axisLine={false}
-									width={50}
-									domain={yDomain}
+									width={64}
 									tickFormatter={(v: number) => v.toFixed(1)}
 									label={{
 										value: 'kW',
 										angle: -90,
 										position: 'insideLeft',
 										offset: 12,
-										style: { fontSize: 9, fill: 'hsl(var(--muted-foreground))' },
+										style: {
+											fontSize: 10,
+											fontWeight: 700,
+											textAnchor: 'middle',
+										},
 									}}
 								/>
 								<Tooltip content={<CustomTooltip />} />
@@ -235,54 +252,62 @@ export function PeakPowerChartCard({ timeSeries, loadedFrom, loadedTo }: PeakPow
 					</div>
 				)}
 
-				<div className='grid grid-cols-3 gap-2 shrink-0'>
-					<div className='rounded-xl bg-red-500 flex flex-col px-4 py-3.5'>
-						<p className='text-[10px] font-bold uppercase tracking-widest text-red-200 mb-2'>Peak</p>
-						<div className='flex items-baseline gap-1 flex-wrap'>
-							<p className='text-2xl font-bold tabular-nums text-white leading-none'>
-								{peakPoint
-									? peakPoint.value.toLocaleString('id-ID', { maximumFractionDigits: 2 })
-									: '–'}
-							</p>
-							<p className='text-sm font-semibold text-red-200 mt-0.5'>kW</p>
+				{series.length > 0 && (
+					<div className='grid grid-cols-3 gap-2 shrink-0'>
+						<div className='rounded-xl bg-red-500 flex flex-col px-4 py-3.5'>
+							<p className='text-[10px] font-bold uppercase tracking-widest text-red-200 mb-2'>Peak</p>
+							<div className='flex items-baseline gap-1 flex-wrap'>
+								<p className='text-2xl font-bold tabular-nums text-white leading-none'>
+									{peakPoint
+										? peakPoint.value.toLocaleString('id-ID', { maximumFractionDigits: 2 })
+										: '–'}
+								</p>
+								<p className='text-sm font-semibold text-red-200 mt-0.5'>kW</p>
+							</div>
+							<div className='mt-2 pt-2 border-t border-red-400/40'>
+								<p className='text-[11px] font-medium text-red-100 leading-snug'>
+									{peakPoint?.fullLabel ?? '–'}
+								</p>
+							</div>
 						</div>
-						<div className='mt-2 pt-2 border-t border-red-400/40'>
-							<p className='text-[11px] font-medium text-red-100 leading-snug'>
-								{peakPoint?.fullLabel ?? '–'}
-							</p>
-						</div>
-					</div>
 
-					<div className='rounded-xl bg-blue-500 flex flex-col px-4 py-3.5'>
-						<p className='text-[10px] font-bold uppercase tracking-widest text-blue-200 mb-2'>Rata-rata</p>
-						<div className='flex items-baseline gap-1 flex-wrap'>
-							<p className='text-2xl font-bold tabular-nums text-white leading-none'>
-								{avgPower.toLocaleString('id-ID', { maximumFractionDigits: 2 })}
+						<div className='rounded-xl bg-blue-500 flex flex-col px-4 py-3.5'>
+							<p className='text-[10px] font-bold uppercase tracking-widest text-blue-200 mb-2'>
+								Rata-rata
 							</p>
-							<p className='text-sm font-semibold text-blue-200 mt-0.5'>kW</p>
+							<div className='flex items-baseline gap-1 flex-wrap'>
+								<p className='text-2xl font-bold tabular-nums text-white leading-none'>
+									{avgPower.toLocaleString('id-ID', { maximumFractionDigits: 2 })}
+								</p>
+								<p className='text-sm font-semibold text-blue-200 mt-0.5'>kW</p>
+							</div>
+							<div className='mt-2 pt-2 border-t border-blue-400/40'>
+								<p className='text-[11px] font-medium text-blue-100 leading-snug'>
+									{series.length} titik data
+								</p>
+							</div>
 						</div>
-						<div className='mt-2 pt-2 border-t border-blue-400/40'>
-							<p className='text-[11px] font-medium text-blue-100 leading-snug'>
-								{series.length} titik data
-							</p>
-						</div>
-					</div>
 
-					<div className='rounded-xl bg-teal-500 flex flex-col px-4 py-3.5'>
-						<p className='text-[10px] font-bold uppercase tracking-widest text-teal-200 mb-2'>Terendah</p>
-						<div className='flex items-baseline gap-1 flex-wrap'>
-							<p className='text-2xl font-bold tabular-nums text-white leading-none'>
-								{minPoint ? minPoint.value.toLocaleString('id-ID', { maximumFractionDigits: 2 }) : '–'}
+						<div className='rounded-xl bg-teal-500 flex flex-col px-4 py-3.5'>
+							<p className='text-[10px] font-bold uppercase tracking-widest text-teal-200 mb-2'>
+								Terendah
 							</p>
-							<p className='text-sm font-semibold text-teal-200 mt-0.5'>kW</p>
-						</div>
-						<div className='mt-2 pt-2 border-t border-teal-400/40'>
-							<p className='text-[11px] font-medium text-teal-100 leading-snug'>
-								{minPoint?.fullLabel ?? '–'}
-							</p>
+							<div className='flex items-baseline gap-1 flex-wrap'>
+								<p className='text-2xl font-bold tabular-nums text-white leading-none'>
+									{minPoint
+										? minPoint.value.toLocaleString('id-ID', { maximumFractionDigits: 2 })
+										: '–'}
+								</p>
+								<p className='text-sm font-semibold text-teal-200 mt-0.5'>kW</p>
+							</div>
+							<div className='mt-2 pt-2 border-t border-teal-400/40'>
+								<p className='text-[11px] font-medium text-teal-100 leading-snug'>
+									{minPoint?.fullLabel ?? '–'}
+								</p>
+							</div>
 						</div>
 					</div>
-				</div>
+				)}
 			</CardContent>
 		</Card>
 	);
