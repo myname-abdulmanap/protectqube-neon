@@ -4,7 +4,7 @@ import { useMemo, useRef } from 'react';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { OutletDetailPayload } from '@/app/dashboard/electricity/[scopeId]/page';
-import { Gauge, Waves } from 'lucide-react';
+import { BarChart3, Gauge, Waves } from 'lucide-react';
 
 interface ChartPoint {
 	label: string;
@@ -198,6 +198,8 @@ function MultiLineChart({
 		return Math.ceil(n / 15);
 	})();
 
+	const hasAnyData = chartData.some((d) => d.hasData);
+
 	return (
 		<Card className='border border-border/60 shadow-sm h-full gap-0 py-0 flex flex-col'>
 			<CardHeader className='px-5 pt-5 pb-0 flex flex-row items-center justify-between gap-2'>
@@ -221,70 +223,92 @@ function MultiLineChart({
 						Tidak ada data untuk periode ini
 					</div>
 				) : (
-					<div
-						ref={scrollRef}
-						className='overflow-x-auto pb-1'
-						style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
-					>
-						<div style={{ minWidth: `${chartMinWidth}px` }}>
-							<ResponsiveContainer width='100%' height={176}>
-								<LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 4 }}>
-									<CartesianGrid
-										strokeDasharray='3 3'
-										vertical={false}
-										stroke='hsl(var(--border))'
-										opacity={0.3}
-									/>
-									<XAxis
-										dataKey='label'
-										tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-										tickLine={false}
-										axisLine={false}
-										interval={xAxisInterval}
-									/>
-									<YAxis
-										tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-										tickLine={false}
-										axisLine={false}
-										width={52}
-										label={{
-											value: unit,
-											angle: -90,
-											position: 'insideLeft',
-											offset: 12,
-											style: {
-												fontSize: 10,
-												fontWeight: 700,
-												textAnchor: 'middle',
-												fill: 'hsl(var(--muted-foreground))',
-											},
-										}}
-									/>
-									<Tooltip content={<MultiLineTooltip unit={unit} metrics={metrics} />} />
-									<Legend
-										iconType='circle'
-										iconSize={8}
-										formatter={(value) => {
-											const m = metrics.find((mx) => mx.key === value);
-											return <span style={{ fontSize: 11 }}>{m?.phase ?? value}</span>;
-										}}
-									/>
-									{metrics.map((m) => (
-										<Line
-											key={m.key}
-											type='monotone'
-											dataKey={m.key}
-											stroke={m.color}
-											strokeWidth={1.75}
-											dot={false}
-											activeDot={{ r: 4, fill: m.color, stroke: '#fff', strokeWidth: 2 }}
-											connectNulls={false}
-										/>
-									))}
-								</LineChart>
-							</ResponsiveContainer>
-						</div>
-					</div>
+					<>
+						{!hasAnyData ? (
+							<div className='relative h-37.5 w-full flex flex-col items-center justify-center rounded-md overflow-hidden bg-muted/5'>
+								<div
+									className='absolute inset-0 opacity-[0.08] dark:opacity-[0.15]'
+									style={{
+										backgroundImage: `radial-gradient(circle, currentColor 1px, transparent 1px)`,
+										backgroundSize: '12px 12px',
+									}}
+								/>
+
+								<div className='relative z-10 flex flex-col items-center'>
+									<div className='mb-2 p-2 rounded-xl bg-background/60 border border-border/60 shadow-sm'>
+										<BarChart3 className='w-4 h-4 text-muted-foreground/40' />
+									</div>
+									<p className='text-[10px] font-bold text-muted-foreground/60 uppercase tracking-[0.2em]'>
+										Tidak Ada Data
+									</p>
+								</div>
+							</div>
+						) : (
+							<div
+								ref={scrollRef}
+								className='overflow-x-auto pb-1'
+								style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+							>
+								<div style={{ minWidth: `${chartMinWidth}px` }}>
+									<ResponsiveContainer width='100%' height={176}>
+										<LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 4 }}>
+											<CartesianGrid
+												strokeDasharray='3 3'
+												vertical={false}
+												stroke='hsl(var(--border))'
+												opacity={0.3}
+											/>
+											<XAxis
+												dataKey='label'
+												tick={{ fontSize: 10 }}
+												tickLine={false}
+												axisLine={false}
+												interval={xAxisInterval}
+											/>
+											<YAxis
+												tick={{ fontSize: 10 }}
+												tickLine={false}
+												axisLine={false}
+												width={52}
+												label={{
+													value: unit,
+													angle: -90,
+													position: 'insideLeft',
+													offset: 12,
+													style: {
+														fontSize: 10,
+														fontWeight: 700,
+														textAnchor: 'middle',
+													},
+												}}
+											/>
+											<Tooltip content={<MultiLineTooltip unit={unit} metrics={metrics} />} />
+											<Legend
+												iconType='circle'
+												iconSize={8}
+												formatter={(value) => {
+													const m = metrics.find((mx) => mx.key === value);
+													return <span style={{ fontSize: 11 }}>{m?.phase ?? value}</span>;
+												}}
+											/>
+											{metrics.map((m) => (
+												<Line
+													key={m.key}
+													type='monotone'
+													dataKey={m.key}
+													stroke={m.color}
+													strokeWidth={1.75}
+													dot={false}
+													activeDot={{ r: 4, fill: m.color, stroke: '#fff', strokeWidth: 2 }}
+													connectNulls={false}
+												/>
+											))}
+										</LineChart>
+									</ResponsiveContainer>
+								</div>
+							</div>
+						)}
+					</>
 				)}
 			</CardContent>
 		</Card>

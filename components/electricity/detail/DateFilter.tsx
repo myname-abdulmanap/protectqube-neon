@@ -63,9 +63,9 @@ export function buildRange(preset: Exclude<DatePreset, 'custom'>): DateRange {
 export function rangeLabel(r: DateRange): string {
 	const labels: Record<DatePreset, string> = {
 		today: 'Today',
-		'7d': '7 Days',
-		'30d': '30 Days',
-		'90d': '90 Days',
+		'7d': 'Last 7 Days',
+		'30d': 'Last 30 Days',
+		'90d': 'Last 90 Days',
 		custom: 'Custom',
 	};
 	if (r.preset === 'custom') {
@@ -74,6 +74,25 @@ export function rangeLabel(r: DateRange): string {
 		return `${from} – ${to}`;
 	}
 	return labels[r.preset];
+}
+
+export function rangeDateLabel(r: DateRange): string {
+	if (!r.from || !r.to) return '';
+
+	const from = new Date(r.from);
+	const to = new Date(r.to);
+
+	const format = (d: Date) =>
+		d.toLocaleDateString('id-ID', {
+			day: '2-digit',
+			month: 'short',
+			year: 'numeric',
+		});
+
+	const fromStr = format(from);
+	const toStr = format(to);
+
+	return fromStr === toStr ? fromStr : `${fromStr} – ${toStr}`;
 }
 
 const PRESETS: Array<{ key: DatePreset; label: string }> = [
@@ -194,7 +213,7 @@ export function DateFilter({ value, onChange }: DateFilterProps) {
 						</div>
 						<Button
 							size='sm'
-							className='w-full h-7 text-[11px] font-medium mt-0.5'
+							className='w-full h-7 text-[11px] font-medium mt-0.5 cursor-pointer'
 							onClick={handleCustomApply}
 							disabled={!canApply}
 						>
