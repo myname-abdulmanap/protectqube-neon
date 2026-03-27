@@ -6,7 +6,6 @@ import { useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, BarChart2, Database } from 'lucide-react';
 import { PageTransition } from '@/components/ui/page-transition';
-
 import { RealtimePowerCard } from '@/components/electricity/detail/RealtimePowerCard';
 import { PowerMeterCard } from '@/components/electricity/detail/PowerMeterCard';
 import { TrendChartCard } from '@/components/electricity/detail/TrendChartCard';
@@ -17,8 +16,7 @@ import { OutletProfileCard } from '@/components/electricity/detail/OutletProfile
 import { HourlyEnergyCard } from '@/components/electricity/detail/HourlyEnergyCard';
 import { DateFilter, type DateRange, buildRange, rangeDateLabel } from '@/components/electricity/detail/DateFilter';
 import { DataLoadingOverlay } from '@/components/electricity/detail/DataLoadingOverlay';
-
-import { deviceMetricsApi, energyDashboardApi, type EnergyOutletDetail } from '@/lib/api';
+import { deviceMetricsApi, energyDashboardApi, ExportProcessedHourBucket, type EnergyOutletDetail } from '@/lib/api';
 import { exportToExcel, exportToPdf } from '@/lib/report-export';
 import {
 	ExportModal,
@@ -190,20 +188,6 @@ const applyStartPointOffset = (
 	return Number(Math.max(0, rawValue - Number(startingPoint.initialKwh ?? 0)).toFixed(2));
 };
 
-const normalizeExportPeriod = (period: ExportPeriod) => {
-	const fromDate = new Date(period.from);
-	const toDate = new Date(period.to);
-	if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()))
-		throw new Error('Periode export tidak valid');
-	const start = fromDate <= toDate ? fromDate : toDate;
-	const end = fromDate <= toDate ? toDate : fromDate;
-	return {
-		fromIso: start.toISOString(),
-		toIso: end.toISOString(),
-		label: `${start.toLocaleString('id-ID')} - ${end.toLocaleString('id-ID')}`,
-	};
-};
-
 export default function ElectricityOutletDetailPage() {
 	const params = useParams<{ scopeId: string }>();
 	const scopeId = params.scopeId;
@@ -360,598 +344,40 @@ export default function ElectricityOutletDetailPage() {
 		};
 	}, [detail?.startingPoint, latestMetrics]);
 
-	const L = {
-		waktu: 'Waktu',
-		waktuPeak: 'Waktu Peak',
-		peakPower: 'Peak Power (kW)',
-		totalKwh: 'Total Energy (kWh)',
-		totalKvarh: 'Total Reactive (kVArh)',
-		avgKwh: 'Avg Energy (kWh)',
-		avgPower: 'Avg Power (kW)',
-		avgVoltage: 'Avg Voltage (V)',
-		avgCurrent: 'Avg Current (A)',
-		avgPf: 'Avg Power Factor',
-		avgFreq: 'Avg Frequency (Hz)',
-		energy: 'Energy (kWh)',
-		reactive: 'Reactive (kVArh)',
-		power: 'Avg Power (kW)',
-		voltR: 'Avg Voltage R (V)',
-		voltS: 'Avg Voltage S (V)',
-		voltT: 'Avg Voltage T (V)',
-		currR: 'Avg Current R (A)',
-		currS: 'Avg Current S (A)',
-		currT: 'Avg Current T (A)',
-		currTotal: 'Avg Current Total (A)',
-		pf: 'Avg Power Factor',
-		freq: 'Avg Frequency (Hz)',
-		pfR: 'Power Factor R',
-		pfS: 'Power Factor S',
-		pfT: 'Power Factor T',
-		pfAvg: 'Power Factor Avg',
-		vRLN: 'Voltage R L-N (V)',
-		vSLN: 'Voltage S L-N (V)',
-		vTLN: 'Voltage T L-N (V)',
-		vRSLL: 'Voltage RS L-L (V)',
-		vSTLL: 'Voltage ST L-L (V)',
-		vTRLL: 'Voltage TR L-L (V)',
-		aR: 'Current R (A)',
-		aS: 'Current S (A)',
-		aT: 'Current T (A)',
-		aTotal: 'Current Total (A)',
-		pR: 'Power R (kW)',
-		pS: 'Power S (kW)',
-		pT: 'Power T (kW)',
-		pTotal: 'Power Total (kW)',
-		qR: 'Reactive R (VAR)',
-		qS: 'Reactive S (VAR)',
-		qT: 'Reactive T (VAR)',
-		qTotal: 'Reactive Total (VAR)',
-		vaR: 'Apparent R (VA)',
-		vaS: 'Apparent S (VA)',
-		vaT: 'Apparent T (VA)',
-		vaTotal: 'Apparent Total (VA)',
-		kWh: 'Energy (kWh)',
-		kVArh: 'Reactive (kVArh)',
-		hz: 'Frequency (Hz)',
-	} as const;
-
 	const handleExportProcessed = async (format: ExportFormat, period: ExportPeriod) => {
 		if (!detail) return;
-		const { fromIso, toIso, label: periodLabel } = normalizeExportPeriod(period);
 
-		const fromDate = new Date(fromIso);
-		const toDate = new Date(toIso);
-		const diffHours = (toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60);
-		const useHourInterval = diffHours < 24;
-		const toDateInclusive = new Date(toDate.getTime() + (useHourInterval ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
+		const fromDate = new Date(period.from);
+		const toDate = new Date(period.to);
+		if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) throw new Error('Periode export tidak valid');
 
-		const MONTHS_ID = [
-			'Januari',
-			'Februari',
-			'Maret',
-			'April',
-			'Mei',
-			'Juni',
-			'Juli',
-			'Agustus',
-			'September',
-			'Oktober',
-			'November',
-			'Desember',
-		];
+		const start = fromDate <= toDate ? fromDate : toDate;
+		const end = fromDate <= toDate ? toDate : fromDate;
+		const periodLabel = `${start.toLocaleString('id-ID')} - ${end.toLocaleString('id-ID')}`;
 
-		type RawHistoryRow = {
-			timestamp: string;
-			voltage_l1: number | null;
-			voltage_l2: number | null;
-			voltage_l3: number | null;
-			current_l1: number | null;
-			current_l2: number | null;
-			current_l3: number | null;
-			current_total: number | null;
-			power_l1: number | null;
-			power_l2: number | null;
-			power_l3: number | null;
-			power_total: number | null;
-			energy_total: number | null;
-			kvarh: number | null;
-			va_sigma: number | null;
-			pf_sigma: number | null;
-			frequency: number | null;
-		};
+		const res = await energyDashboardApi.getExportProcessed(scopeId, start.toISOString(), end.toISOString());
+		if (!res.success || !res.data) throw new Error(res.error ?? 'Gagal mengambil data export');
 
-		const allHistoryRows: RawHistoryRow[] = [];
-		let cursor: string | null = null;
-		let fetchMore = true;
-		while (fetchMore) {
-			const res = await energyDashboardApi.getOutletHistory(scopeId, {
-				from: fromIso,
-				to: toDateInclusive.toISOString(),
-				cursor: cursor ?? undefined,
-				pageSize: 500,
-			});
-			if (!res.success || !res.data) break;
-			allHistoryRows.push(...(res.data.rows as RawHistoryRow[]));
-			cursor = res.data.nextCursor;
-			fetchMore = !!cursor;
-		}
+		const d = res.data;
+		const { analytics, hourlyBuckets, dailyBuckets, scope: s, devices: devs } = d;
 
-		const sortedHistoryRows = [...allHistoryRows].sort(
-			(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-		);
+		const L = {
+			waktu: 'Waktu',
+			energy: 'Energy (kWh)',
+			reactive: 'Reactive (kVArh)',
+			power: 'Avg Power (kW)',
+			voltR: 'Avg Voltage R (V)',
+			voltS: 'Avg Voltage S (V)',
+			voltT: 'Avg Voltage T (V)',
+			currR: 'Avg Current R (A)',
+			currS: 'Avg Current S (A)',
+			currT: 'Avg Current T (A)',
+			currTotal: 'Avg Current Total (A)',
+			pf: 'Avg Power Factor',
+			freq: 'Avg Frequency (Hz)',
+		} as const;
 
-		const hourlyRes = await energyDashboardApi.getHourlyDailyEnergy(
-			scopeId,
-			fromIso,
-			toDateInclusive.toISOString(),
-		);
-		const hourlyDays = hourlyRes.success && hourlyRes.data ? hourlyRes.data.days : [];
-
-		const getJakartaParts = (date: Date) => {
-			const parts = new Intl.DateTimeFormat('en-CA', {
-				timeZone: 'Asia/Jakarta',
-				year: 'numeric',
-				month: '2-digit',
-				day: '2-digit',
-				hour: '2-digit',
-				hour12: false,
-			}).formatToParts(date);
-			const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
-			return {
-				year: get('year'),
-				month: get('month'),
-				day: get('day'),
-				hour: get('hour'),
-			};
-		};
-
-		const fmtBucketLabelHour = (ts: Date) =>
-			`${String(ts.getDate()).padStart(2, '0')} ${MONTHS_ID[ts.getMonth()]} ${ts.getFullYear()}, ${String(ts.getHours()).padStart(2, '0')}:00 WIB`;
-		const fmtBucketLabelDay = (ts: Date) =>
-			`${String(ts.getDate()).padStart(2, '0')} ${MONTHS_ID[ts.getMonth()]} ${ts.getFullYear()}`;
-
-		type SlotAcc = {
-			powerSum: number;
-			powerCount: number;
-			voltL1Sum: number;
-			voltL1Count: number;
-			voltL2Sum: number;
-			voltL2Count: number;
-			voltL3Sum: number;
-			voltL3Count: number;
-			currL1Sum: number;
-			currL1Count: number;
-			currL2Sum: number;
-			currL2Count: number;
-			currL3Sum: number;
-			currL3Count: number;
-			currTotalSum: number;
-			currTotalCount: number;
-			pfSum: number;
-			pfCount: number;
-			freqSum: number;
-			freqCount: number;
-			kvarhFirst: number | null;
-			kvarhLast: number | null;
-		};
-
-		const makeAcc = (): SlotAcc => ({
-			powerSum: 0,
-			powerCount: 0,
-			voltL1Sum: 0,
-			voltL1Count: 0,
-			voltL2Sum: 0,
-			voltL2Count: 0,
-			voltL3Sum: 0,
-			voltL3Count: 0,
-			currL1Sum: 0,
-			currL1Count: 0,
-			currL2Sum: 0,
-			currL2Count: 0,
-			currL3Sum: 0,
-			currL3Count: 0,
-			currTotalSum: 0,
-			currTotalCount: 0,
-			pfSum: 0,
-			pfCount: 0,
-			freqSum: 0,
-			freqCount: 0,
-			kvarhFirst: null,
-			kvarhLast: null,
-		});
-
-		const addToAcc = (acc: SlotAcc, key: string, val: number) => {
-			const v = Number(val);
-			if (!isFinite(v)) return;
-			switch (key) {
-				case 'power_total':
-					if (v <= 0) return;
-					acc.powerSum += v > 1000 ? v / 1000 : v;
-					acc.powerCount += 1;
-					break;
-				case 'voltage_l1':
-					if (v > 0) {
-						acc.voltL1Sum += v;
-						acc.voltL1Count += 1;
-					}
-					break;
-				case 'voltage_l2':
-					if (v > 0) {
-						acc.voltL2Sum += v;
-						acc.voltL2Count += 1;
-					}
-					break;
-				case 'voltage_l3':
-					if (v > 0) {
-						acc.voltL3Sum += v;
-						acc.voltL3Count += 1;
-					}
-					break;
-				case 'current_l1':
-					if (v > 0) {
-						acc.currL1Sum += v;
-						acc.currL1Count += 1;
-					}
-					break;
-				case 'current_l2':
-					if (v > 0) {
-						acc.currL2Sum += v;
-						acc.currL2Count += 1;
-					}
-					break;
-				case 'current_l3':
-					if (v > 0) {
-						acc.currL3Sum += v;
-						acc.currL3Count += 1;
-					}
-					break;
-				case 'current_total':
-					if (v > 0) {
-						acc.currTotalSum += v;
-						acc.currTotalCount += 1;
-					}
-					break;
-				case 'pf_sigma':
-					if (v > 0 && v <= 1) {
-						acc.pfSum += v;
-						acc.pfCount += 1;
-					}
-					break;
-				case 'frequency':
-					if (v >= 45 && v <= 55) {
-						acc.freqSum += v;
-						acc.freqCount += 1;
-					}
-					break;
-			}
-		};
-
-		const hourlyAccMap = new Map<string, SlotAcc>();
-		const dailyAccMap = new Map<string, SlotAcc>();
-
-		const ingestTimeSeries = (
-			rows: Array<{
-				timestamp: string;
-				metricKey: string;
-				metricValue: number;
-			}>,
-		) => {
-			for (const row of rows) {
-				const d = new Date(row.timestamp);
-				if (isNaN(d.getTime())) continue;
-				const p = getJakartaParts(d);
-				const hKey = `${p.year}-${p.month}-${p.day}-${p.hour}`;
-				const dKey = `${p.year}-${p.month}-${p.day}`;
-				const hAcc = hourlyAccMap.get(hKey) ?? makeAcc();
-				const dAcc = dailyAccMap.get(dKey) ?? makeAcc();
-				addToAcc(hAcc, row.metricKey, row.metricValue);
-				addToAcc(dAcc, row.metricKey, row.metricValue);
-				hourlyAccMap.set(hKey, hAcc);
-				dailyAccMap.set(dKey, dAcc);
-			}
-		};
-
-		if (useHourInterval) {
-			const tsRes = await energyDashboardApi.getOutletDetail(scopeId, {
-				from: fromIso,
-				to: toDateInclusive.toISOString(),
-			});
-			ingestTimeSeries(
-				tsRes.success && tsRes.data
-					? ((
-							tsRes.data as unknown as {
-								timeSeries?: Array<{
-									timestamp: string;
-									metricKey: string;
-									metricValue: number;
-								}>;
-							}
-						).timeSeries ?? [])
-					: [],
-			);
-		} else {
-			await Promise.all(
-				hourlyDays
-					.map((day) => async () => {
-						const tsRes = await energyDashboardApi.getOutletDetail(scopeId, {
-							from: new Date(`${day.date}T00:00:00+07:00`).toISOString(),
-							to: new Date(`${day.date}T23:59:59+07:00`).toISOString(),
-						});
-						ingestTimeSeries(
-							tsRes.success && tsRes.data
-								? ((
-										tsRes.data as unknown as {
-											timeSeries?: Array<{
-												timestamp: string;
-												metricKey: string;
-												metricValue: number;
-											}>;
-										}
-									).timeSeries ?? [])
-								: [],
-						);
-					})
-					.map((fn) => fn()),
-			);
-		}
-
-		for (const r of sortedHistoryRows) {
-			const v = Number(r.pf_sigma ?? 0);
-			if (!isFinite(v) || v <= 0 || v > 1) continue;
-			const d = new Date(r.timestamp);
-			if (isNaN(d.getTime())) continue;
-			const p = getJakartaParts(d);
-			const hKey = `${p.year}-${p.month}-${p.day}-${p.hour}`;
-			const dKey = `${p.year}-${p.month}-${p.day}`;
-			const hAcc = hourlyAccMap.get(hKey) ?? makeAcc();
-			if (hAcc.pfCount === 0) {
-				hAcc.pfSum += v;
-				hAcc.pfCount += 1;
-			}
-			hourlyAccMap.set(hKey, hAcc);
-			const dAcc = dailyAccMap.get(dKey) ?? makeAcc();
-			if (dAcc.pfCount === 0) {
-				dAcc.pfSum += v;
-				dAcc.pfCount += 1;
-			}
-			dailyAccMap.set(dKey, dAcc);
-		}
-
-		for (const r of sortedHistoryRows) {
-			const v = Number(r.frequency ?? null);
-			if (!isFinite(v) || v < 45 || v > 55) continue;
-			const d = new Date(r.timestamp);
-			if (isNaN(d.getTime())) continue;
-			const p = getJakartaParts(d);
-			const hKey = `${p.year}-${p.month}-${p.day}-${p.hour}`;
-			const dKey = `${p.year}-${p.month}-${p.day}`;
-			const hAcc = hourlyAccMap.get(hKey) ?? makeAcc();
-			if (hAcc.freqCount === 0) {
-				hAcc.freqSum += v;
-				hAcc.freqCount += 1;
-			}
-			hourlyAccMap.set(hKey, hAcc);
-			const dAcc = dailyAccMap.get(dKey) ?? makeAcc();
-			if (dAcc.freqCount === 0) {
-				dAcc.freqSum += v;
-				dAcc.freqCount += 1;
-			}
-			dailyAccMap.set(dKey, dAcc);
-		}
-
-		for (const r of sortedHistoryRows) {
-			const v = Number(r.kvarh ?? null);
-			if (!isFinite(v) || v < 0) continue;
-			const d = new Date(r.timestamp);
-			if (isNaN(d.getTime())) continue;
-			const p = getJakartaParts(d);
-			const hKey = `${p.year}-${p.month}-${p.day}-${p.hour}`;
-			const dKey = `${p.year}-${p.month}-${p.day}`;
-			const hAcc = hourlyAccMap.get(hKey) ?? makeAcc();
-			if (hAcc.kvarhFirst === null) hAcc.kvarhFirst = v;
-			hAcc.kvarhLast = v;
-			hourlyAccMap.set(hKey, hAcc);
-			const dAcc = dailyAccMap.get(dKey) ?? makeAcc();
-			if (dAcc.kvarhFirst === null) dAcc.kvarhFirst = v;
-			dAcc.kvarhLast = v;
-			dailyAccMap.set(dKey, dAcc);
-		}
-
-		const avgOrNull = (sum: number, count: number, d = 2): number | null =>
-			count > 0 ? Number((sum / count).toFixed(d)) : null;
-
-		const resolveSlot = (acc: SlotAcc) => ({
-			avgPowerKw: avgOrNull(acc.powerSum, acc.powerCount, 3),
-			avgVoltL1: avgOrNull(acc.voltL1Sum, acc.voltL1Count, 1),
-			avgVoltL2: avgOrNull(acc.voltL2Sum, acc.voltL2Count, 1),
-			avgVoltL3: avgOrNull(acc.voltL3Sum, acc.voltL3Count, 1),
-			avgCurrL1: avgOrNull(acc.currL1Sum, acc.currL1Count, 2),
-			avgCurrL2: avgOrNull(acc.currL2Sum, acc.currL2Count, 2),
-			avgCurrL3: avgOrNull(acc.currL3Sum, acc.currL3Count, 2),
-			avgCurrTotal: avgOrNull(acc.currTotalSum, acc.currTotalCount, 2),
-			avgPf: avgOrNull(acc.pfSum, acc.pfCount, 3),
-			avgFreq: avgOrNull(acc.freqSum, acc.freqCount, 2),
-			_kvarhFirst: acc.kvarhFirst,
-			_kvarhLast: acc.kvarhLast,
-			avgKvarh: acc.kvarhLast !== null ? Number(acc.kvarhLast.toFixed(3)) : null,
-		});
-
-		type EnergyBucket = {
-			timestamp: string;
-			label: string;
-			energyKwh: number | null;
-			avgKvarh: number | null;
-			_kvarhFirst: number | null;
-			_kvarhLast: number | null;
-			avgPowerKw: number | null;
-			avgVoltL1: number | null;
-			avgVoltL2: number | null;
-			avgVoltL3: number | null;
-			avgCurrL1: number | null;
-			avgCurrL2: number | null;
-			avgCurrL3: number | null;
-			avgCurrTotal: number | null;
-			avgPf: number | null;
-			avgFreq: number | null;
-		};
-
-		const hourlyBuckets: EnergyBucket[] = [];
-		for (const day of hourlyDays) {
-			for (const hour of day.hours) {
-				if (!hour.hasData) continue;
-				const ts = new Date(`${day.date}T${String(hour.hour).padStart(2, '0')}:00:00+07:00`);
-				const tsJkt = getJakartaParts(ts);
-				const hKey = `${tsJkt.year}-${tsJkt.month}-${tsJkt.day}-${tsJkt.hour}`;
-				hourlyBuckets.push({
-					timestamp: ts.toISOString(),
-					label: fmtBucketLabelHour(ts),
-					energyKwh: hour.energyKwh > 0 ? Number(hour.energyKwh.toFixed(3)) : null,
-					...resolveSlot(hourlyAccMap.get(hKey) ?? makeAcc()),
-				});
-			}
-		}
-
-		for (let i = 0; i < hourlyBuckets.length; i++) {
-			const curr = hourlyBuckets[i];
-			if (i === 0) {
-				if (curr._kvarhFirst !== null && curr._kvarhLast !== null) {
-					const delta = curr._kvarhLast - curr._kvarhFirst;
-					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
-				} else {
-					curr.avgKvarh = null;
-				}
-			} else {
-				const prev = hourlyBuckets[i - 1];
-				if (curr._kvarhFirst !== null && prev._kvarhLast !== null) {
-					const delta = curr._kvarhFirst - prev._kvarhLast;
-					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
-				} else {
-					curr.avgKvarh = null;
-				}
-			}
-		}
-
-		const dailyBuckets: EnergyBucket[] = [];
-		for (const day of hourlyDays) {
-			if (day.totalKwh <= 0) continue;
-			const ts = new Date(`${day.date}T00:00:00+07:00`);
-			const tsJkt = getJakartaParts(ts);
-			const dKey = `${tsJkt.year}-${tsJkt.month}-${tsJkt.day}`;
-			dailyBuckets.push({
-				timestamp: ts.toISOString(),
-				label: fmtBucketLabelDay(ts),
-				energyKwh: Number(day.totalKwh.toFixed(3)),
-				...resolveSlot(dailyAccMap.get(dKey) ?? makeAcc()),
-			});
-		}
-
-		for (let i = 0; i < dailyBuckets.length; i++) {
-			const curr = dailyBuckets[i];
-			if (i === 0) {
-				if (curr._kvarhFirst !== null && curr._kvarhLast !== null) {
-					const delta = curr._kvarhLast - curr._kvarhFirst;
-					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
-				} else {
-					curr.avgKvarh = null;
-				}
-			} else {
-				const prev = dailyBuckets[i - 1];
-				if (curr._kvarhFirst !== null && prev._kvarhLast !== null) {
-					const delta = curr._kvarhFirst - prev._kvarhLast;
-					curr.avgKvarh = delta >= 0 ? Number(delta.toFixed(3)) : null;
-				} else {
-					curr.avgKvarh = null;
-				}
-			}
-		}
-
-		const hourlyByDay = new Map<string, EnergyBucket[]>();
-		for (const b of hourlyBuckets) {
-			const p = getJakartaParts(new Date(b.timestamp));
-			const dKey = `${p.year}-${p.month}-${p.day}`;
-			const arr = hourlyByDay.get(dKey) ?? [];
-			arr.push(b);
-			hourlyByDay.set(dKey, arr);
-		}
-
-		const daySheetLabel = (dKey: string): string => {
-			const b = hourlyByDay.get(dKey)?.[0];
-			if (!b) return dKey;
-			const ts = new Date(b.timestamp);
-			return `${String(ts.getDate()).padStart(2, '0')} ${MONTHS_ID[ts.getMonth()]}`;
-		};
-
-		const primaryBuckets = useHourInterval ? hourlyBuckets : dailyBuckets;
-		const validEnergy = primaryBuckets.map((b) => b.energyKwh).filter((v): v is number => v !== null && v > 0);
-		const totalEnergyKwh = Number(validEnergy.reduce((s, v) => s + v, 0).toFixed(3));
-		const avgEnergyKwh = Number((validEnergy.length ? totalEnergyKwh / validEnergy.length : 0).toFixed(3));
-
-		const peakBucket =
-			[...primaryBuckets]
-				.slice(0, -1)
-				.reduce<EnergyBucket | null>(
-					(best, b) => ((b.energyKwh ?? -Infinity) > (best?.energyKwh ?? -Infinity) ? b : best),
-					null,
-				) ??
-			primaryBuckets.reduce<EnergyBucket | null>(
-				(best, b) => ((b.energyKwh ?? -Infinity) > (best?.energyKwh ?? -Infinity) ? b : best),
-				null,
-			);
-
-		const gAcc = makeAcc();
-		for (const acc of hourlyAccMap.values()) {
-			gAcc.powerSum += acc.powerSum;
-			gAcc.powerCount += acc.powerCount;
-			gAcc.voltL1Sum += acc.voltL1Sum;
-			gAcc.voltL1Count += acc.voltL1Count;
-			gAcc.currTotalSum += acc.currTotalSum;
-			gAcc.currTotalCount += acc.currTotalCount;
-			gAcc.pfSum += acc.pfSum;
-			gAcc.pfCount += acc.pfCount;
-			gAcc.freqSum += acc.freqSum;
-			gAcc.freqCount += acc.freqCount;
-		}
-
-		const peakPowerKw = Number(
-			(gAcc.powerCount > 0
-				? Math.max(
-						...Array.from(hourlyAccMap.values()).map((a) =>
-							a.powerCount > 0 ? a.powerSum / a.powerCount : 0,
-						),
-					)
-				: 0
-			).toFixed(2),
-		);
-
-		const backendKvarh = detail.analytics?.totalKvarhDelta ?? 0;
-		const computedKvarh = Number(
-			primaryBuckets
-				.map((b) => b.avgKvarh ?? 0)
-				.reduce((s, v) => s + v, 0)
-				.toFixed(3),
-		);
-		const analyticsAvgKvarh = backendKvarh > 0 ? Number(backendKvarh.toFixed(3)) : computedKvarh;
-		const backendFreq = detail.analytics?.avgFrequencyHz;
-		const computedFreq = avgOrNull(gAcc.freqSum, gAcc.freqCount, 2);
-		const analyticsAvgFreq =
-			backendFreq !== null && backendFreq !== undefined ? Number(backendFreq.toFixed(2)) : (computedFreq ?? 0);
-
-		const analyticsRows: Array<[string, string | number]> = [
-			[L.waktuPeak, peakBucket?.label ?? '-'],
-			[L.peakPower, peakPowerKw],
-			[L.totalKwh, totalEnergyKwh],
-			[L.totalKvarh, analyticsAvgKvarh],
-			[L.avgKwh, avgEnergyKwh],
-			[L.avgPower, avgOrNull(gAcc.powerSum, gAcc.powerCount, 2) ?? 0],
-			[L.avgVoltage, avgOrNull(gAcc.voltL1Sum, gAcc.voltL1Count, 1) ?? 0],
-			[L.avgCurrent, avgOrNull(gAcc.currTotalSum, gAcc.currTotalCount, 2) ?? 0],
-			[L.avgPf, avgOrNull(gAcc.pfSum, gAcc.pfCount, 3) ?? 0],
-			[L.avgFreq, analyticsAvgFreq],
-		];
-
-		const analyticsExcelRow = Object.fromEntries(analyticsRows) as Record<string, string | number>;
-
-		const bucketToExcelRow = (b: EnergyBucket): Record<string, string | number | null> => ({
+		const bucketToExcelRow = (b: ExportProcessedHourBucket): Record<string, string | number | null> => ({
 			[L.waktu]: b.label,
 			[L.energy]: b.energyKwh ?? '-',
 			[L.reactive]: b.avgKvarh ?? '-',
@@ -967,7 +393,7 @@ export default function ElectricityOutletDetailPage() {
 			[L.freq]: b.avgFreq ?? '-',
 		});
 
-		const bucketToPdfRow = (b: EnergyBucket): Array<string | number> => [
+		const bucketToPdfRow = (b: ExportProcessedHourBucket): Array<string | number> => [
 			b.label,
 			String(b.energyKwh ?? '-'),
 			String(b.avgKvarh ?? '-'),
@@ -983,7 +409,7 @@ export default function ElectricityOutletDetailPage() {
 			String(b.avgFreq ?? '-'),
 		];
 
-		const pdfPemakaianCols = [
+		const pdfCols = [
 			L.waktu,
 			L.energy,
 			L.reactive,
@@ -999,120 +425,112 @@ export default function ElectricityOutletDetailPage() {
 			L.freq,
 		];
 
-		const infoDeviceCols = ['Nama Device', 'Serial No', 'Lokasi', 'Tipe', 'Status', 'Terakhir Online', 'Modul'];
-		const deviceRowsFn = () =>
-			detail.devices.map((d) => [
-				d.name,
-				d.serialNo,
-				d.locationName ?? '-',
-				d.locationType ?? '-',
-				d.status,
-				d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
-				d.moduleTypes.join(', ') || '-',
-			]);
-		const deviceExcelRows = detail.devices.map((d) => ({
-			'Nama Device': d.name,
-			'Serial No': d.serialNo,
-			Lokasi: d.locationName ?? '-',
-			'Tipe Lokasi': d.locationType ?? '-',
-			Status: d.status,
-			'Terakhir Online': d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
-			Modul: d.moduleTypes.join(', ') || '-',
-		}));
-
-		const summaryBlock = [
-			`Outlet: ${detail.name}`,
-			`Region: ${detail.region ?? '-'}`,
-			`Alamat: ${detail.address ?? '-'}`,
-			`Periode: ${periodLabel}`,
-			`Capacity (VA): ${detail.capacityVa ?? '-'}`,
-			`Jumlah Device: ${detail.devices.length}`,
+		const analyticsRows: Array<[string, string | number]> = [
+			['Waktu Peak', analytics.peakLabel ?? '-'],
+			['Peak Power (kW)', analytics.peakPowerKw],
+			['Total Energy (kWh)', analytics.totalEnergyKwh],
+			['Total Reactive (kVArh)', analytics.totalKvarh],
+			['Avg Energy (kWh)', analytics.avgEnergyKwh],
+			['Avg Power (kW)', analytics.avgPowerKw],
+			['Avg Voltage (V)', analytics.avgVoltageV],
+			['Avg Current (A)', analytics.avgCurrentA],
+			['Avg Power Factor', analytics.avgPf],
+			['Avg Frequency (Hz)', analytics.avgFreqHz],
 		];
 
-		const sortedDayKeys = Array.from(hourlyByDay.keys()).sort();
+		const deviceExcelRows = devs.map((dev) => ({
+			'Nama Device': dev.name,
+			'Serial No': dev.serialNo,
+			Lokasi: dev.locationName ?? '-',
+			'Tipe Lokasi': dev.locationType ?? '-',
+			Status: dev.status,
+			'Terakhir Online': dev.lastSeenAt ? new Date(dev.lastSeenAt).toLocaleString('id-ID') : '-',
+			Modul: dev.moduleTypes.join(', ') || '-',
+		}));
+
+		const infoDeviceCols = ['Nama Device', 'Serial No', 'Lokasi', 'Tipe', 'Status', 'Terakhir Online', 'Modul'];
+		const devicePdfRows = devs.map((dev) => [
+			dev.name,
+			dev.serialNo,
+			dev.locationName ?? '-',
+			dev.locationType ?? '-',
+			dev.status,
+			dev.lastSeenAt ? new Date(dev.lastSeenAt).toLocaleString('id-ID') : '-',
+			dev.moduleTypes.join(', ') || '-',
+		]);
+
+		const summaryBlock = [
+			`Outlet: ${s.name}`,
+			`Region: ${s.region ?? '-'}`,
+			`Alamat: ${s.address ?? '-'}`,
+			`Periode: ${periodLabel}`,
+			`Capacity (VA): ${s.capacityVa ?? '-'}`,
+			`Jumlah Device: ${devs.length}`,
+		];
 
 		if (format === 'excel') {
-			const sheets: Array<{
-				name: string;
-				rows: Array<Record<string, string | number | null>>;
-			}> = [];
+			const sheets: Array<{ name: string; rows: Array<Record<string, string | number | null>> }> = [];
 			sheets.push({
 				name: 'Summary',
 				rows: [
 					{
-						Outlet: detail.name,
-						Region: detail.region ?? '-',
-						Alamat: detail.address ?? '-',
+						Outlet: s.name,
+						Region: s.region ?? '-',
+						Alamat: s.address ?? '-',
 						Periode: periodLabel,
-						'Capacity (VA)': detail.capacityVa ?? '-',
-						'Jumlah Device': detail.devices.length,
+						'Capacity (VA)': s.capacityVa ?? '-',
+						'Jumlah Device': devs.length,
 					},
 				],
 			});
 			sheets.push({ name: 'Info Device', rows: deviceExcelRows });
-			sheets.push({ name: 'Analytics', rows: [analyticsExcelRow] });
-			if (!useHourInterval) {
-				sheets.push({
-					name: 'Pemakaian (Per Hari)',
-					rows: dailyBuckets.map(bucketToExcelRow),
-				});
-				for (const dKey of sortedDayKeys) {
-					const dayBuckets = hourlyByDay.get(dKey) ?? [];
-					if (!dayBuckets.length) continue;
-					sheets.push({
-						name: `Per Jam ${daySheetLabel(dKey)}`,
-						rows: dayBuckets.map(bucketToExcelRow),
-					});
+			sheets.push({ name: 'Analytics', rows: [Object.fromEntries(analyticsRows)] });
+
+			if (!d.period.isSingleDay) {
+				sheets.push({ name: 'Pemakaian (Per Hari)', rows: dailyBuckets.map(bucketToExcelRow) });
+				for (const dayBucket of dailyBuckets) {
+					const sheetName = `Per Jam ${dayBucket.label}`.slice(0, 31);
+					if (dayBucket.hours.length > 0) {
+						sheets.push({ name: sheetName, rows: dayBucket.hours.map(bucketToExcelRow) });
+					}
 				}
 			} else {
-				sheets.push({
-					name: 'Pemakaian (Per Jam)',
-					rows: hourlyBuckets.map(bucketToExcelRow),
-				});
+				sheets.push({ name: 'Pemakaian (Per Jam)', rows: hourlyBuckets.map(bucketToExcelRow) });
 			}
-			await exportToExcel(`outlet-processed-${detail.id}.xlsx`, sheets);
+
+			await exportToExcel(`outlet-processed-${s.id}.xlsx`, sheets);
 		} else {
-			const tables: Array<{
-				title: string;
-				columns: string[];
-				rows: Array<Array<string | number>>;
-			}> = [];
-			tables.push({
-				title: 'Info Device',
-				columns: infoDeviceCols,
-				rows: deviceRowsFn(),
-			});
-			tables.push({
-				title: 'Analytics',
-				columns: ['Metrik', 'Nilai'],
-				rows: analyticsRows,
-			});
-			if (!useHourInterval) {
+			const tables: Array<{ title: string; columns: string[]; rows: Array<Array<string | number>> }> = [];
+			tables.push({ title: 'Info Device', columns: infoDeviceCols, rows: devicePdfRows });
+			tables.push({ title: 'Analytics', columns: ['Metrik', 'Nilai'], rows: analyticsRows });
+
+			if (!d.period.isSingleDay) {
 				tables.push({
 					title: 'Pemakaian (Per Hari)',
-					columns: pdfPemakaianCols,
+					columns: pdfCols,
 					rows: dailyBuckets.map(bucketToPdfRow),
 				});
-				for (const dKey of sortedDayKeys) {
-					const dayBuckets = hourlyByDay.get(dKey) ?? [];
-					if (!dayBuckets.length) continue;
-					tables.push({
-						title: `Pemakaian Per Jam — ${daySheetLabel(dKey)}`,
-						columns: pdfPemakaianCols,
-						rows: dayBuckets.map(bucketToPdfRow),
-					});
+				for (const dayBucket of dailyBuckets) {
+					if (dayBucket.hours.length > 0) {
+						tables.push({
+							title: `Pemakaian Per Jam — ${dayBucket.label}`,
+							columns: pdfCols,
+							rows: dayBucket.hours.map(bucketToPdfRow),
+						});
+					}
 				}
 			} else {
 				tables.push({
 					title: 'Pemakaian (Per Jam)',
-					columns: pdfPemakaianCols,
+					columns: pdfCols,
 					rows: hourlyBuckets.map(bucketToPdfRow),
 				});
 			}
+
 			await exportToPdf({
-				fileName: `outlet-processed-${detail.id}.pdf`,
+				fileName: `outlet-processed-${s.id}.pdf`,
 				title: 'Aggregated Data Outlet',
-				scopeName: detail.name,
+				scopeName: s.name,
 				period: periodLabel,
 				generatedAt: new Date().toLocaleString('id-ID'),
 				summary: summaryBlock,
@@ -1123,61 +541,39 @@ export default function ElectricityOutletDetailPage() {
 
 	const handleExportRaw = async (format: ExportFormat, period: ExportPeriod) => {
 		if (!detail) return;
-		const { fromIso, label: periodLabel } = normalizeExportPeriod(period);
-		const toDateInclusive = new Date(new Date(normalizeExportPeriod(period).toIso).getTime() + 24 * 60 * 60 * 1000);
 
-		type RawHistoryRow = {
-			timestamp: string;
-			pf_a: number | null;
-			pf_b: number | null;
-			pf_c: number | null;
-			pf_sigma: number | null;
-			voltage_l1: number | null;
-			voltage_l2: number | null;
-			voltage_l3: number | null;
-			voltage_ab: number | null;
-			voltage_bc: number | null;
-			voltage_ca: number | null;
-			current_l1: number | null;
-			current_l2: number | null;
-			current_l3: number | null;
-			current_total: number | null;
-			power_l1: number | null;
-			power_l2: number | null;
-			power_l3: number | null;
-			power_total: number | null;
-			reactive_l1: number | null;
-			reactive_l2: number | null;
-			reactive_l3: number | null;
-			reactive_sigma: number | null;
-			va_a: number | null;
-			va_b: number | null;
-			va_c: number | null;
-			va_sigma: number | null;
-			energy_total: number | null;
-			kvarh: number | null;
-			frequency: number | null;
-		};
+		const fromDate = new Date(period.from);
+		const toDate = new Date(period.to);
+		if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) throw new Error('Periode export tidak valid');
+
+		const start = fromDate <= toDate ? fromDate : toDate;
+		const end = fromDate <= toDate ? toDate : fromDate;
+		const periodLabel = `${start.toLocaleString('id-ID')} - ${end.toLocaleString('id-ID')}`;
+
+		const res = await energyDashboardApi.getExportRaw(scopeId, start.toISOString(), end.toISOString());
+		if (!res.success || !res.data) throw new Error(res.error ?? 'Gagal mengambil data export');
+
+		const { rows, scope: s, devices: devs } = res.data;
 
 		const normPower = (v: number | null): number | null =>
-			v === null ? null : Number(normalizePowerToKw(v).toFixed(3));
+			v === null ? null : Number((v > 1000 ? v / 1000 : v).toFixed(3));
 
-		const fmtTs = (ts: string) => {
+		const MONTHS = [
+			'Januari',
+			'Februari',
+			'Maret',
+			'April',
+			'Mei',
+			'Juni',
+			'Juli',
+			'Agustus',
+			'September',
+			'Oktober',
+			'November',
+			'Desember',
+		] as const;
+		const fmtTs = (ts: string): string => {
 			try {
-				const MONTHS = [
-					'Januari',
-					'Februari',
-					'Maret',
-					'April',
-					'Mei',
-					'Juni',
-					'Juli',
-					'Agustus',
-					'September',
-					'Oktober',
-					'November',
-					'Desember',
-				];
 				const d = new Date(ts);
 				return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 			} catch {
@@ -1185,52 +581,70 @@ export default function ElectricityOutletDetailPage() {
 			}
 		};
 
-		const allRawRows: RawHistoryRow[] = [];
-		let cursor: string | null = null;
-		let fetchMore = true;
-		while (fetchMore) {
-			const res = await energyDashboardApi.getOutletHistory(scopeId, {
-				from: fromIso,
-				to: toDateInclusive.toISOString(),
-				cursor: cursor ?? undefined,
-				pageSize: 500,
-			});
-			if (!res.success || !res.data) break;
-			allRawRows.push(...(res.data.rows as RawHistoryRow[]));
-			cursor = res.data.nextCursor;
-			fetchMore = !!cursor;
-		}
+		const L = {
+			waktu: 'Waktu',
+			pfR: 'Power Factor R',
+			pfS: 'Power Factor S',
+			pfT: 'Power Factor T',
+			pfAvg: 'Power Factor Avg',
+			vRLN: 'Voltage R L-N (V)',
+			vSLN: 'Voltage S L-N (V)',
+			vTLN: 'Voltage T L-N (V)',
+			vRSLL: 'Voltage RS L-L (V)',
+			vSTLL: 'Voltage ST L-L (V)',
+			vTRLL: 'Voltage TR L-L (V)',
+			aR: 'Current R (A)',
+			aS: 'Current S (A)',
+			aT: 'Current T (A)',
+			aTotal: 'Current Total (A)',
+			pR: 'Power R (kW)',
+			pS: 'Power S (kW)',
+			pT: 'Power T (kW)',
+			pTotal: 'Power Total (kW)',
+			qR: 'Reactive R (VAR)',
+			qS: 'Reactive S (VAR)',
+			qT: 'Reactive T (VAR)',
+			qTotal: 'Reactive Total (VAR)',
+			vaR: 'Apparent R (VA)',
+			vaS: 'Apparent S (VA)',
+			vaT: 'Apparent T (VA)',
+			vaTotal: 'Apparent Total (VA)',
+			kWh: 'Energy (kWh)',
+			kVArh: 'Reactive (kVArh)',
+			hz: 'Frequency (Hz)',
+		} as const;
 
-		const summaryData = {
-			Outlet: detail.name,
-			Region: detail.region ?? '-',
-			Alamat: detail.address ?? '-',
-			Periode: periodLabel,
-			'Capacity (VA)': detail.capacityVa ?? '-',
-			'Jumlah Device': detail.devices.length,
-		};
-		const deviceExcelRows = detail.devices.map((d) => ({
-			'Nama Device': d.name,
-			'Serial No': d.serialNo,
-			Lokasi: d.locationName ?? '-',
-			'Tipe Lokasi': d.locationType ?? '-',
-			Status: d.status,
-			'Terakhir Online': d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
-			Modul: d.moduleTypes.join(', ') || '-',
+		const deviceExcelRows = devs.map((dev) => ({
+			'Nama Device': dev.name,
+			'Serial No': dev.serialNo,
+			Lokasi: dev.locationName ?? '-',
+			'Tipe Lokasi': dev.locationType ?? '-',
+			Status: dev.status,
+			'Terakhir Online': dev.lastSeenAt ? new Date(dev.lastSeenAt).toLocaleString('id-ID') : '-',
+			Modul: dev.moduleTypes.join(', ') || '-',
 		}));
 		const infoDeviceCols = ['Nama Device', 'Serial No', 'Lokasi', 'Tipe', 'Status', 'Terakhir Online', 'Modul'];
-		const devicePdfRows = detail.devices.map((d) => [
-			d.name,
-			d.serialNo,
-			d.locationName ?? '-',
-			d.locationType ?? '-',
-			d.status,
-			d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID') : '-',
-			d.moduleTypes.join(', ') || '-',
+		const devicePdfRows = devs.map((dev) => [
+			dev.name,
+			dev.serialNo,
+			dev.locationName ?? '-',
+			dev.locationType ?? '-',
+			dev.status,
+			dev.lastSeenAt ? new Date(dev.lastSeenAt).toLocaleString('id-ID') : '-',
+			dev.moduleTypes.join(', ') || '-',
 		]);
 
+		const summaryData = {
+			Outlet: s.name,
+			Region: s.region ?? '-',
+			Alamat: s.address ?? '-',
+			Periode: periodLabel,
+			'Capacity (VA)': s.capacityVa ?? '-',
+			'Jumlah Device': devs.length,
+		};
+
 		if (format === 'excel') {
-			const rawDataRows = allRawRows.map((r) => ({
+			const rawDataRows = rows.map((r) => ({
 				[L.waktu]: fmtTs(r.timestamp),
 				[L.pfR]: r.pf_a,
 				[L.pfS]: r.pf_b,
@@ -1263,7 +677,7 @@ export default function ElectricityOutletDetailPage() {
 				[L.hz]: r.frequency,
 			}));
 
-			await exportToExcel(`outlet-raw-${detail.id}.xlsx`, [
+			await exportToExcel(`outlet-raw-${s.id}.xlsx`, [
 				{ name: 'Summary', rows: [summaryData] },
 				{ name: 'Info Device', rows: deviceExcelRows },
 				{ name: 'Historical Data', rows: rawDataRows },
@@ -1285,30 +699,26 @@ export default function ElectricityOutletDetailPage() {
 			];
 
 			await exportToPdf({
-				fileName: `outlet-raw-${detail.id}.pdf`,
+				fileName: `outlet-raw-${s.id}.pdf`,
 				title: 'Raw Data Outlet',
-				scopeName: detail.name,
+				scopeName: s.name,
 				period: periodLabel,
 				generatedAt: new Date().toLocaleString('id-ID'),
 				summary: [
-					`Outlet: ${detail.name}`,
-					`Region: ${detail.region ?? '-'}`,
-					`Alamat: ${detail.address ?? '-'}`,
+					`Outlet: ${s.name}`,
+					`Region: ${s.region ?? '-'}`,
+					`Alamat: ${s.address ?? '-'}`,
 					`Periode: ${periodLabel}`,
-					`Capacity (VA): ${detail.capacityVa ?? '-'}`,
-					`Jumlah Device: ${detail.devices.length}`,
+					`Capacity (VA): ${s.capacityVa ?? '-'}`,
+					`Jumlah Device: ${devs.length}`,
 					'Catatan: PDF menampilkan kolom ringkasan (Total). Data lengkap per fase tersedia di ekspor Excel.',
 				],
 				tables: [
-					{
-						title: 'Info Device',
-						columns: infoDeviceCols,
-						rows: devicePdfRows,
-					},
+					{ title: 'Info Device', columns: infoDeviceCols, rows: devicePdfRows },
 					{
 						title: 'Historical Data (Ringkasan)',
 						columns: pdfRawCols,
-						rows: allRawRows.map((r) => [
+						rows: rows.map((r) => [
 							fmtTs(r.timestamp),
 							String(r.pf_sigma ?? '-'),
 							String(r.voltage_l1 ?? '-'),
