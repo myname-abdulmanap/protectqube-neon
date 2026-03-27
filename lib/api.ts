@@ -332,6 +332,28 @@ export interface EnergyConfig {
 			startAt: string;
 			initialKwh: number;
 		};
+		tariff?: {
+			mode: "flat" | "tou";
+			flatPricePerKwh?: number;
+			timezone?: string;
+			touPeriods?: Array<{
+				id?: string;
+				label: string;
+				startTime: string;
+				endTime: string;
+				pricePerKwh: number;
+			}>;
+		};
+		consumptionThresholds?: Array<{
+			id?: string;
+			period: string;
+			thresholds: Array<{ value: number; severity: string }>;
+		}>;
+		costThresholds?: Array<{
+			id?: string;
+			period: string;
+			thresholds: Array<{ value: number; severity: string }>;
+		}>;
 	};
 	pricePerKwh: number;
 	maxLoadKw: number | null;
@@ -1354,7 +1376,7 @@ export const energyConfigsApi = {
 	},
 	create: async (data: {
 		scopeId: string;
-		pricePerKwh: number;
+		pricePerKwh?: number;
 		maxLoadKw?: number;
 		capacityVa?: number;
 		upperLimitKwh?: number;
@@ -1363,6 +1385,28 @@ export const energyConfigsApi = {
 				startAt: string;
 				initialKwh: number;
 			};
+			tariff?: {
+				mode: "flat" | "tou";
+				flatPricePerKwh?: number;
+				timezone?: string;
+				touPeriods?: Array<{
+					id?: string;
+					label: string;
+					startTime: string;
+					endTime: string;
+					pricePerKwh: number;
+				}>;
+			};
+			consumptionThresholds?: Array<{
+				id?: string;
+				period: string;
+				thresholds: Array<{ value: number; severity: string }>;
+			}>;
+			costThresholds?: Array<{
+				id?: string;
+				period: string;
+				thresholds: Array<{ value: number; severity: string }>;
+			}>;
 		};
 		validFrom: string;
 	}): Promise<ApiResponse<EnergyConfig>> => {
@@ -1381,6 +1425,28 @@ export const energyConfigsApi = {
 					startAt: string;
 					initialKwh: number;
 				};
+				tariff?: {
+					mode: "flat" | "tou";
+					flatPricePerKwh?: number;
+					timezone?: string;
+					touPeriods?: Array<{
+						id?: string;
+						label: string;
+						startTime: string;
+						endTime: string;
+						pricePerKwh: number;
+					}>;
+				};
+				consumptionThresholds?: Array<{
+					id?: string;
+					period: string;
+					thresholds: Array<{ value: number; severity: string }>;
+				}>;
+				costThresholds?: Array<{
+					id?: string;
+					period: string;
+					thresholds: Array<{ value: number; severity: string }>;
+				}>;
 			};
 			validFrom?: string;
 		},
@@ -1492,6 +1558,100 @@ export const energyDashboardApi = {
 	},
 	deleteCalibration: async (id: string): Promise<ApiResponse<void>> => {
 		const response = await apiClient.delete<ApiResponse<void>>(`/energy-dashboard/calibration/${id}`);
+		return response.data;
+	},
+};
+
+// Severity Config API
+export interface SeverityConfig {
+	id: string;
+	tenantId: string | null;
+	key: string;
+	label: string;
+	color: string;
+	priority: number;
+	isActive: boolean;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export const severityConfigsApi = {
+	getAll: async (): Promise<ApiResponse<SeverityConfig[]>> => {
+		const response = await apiClient.get<ApiResponse<SeverityConfig[]>>('/severity-configs');
+		return response.data;
+	},
+	getByKey: async (key: string): Promise<ApiResponse<SeverityConfig>> => {
+		const response = await apiClient.get<ApiResponse<SeverityConfig>>(`/severity-configs/${key}`);
+		return response.data;
+	},
+	create: async (data: {
+		key: string;
+		label: string;
+		color: string;
+		priority: number;
+	}): Promise<ApiResponse<SeverityConfig>> => {
+		const response = await apiClient.post<ApiResponse<SeverityConfig>>('/severity-configs', data);
+		return response.data;
+	},
+	update: async (
+		id: string,
+		data: {
+			label?: string;
+			color?: string;
+			priority?: number;
+			isActive?: boolean;
+		},
+	): Promise<ApiResponse<SeverityConfig>> => {
+		const response = await apiClient.patch<ApiResponse<SeverityConfig>>(`/severity-configs/${id}`, data);
+		return response.data;
+	},
+	delete: async (id: string): Promise<ApiResponse<void>> => {
+		const response = await apiClient.delete<ApiResponse<void>>(`/severity-configs/${id}`);
+		return response.data;
+	},
+};
+
+// ====================
+// TARIFF MANAGEMENT
+// ====================
+
+export interface TariffPeriod {
+	id: string;
+	label: string;
+	startTime: string;
+	endTime: string;
+	pricePerKwh: number;
+}
+
+export interface TariffConfig {
+	mode: 'flat' | 'tou';
+	effectiveFrom: string;
+	effectiveTo?: string;
+	flat?: {
+		pricePerKwh: number;
+	};
+	tou?: {
+		periods: TariffPeriod[];
+	};
+}
+
+export const tariffsApi = {
+	getActive: async (scopeId: string): Promise<ApiResponse<TariffConfig | null>> => {
+		const response = await apiClient.get<ApiResponse<TariffConfig | null>>(`/tariffs/${scopeId}`);
+		return response.data;
+	},
+	getHistory: async (scopeId: string): Promise<ApiResponse<TariffConfig[]>> => {
+		const response = await apiClient.get<ApiResponse<TariffConfig[]>>(`/tariffs/${scopeId}/history`);
+		return response.data;
+	},
+	update: async (scopeId: string, config: TariffConfig): Promise<ApiResponse<void>> => {
+		const response = await apiClient.patch<ApiResponse<void>>(`/tariffs/${scopeId}`, config);
+		return response.data;
+	},
+	calculatePrice: async (scopeId: string, consumption: number): Promise<ApiResponse<{ consumption: number; price: number }>> => {
+		const response = await apiClient.post<ApiResponse<{ consumption: number; price: number }>>(`/tariffs/${scopeId}/calculate-price`, {
+			consumption,
+		});
 		return response.data;
 	},
 };

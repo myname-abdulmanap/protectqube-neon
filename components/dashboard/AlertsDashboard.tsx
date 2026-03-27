@@ -30,8 +30,10 @@ import {
   alertEventsApi,
   alertActionsApi,
   energyDashboardApi,
+  severityConfigsApi,
   type AlertEvent,
   type AlertAction,
+  type SeverityConfig,
 } from "@/lib/api";
 import { useRealtimeContext } from "@/components/providers/RealtimeProvider";
 import { formatDistance, format } from "date-fns";
@@ -361,6 +363,7 @@ export function AlertsDashboard() {
   const [outlets, setOutlets] = useState<OutletData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [severityConfigs, setSeverityConfigs] = useState<SeverityConfig[]>([]);
 
   const [filterOutlet, setFilterOutlet] = useState("all");
   const [filterDevice, setFilterDevice] = useState("all");
@@ -384,10 +387,11 @@ export function AlertsDashboard() {
       setIsLoading(true);
       setError(null);
       try {
-        const [outletsRes, alertsRes, actionsRes] = await Promise.all([
+        const [outletsRes, alertsRes, actionsRes, severitiesRes] = await Promise.all([
           energyDashboardApi.getOutlets(),
           alertEventsApi.getAll({ actionKey: "open", limit: 100 }),
           alertActionsApi.getAll(),
+          severityConfigsApi.getAll(),
         ]);
 
         if (outletsRes.success && outletsRes.data) {
@@ -402,6 +406,10 @@ export function AlertsDashboard() {
 
         if (actionsRes.success && actionsRes.data) {
           setActions(actionsRes.data);
+        }
+
+        if (severitiesRes.success && severitiesRes.data) {
+          setSeverityConfigs(severitiesRes.data);
         }
       } catch (err) {
         setError("Failed to load data");
@@ -559,6 +567,14 @@ export function AlertsDashboard() {
     };
   }, [alerts, devices]);
 
+  const severityColorMap = useMemo(() => {
+    const map: Record<string, { color: string; label: string }> = {};
+    severityConfigs.forEach((config) => {
+      map[config.key] = { color: config.color, label: config.label };
+    });
+    return map;
+  }, [severityConfigs]);
+
   const filteredAlerts = useMemo(() => {
     return alerts.filter((alert) => {
       const outletName = getOutletName(alert, outletNameByScopeId);
@@ -641,26 +657,26 @@ export function AlertsDashboard() {
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="flex flex-col gap-1 h-full -mt-1"
+      className="flex h-full flex-col gap-3"
     >
-      <motion.div variants={itemVariants} className="grid grid-cols-4 gap-1.5">
+      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 xl:grid-cols-4">
         {summaryCards.map((item) => {
           const Icon = item.icon;
           return (
             <Card
               key={item.key}
-              className={`border-0 shadow-md rounded-lg ${item.bg} text-white`}
+              className={`rounded-xl border-0 shadow-sm ${item.bg} text-white`}
             >
-              <CardContent className="p-2">
-                <div className="flex items-center gap-1.5">
-                  <div className="h-6 w-6 rounded bg-white/20 flex items-center justify-center flex-shrink-0">
-                    <Icon className="h-3.5 w-3.5 text-white" />
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/20">
+                    <Icon className="h-4 w-4 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[8px] text-white/85 truncate leading-tight">
+                    <p className="truncate text-[10px] leading-tight text-white/85">
                       {item.label}
                     </p>
-                    <p className="text-base leading-none mt-0.5 font-extrabold">
+                    <p className="mt-1 text-xl font-extrabold leading-none">
                       {item.value}
                     </p>
                   </div>
@@ -672,29 +688,29 @@ export function AlertsDashboard() {
       </motion.div>
 
       <motion.div variants={itemVariants}>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-1.5">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="flex items-center gap-1 text-[8px] text-muted-foreground">
-                <Filter className="h-3 w-3" />
+        <Card className="rounded-xl border border-border/70 shadow-sm">
+          <CardContent className="p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <Filter className="h-3.5 w-3.5" />
                 <span className="font-semibold">Filters:</span>
               </div>
 
               <div className="flex items-center gap-1">
-                <MapPin className="h-2.5 w-2.5 text-muted-foreground" />
+                <MapPin className="h-3 w-3 text-muted-foreground" />
                 <Select value={filterOutlet} onValueChange={setFilterOutlet}>
-                  <SelectTrigger size="sm" className="h-5 w-[145px] text-[8px]">
+                  <SelectTrigger size="sm" className="h-8 w-[180px] text-xs">
                     <SelectValue placeholder="All Outlets" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all" className="text-[8px]">
+                    <SelectItem value="all" className="text-xs">
                       All Outlets
                     </SelectItem>
                     {outletOptions.map((outletName) => (
                       <SelectItem
                         key={outletName}
                         value={outletName}
-                        className="text-[8px]"
+                        className="text-xs"
                       >
                         {outletName}
                       </SelectItem>
@@ -704,20 +720,20 @@ export function AlertsDashboard() {
               </div>
 
               <div className="flex items-center gap-1">
-                <Camera className="h-2.5 w-2.5 text-muted-foreground" />
+                <Camera className="h-3 w-3 text-muted-foreground" />
                 <Select value={filterDevice} onValueChange={setFilterDevice}>
-                  <SelectTrigger size="sm" className="h-5 w-[160px] text-[8px]">
+                  <SelectTrigger size="sm" className="h-8 w-[200px] text-xs">
                     <SelectValue placeholder="All Devices" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all" className="text-[8px]">
+                    <SelectItem value="all" className="text-xs">
                       All Devices
                     </SelectItem>
                     {devices.map((device) => (
                       <SelectItem
                         key={device.id}
                         value={device.id}
-                        className="text-[8px]"
+                        className="text-xs"
                       >
                         {device.name}
                       </SelectItem>
@@ -726,19 +742,19 @@ export function AlertsDashboard() {
                 </Select>
               </div>
 
-              <div className="relative flex-1 min-w-[140px] max-w-[180px]">
-                <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2.5 w-2.5 text-muted-foreground" />
+              <div className="relative min-w-[180px] flex-1 max-w-[260px]">
+                <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Search alerts"
-                  className="h-5 pl-6 text-[8px]"
+                  className="h-8 pl-7 text-xs"
                 />
               </div>
 
               <Badge
                 variant="outline"
-                className="text-[6px] px-1 py-0 h-3.5 ml-auto"
+                className="ml-auto h-6 px-2 text-[10px]"
               >
                 {filteredAlerts.length} / {stats.allAlerts} alerts
               </Badge>
@@ -747,9 +763,9 @@ export function AlertsDashboard() {
         </Card>
       </motion.div>
 
-      <motion.div variants={itemVariants} className="flex-1 min-h-0">
-        <ScrollArea className="h-[calc(100vh-220px)]">
-          <div className="space-y-4 pr-2">
+      <motion.div variants={itemVariants} className="min-h-0 flex-1">
+        <ScrollArea className="h-[calc(100vh-270px)]">
+          <div className="space-y-5 pr-2">
             {isLoading && (
               <div className="text-center py-12 text-muted-foreground text-xs">
                 Loading alerts...
@@ -773,22 +789,22 @@ export function AlertsDashboard() {
                 const SectionIcon = section.icon;
                 return (
                   <div key={section.key}>
-                    <div className="flex items-center gap-1.5 mb-2">
+                    <div className="mb-2 flex items-center gap-2">
                       <SectionIcon
-                        className={`h-3.5 w-3.5 ${section.iconColor}`}
+                        className={`h-4 w-4 ${section.iconColor}`}
                       />
-                      <h3 className="text-[11px] font-semibold">
+                      <h3 className="text-sm font-semibold">
                         {section.label}
                       </h3>
                       <Badge
                         variant="outline"
-                        className={`text-[7px] px-1.5 py-0 h-4 ${section.badgeTone}`}
+                        className={`h-5 px-2 text-[10px] ${section.badgeTone}`}
                       >
                         {sectionAlerts.length}
                       </Badge>
                     </div>
 
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-1">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                       {sectionAlerts.map((alert) => {
                         const outletName = getOutletName(
                           alert,
@@ -801,61 +817,69 @@ export function AlertsDashboard() {
                             "locationName",
                           ]) ||
                           "-";
+                        const severityInfo = severityColorMap[alert.severity];
+                        const severityBgColor = severityInfo?.color || "#EF4444";
+                        const severityTextLabel =
+                          severityInfo?.label || normalizeSeverityLabel(alert.severity);
 
                         return (
                           <motion.div
                             key={alert.id}
                             whileHover={{ scale: 1.02, y: -1 }}
                             whileTap={{ scale: 0.98 }}
-                            animate={{ opacity: [1, 0.82, 1] }}
-                            transition={{
-                              duration: 1.2,
-                              repeat: Number.POSITIVE_INFINITY,
-                              ease: "easeInOut",
-                            }}
+                            transition={{ duration: 0.16 }}
                             className="cursor-pointer"
                             onClick={() => setSelectedAlert(alert)}
                           >
                             <Card
-                              className={`border ${section.borderTone} ${section.cardTone} shadow-sm transition-all h-full`}
+                              className={`h-full border ${section.borderTone} ${section.cardTone} rounded-xl shadow-sm transition-all`}
                             >
-                              <CardContent className="p-1.5 flex flex-col gap-1 h-full">
+                              <CardContent className="flex h-full min-h-[150px] flex-col gap-2 p-3">
                                 <div className="flex items-center justify-between">
                                   <div
-                                    className={`h-4.5 w-4.5 rounded-sm flex items-center justify-center flex-shrink-0 ${section.cardTone}`}
+                                    className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${section.cardTone}`}
                                   >
                                     <SectionIcon
-                                      className={`h-2.5 w-2.5 ${section.textTone}`}
+                                      className={`h-3.5 w-3.5 ${section.textTone}`}
                                     />
                                   </div>
                                   <Badge
                                     variant="outline"
-                                    className={`text-[5px] px-1 py-0 h-3 ${section.badgeTone}`}
+                                    style={{
+                                      backgroundColor: `${severityBgColor}20`,
+                                      borderColor: severityBgColor,
+                                      color: severityBgColor,
+                                    }}
+                                    className="h-5 px-2 text-[10px]"
                                   >
-                                    {normalizeSeverityLabel(alert.severity)}
+                                    {severityTextLabel}
                                   </Badge>
                                 </div>
 
-                                <p className="text-[8px] font-semibold leading-tight line-clamp-1">
+                                <p className="line-clamp-2 text-sm font-semibold leading-tight">
                                   {alert.title || alert.alertType}
                                 </p>
 
-                                <div className="space-y-0.5 mt-auto text-[6px]">
-                                  <div className="flex items-center gap-1 text-muted-foreground min-w-0">
-                                    <Camera className="h-2 w-2 flex-shrink-0" />
-                                    <span className="font-medium text-foreground truncate">
+                                <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                                  {alert.description || "No detail provided"}
+                                </p>
+
+                                <div className="mt-auto space-y-1 text-[11px]">
+                                  <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                                    <Camera className="h-3 w-3 flex-shrink-0" />
+                                    <span className="truncate font-medium text-foreground">
                                       {alert.device?.name ||
                                         `Device ${alert.deviceId}`}
                                     </span>
                                   </div>
-                                  <div className="flex items-center gap-1 text-muted-foreground min-w-0">
-                                    <MapPin className="h-2 w-2 flex-shrink-0" />
+                                  <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                                    <MapPin className="h-3 w-3 flex-shrink-0" />
                                     <span className="truncate">
                                       {outletName} - {areaName}
                                     </span>
                                   </div>
-                                  <div className="flex items-center gap-1 text-[6px] text-muted-foreground">
-                                    <Clock className="h-2 w-2 flex-shrink-0" />
+                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                    <Clock className="h-3 w-3 flex-shrink-0" />
                                     <span>
                                       {formatDistance(
                                         new Date(alert.timestamp),

@@ -135,7 +135,9 @@ export default function Sidebar({ user }: SidebarProps) {
   const userName = authUser?.name || user?.name;
 
   const menuItems: NavigationItem[] = (() => {
-    const sourceMenus = [...(authUser?.menus || user?.menus || [])];
+    const sourceMenus = [...(authUser?.menus || user?.menus || [])].filter(
+      (menu) => menu.path !== "/dashboard/alert-events",
+    );
 
     const hasHealthMenu = sourceMenus.some(
       (menu) => menu.path === "/dashboard/health",
