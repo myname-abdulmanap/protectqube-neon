@@ -657,7 +657,7 @@ export interface CalibrationHistoryRow {
 	protectCubeEnergyKwh: number;
 	protectCubeSampleAt: string | null;
 	protectCubeSampleOffsetSeconds: number | null;
-	protectCubeSampleSource: "raw";
+	protectCubeSampleSource: 'raw';
 	deltaPln: number;
 	deltaPq: number;
 	gapKwh: number;
@@ -678,6 +678,124 @@ export interface CalibrationHistoryData {
 		avgAccuracyPercent: number;
 		totalRows: number;
 	};
+}
+
+export interface ExportProcessedHourBucket {
+	timestamp: string;
+	label: string;
+	energyKwh: number | null;
+	avgKvarh: number | null;
+	avgPowerKw: number | null;
+	avgVoltL1: number | null;
+	avgVoltL2: number | null;
+	avgVoltL3: number | null;
+	avgCurrL1: number | null;
+	avgCurrL2: number | null;
+	avgCurrL3: number | null;
+	avgCurrTotal: number | null;
+	avgPf: number | null;
+	avgFreq: number | null;
+}
+
+export interface ExportProcessedDayBucket extends ExportProcessedHourBucket {
+	hours: ExportProcessedHourBucket[];
+}
+
+export interface ExportProcessedData {
+	scope: {
+		id: string;
+		name: string;
+		region: string | null;
+		city: string | null;
+		address: string | null;
+		capacityVa: number | null;
+	};
+	devices: Array<{
+		id: string;
+		name: string;
+		serialNo: string;
+		locationName: string | null;
+		locationType: string | null;
+		status: string;
+		lastSeenAt: string | null;
+		moduleTypes: string[];
+	}>;
+	period: {
+		from: string;
+		to: string;
+		label: string;
+		isSingleDay: boolean;
+	};
+	analytics: {
+		peakLabel: string | null;
+		peakPowerKw: number;
+		totalEnergyKwh: number;
+		totalKvarh: number;
+		avgEnergyKwh: number;
+		avgPowerKw: number;
+		avgVoltageV: number;
+		avgCurrentA: number;
+		avgPf: number;
+		avgFreqHz: number;
+	};
+	hourlyBuckets: ExportProcessedHourBucket[];
+	dailyBuckets: ExportProcessedDayBucket[];
+}
+
+export interface ExportRawRow {
+	timestamp: string;
+	pf_a: number | null;
+	pf_b: number | null;
+	pf_c: number | null;
+	pf_sigma: number | null;
+	voltage_l1: number | null;
+	voltage_l2: number | null;
+	voltage_l3: number | null;
+	voltage_ab: number | null;
+	voltage_bc: number | null;
+	voltage_ca: number | null;
+	current_l1: number | null;
+	current_l2: number | null;
+	current_l3: number | null;
+	current_total: number | null;
+	power_l1: number | null;
+	power_l2: number | null;
+	power_l3: number | null;
+	power_total: number | null;
+	reactive_l1: number | null;
+	reactive_l2: number | null;
+	reactive_l3: number | null;
+	reactive_sigma: number | null;
+	va_a: number | null;
+	va_b: number | null;
+	va_c: number | null;
+	va_sigma: number | null;
+	energy_total: number | null;
+	kvarh: number | null;
+	frequency: number | null;
+}
+
+export interface ExportRawData {
+	rows: ExportRawRow[];
+	scope: {
+		id: string;
+		name: string;
+		region: string | null;
+		city: string | null;
+		address: string | null;
+		capacityVa: number | null;
+	};
+	devices: Array<{
+		id: string;
+		name: string;
+		serialNo: string;
+		locationName: string | null;
+		locationType: string | null;
+		status: string;
+		lastSeenAt: string | null;
+		moduleTypes: string[];
+	}>;
+	period: { from: string; to: string };
 }
 
 export interface LoginResponse {
@@ -1008,9 +1126,12 @@ export const devicesApi = {
 	},
 	getHealthHistory: async (deviceId: string, limit?: number): Promise<ApiResponse<DeviceHealthHistoryData>> => {
 		const params = limit ? { limit } : {};
-		const response = await apiClient.get<ApiResponse<DeviceHealthHistoryData>>(`/devices/health/${deviceId}/history`, {
-			params,
-		});
+		const response = await apiClient.get<ApiResponse<DeviceHealthHistoryData>>(
+			`/devices/health/${deviceId}/history`,
+			{
+				params,
+			},
+		);
 		return response.data;
 	},
 	getById: async (id: string): Promise<ApiResponse<Device>> => {
@@ -1558,6 +1679,25 @@ export const energyDashboardApi = {
 	},
 	deleteCalibration: async (id: string): Promise<ApiResponse<void>> => {
 		const response = await apiClient.delete<ApiResponse<void>>(`/energy-dashboard/calibration/${id}`);
+		return response.data;
+	},
+	getExportRaw: async (scopeId: string, from: string, to: string): Promise<ApiResponse<ExportRawData>> => {
+		const response = await apiClient.get<ApiResponse<ExportRawData>>(
+			`/energy-dashboard/outlets/${scopeId}/export/raw`,
+			{ params: { from, to } },
+		);
+		return response.data;
+	},
+
+	getExportProcessed: async (
+		scopeId: string,
+		from: string,
+		to: string,
+	): Promise<ApiResponse<ExportProcessedData>> => {
+		const response = await apiClient.get<ApiResponse<ExportProcessedData>>(
+			`/energy-dashboard/outlets/${scopeId}/export/processed`,
+			{ params: { from, to } },
+		);
 		return response.data;
 	},
 };
