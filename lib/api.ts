@@ -1652,7 +1652,7 @@ export const energyDashboardApi = {
 		scopeId: string;
 		timestamp: string;
 		kwhPln: number;
-		kwhPq?: number;
+		kwhPq?: number | null;
 		pqDeviceId?: string;
 		ctRatio?: number;
 		note?: string;
@@ -1666,7 +1666,7 @@ export const energyDashboardApi = {
 		data: {
 			timestamp?: string;
 			kwhPln?: number;
-			kwhPq?: number;
+			kwhPq?: number | null;
 			pqDeviceId?: string;
 			ctRatio?: number | null;
 			note?: string | null;
