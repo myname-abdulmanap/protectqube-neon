@@ -234,12 +234,12 @@ export default function EnergyCalibrationPage() {
   const submitCalibration = useCallback(async () => {
     if (!effectiveScopeId) return;
     const pln = Number(calibrationPln);
-    const pq = calibrationPq.trim() === "" ? undefined : Number(calibrationPq);
+    const pq = calibrationPq.trim() === "" ? null : Number(calibrationPq);
     if (!calibrationTimestamp || !Number.isFinite(pln)) {
       setCalibrationError("Timestamp dan PLN Energy harus valid");
       return;
     }
-    if (pq !== undefined && !Number.isFinite(pq)) {
+    if (pq !== null && !Number.isFinite(pq)) {
       setCalibrationError("Raw ProtectCube harus angka valid");
       return;
     }
@@ -393,27 +393,18 @@ export default function EnergyCalibrationPage() {
     ) => {
       const effectiveEnd = endIso ?? null;
       const effectiveStart = startIso ?? effectiveEnd;
-      const startLabel = formatDateOnly(effectiveStart);
-      const endLabel = formatDateOnly(effectiveEnd);
+      const startDate = formatDateOnly(effectiveStart);
+      const endDate = formatDateOnly(effectiveEnd);
+      const startTime = formatTimeOnly(effectiveStart);
+      const endTime = formatTimeOnly(effectiveEnd);
 
-      if (startLabel === "-" && endLabel === "-") return "-";
-      if (startLabel === "-" || startLabel === endLabel) return endLabel;
-      if (endLabel === "-") return startLabel;
-      return `${startLabel} - ${endLabel}`;
+      if (startDate === "-" && endDate === "-") return "-";
+      if (startDate === "-" || startDate === endDate)
+        return `${endDate} ${startTime} - ${endTime}`;
+      if (endDate === "-") return startDate;
+      return `${startDate} ${startTime} - ${endDate} ${endTime}`;
     },
-    [formatDateOnly],
-  );
-
-  const formatTableTimeInterval = useCallback(
-    (
-      startIso: string | null | undefined,
-      endIso: string | null | undefined,
-    ) => {
-      const effectiveEnd = endIso ?? null;
-      const effectiveStart = startIso ?? effectiveEnd;
-      return `${formatTimeOnly(effectiveStart)} - ${formatTimeOnly(effectiveEnd)}`;
-    },
-    [formatTimeOnly],
+    [formatDateOnly, formatTimeOnly],
   );
 
   const isAnchorRow = useCallback(
@@ -452,10 +443,6 @@ export default function EnergyCalibrationPage() {
               const anchorRow = isAnchorRow(row);
               return {
                 Date: formatTableDateRange(row.periodStartAt, row.readingAt),
-                "Time Interval": formatTableTimeInterval(
-                  row.periodStartAt,
-                  row.readingAt,
-                ),
                 "Raw PLN": row.plnEnergyKwh,
                 "Raw ProtectCube": row.protectCubeEnergyKwh,
                 "Delta PLN": anchorRow ? "-" : row.deltaPln,
@@ -481,7 +468,6 @@ export default function EnergyCalibrationPage() {
     effectiveScopeId,
     formatExportDateTime,
     formatTableDateRange,
-    formatTableTimeInterval,
     isAnchorRow,
     selectedScopeName,
     selectedTenantName,
@@ -513,7 +499,6 @@ export default function EnergyCalibrationPage() {
             title: "Calibration History",
             columns: [
               "Date",
-              "Time Interval",
               "Raw PLN",
               "Raw PQ",
               "Delta PLN",
@@ -526,7 +511,6 @@ export default function EnergyCalibrationPage() {
             ],
             rows: calibrationData.rows.map((row) => [
               formatTableDateRange(row.periodStartAt, row.readingAt),
-              formatTableTimeInterval(row.periodStartAt, row.readingAt),
               row.plnEnergyKwh,
               row.protectCubeEnergyKwh,
               isAnchorRow(row) ? "-" : row.deltaPln,
@@ -549,7 +533,6 @@ export default function EnergyCalibrationPage() {
     effectiveScopeId,
     formatExportDateTime,
     formatTableDateRange,
-    formatTableTimeInterval,
     isAnchorRow,
     selectedScopeName,
     selectedTenantName,
@@ -697,7 +680,6 @@ export default function EnergyCalibrationPage() {
                       <thead className="sticky top-0 bg-background">
                         <tr className="border-b">
                           <th className="px-2 py-1 text-left">Date</th>
-                          <th className="px-2 py-1 text-left">Time Interval</th>
                           <th className="px-2 py-1 text-right">Raw PLN</th>
                           <th className="px-2 py-1 text-right">
                             Raw ProtectCube
@@ -726,14 +708,9 @@ export default function EnergyCalibrationPage() {
                             row.periodStartAt,
                             row.readingAt,
                           );
-                          const tableTimeInterval = formatTableTimeInterval(
-                            row.periodStartAt,
-                            row.readingAt,
-                          );
                           return (
                             <tr key={row.id} className="border-b last:border-0">
                               <td className="px-2 py-1">{tableDateRange}</td>
-                              <td className="px-2 py-1">{tableTimeInterval}</td>
                               <td className="px-2 py-1 text-right">
                                 {row.plnEnergyKwh}
                               </td>
