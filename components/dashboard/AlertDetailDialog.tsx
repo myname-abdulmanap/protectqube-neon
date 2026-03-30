@@ -13,11 +13,7 @@ import {
   Clock,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -55,6 +51,7 @@ export interface AlertDetailData {
   timestampLabel: string;
   descriptionLabel: string;
   timeline: string[];
+  offlineCount: number | null;
   imageUrls: string[];
   latitude: number | null;
   longitude: number | null;
@@ -69,10 +66,14 @@ interface AlertDetailDialogProps {
   alert: AlertEvent | null;
   detail: AlertDetailData | null;
   onClose: () => void;
-  getAlertCategory: (alert: AlertEvent) => "critical" | "suspicious" | "health";
+  getAlertCategory: (alert: AlertEvent) => "critical" | "warning" | "health";
   actions?: AlertAction[];
   onActionUpdate?: (alertId: string, actionKey: string) => Promise<boolean>;
-  onActionUpdateAll?: (actionKey: string) => Promise<boolean>;
+  onActionUpdateAll?: (params: {
+    actionKey: string;
+    alertType?: string;
+    moduleType?: string;
+  }) => Promise<boolean>;
 }
 
 function AlertLocationMap({ detail }: { detail: AlertDetailData }) {
@@ -225,7 +226,11 @@ export function AlertDetailDialog({
     if (!selectedActionKey || !onActionUpdateAll) return;
     setIsSubmitting(true);
     try {
-      await onActionUpdateAll(selectedActionKey);
+      await onActionUpdateAll({
+        actionKey: selectedActionKey,
+        alertType: alert?.alertType,
+        moduleType: alert?.moduleType,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -241,10 +246,10 @@ export function AlertDetailDialog({
                 <div className="h-6 w-6 rounded-md flex items-center justify-center bg-muted">
                   {getAlertCategory(alert) === "critical" ? (
                     <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
-                  ) : getAlertCategory(alert) === "suspicious" ? (
-                    <Info className="h-3.5 w-3.5 text-blue-500" />
-                  ) : (
+                  ) : getAlertCategory(alert) === "warning" ? (
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  ) : (
+                    <Info className="h-3.5 w-3.5 text-blue-500" />
                   )}
                 </div>
               </div>
@@ -282,6 +287,12 @@ export function AlertDetailDialog({
                     <Row label="Outlet" value={detail.outletLabel} />
                     <Row label="Area" value={detail.areaLabel} />
                     <Row label="Timestamp" value={detail.timestampLabel} />
+                    {detail.offlineCount != null && (
+                      <Row
+                        label="Offline Count"
+                        value={`${detail.offlineCount} times`}
+                      />
+                    )}
                   </div>
 
                   <div className="border-t pt-3">
@@ -322,6 +333,20 @@ export function AlertDetailDialog({
                     <Row label="Outlet" value={detail.outlet} />
                     <Row label="Area" value={detail.area} />
                     <Row label="Device" value={detail.deviceName} />
+                    <Row
+                      label="Latitude"
+                      value={
+                        detail.latitude != null ? String(detail.latitude) : "–"
+                      }
+                    />
+                    <Row
+                      label="Longitude"
+                      value={
+                        detail.longitude != null
+                          ? String(detail.longitude)
+                          : "–"
+                      }
+                    />
                   </div>
                   <AlertLocationMap detail={detail} />
                 </TabsContent>
@@ -360,6 +385,12 @@ export function AlertDetailDialog({
                     <Row label="Area" value={detail.area} />
                     <Row label="Outlet" value={detail.outlet} />
                     <Row label="Module" value={alert.moduleType} />
+                    {detail.offlineCount != null && (
+                      <Row
+                        label="Offline History"
+                        value={`${detail.offlineCount} times`}
+                      />
+                    )}
                   </div>
                 </TabsContent>
               </ScrollArea>

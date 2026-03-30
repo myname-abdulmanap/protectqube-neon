@@ -227,6 +227,12 @@ export interface DeviceHealthHistoryItem {
 	payload: unknown;
 }
 
+export interface DeviceOfflineEvent {
+	offlineAt: string;
+	onlineAt: string | null;
+	durationMs: number | null;
+}
+
 export interface DeviceHealthHistoryData {
 	device: {
 		id: string;
@@ -240,6 +246,7 @@ export interface DeviceHealthHistoryData {
 		region: string;
 	};
 	history: DeviceHealthHistoryItem[];
+	offlineEvents: DeviceOfflineEvent[];
 }
 
 export interface DeviceModule {
@@ -347,12 +354,39 @@ export interface EnergyConfig {
 		consumptionThresholds?: Array<{
 			id?: string;
 			period: string;
-			thresholds: Array<{ value: number; severity: string }>;
+			warning?: { lower?: number; upper?: number };
+			critical?: { lower?: number; upper?: number };
+			thresholds?: Array<{ value: number; severity: string }>;
 		}>;
 		costThresholds?: Array<{
 			id?: string;
 			period: string;
-			thresholds: Array<{ value: number; severity: string }>;
+			warning?: { lower?: number; upper?: number };
+			critical?: { lower?: number; upper?: number };
+			thresholds?: Array<{ value: number; severity: string }>;
+		}>;
+		reactiveConsumptionThresholds?: Array<{
+			id?: string;
+			period: string;
+			warning?: { lower?: number; upper?: number };
+			critical?: { lower?: number; upper?: number };
+			thresholds?: Array<{ value: number; severity: string }>;
+		}>;
+		realtimeThresholds?: Array<{
+			id?: string;
+			metricKey: string;
+			operator?: ">" | ">=" | "<" | "<=" | "=";
+			value?: number;
+			severity?: string;
+			warning?: {
+				lower?: number;
+				upper?: number;
+			};
+			critical?: {
+				lower?: number;
+				upper?: number;
+			};
+			label?: string;
 		}>;
 	};
 	pricePerKwh: number;
@@ -1446,6 +1480,8 @@ export const alertEventsApi = {
 	bulkUpdateAction: async (data: {
 		actionKey: string;
 		filterActionKey?: string;
+		alertType?: string;
+		moduleType?: string;
 	}): Promise<ApiResponse<{ updatedCount: number }>> => {
 		const response = await apiClient.patch<ApiResponse<{ updatedCount: number }>>('/alert-events/bulk-action', data);
 		return response.data;
@@ -1536,12 +1572,33 @@ export const energyConfigsApi = {
 			consumptionThresholds?: Array<{
 				id?: string;
 				period: string;
-				thresholds: Array<{ value: number; severity: string }>;
+				warning?: { lower?: number; upper?: number };
+				critical?: { lower?: number; upper?: number };
+				thresholds?: Array<{ value: number; severity: string }>;
 			}>;
 			costThresholds?: Array<{
 				id?: string;
 				period: string;
-				thresholds: Array<{ value: number; severity: string }>;
+				warning?: { lower?: number; upper?: number };
+				critical?: { lower?: number; upper?: number };
+				thresholds?: Array<{ value: number; severity: string }>;
+			}>;
+			reactiveConsumptionThresholds?: Array<{
+				id?: string;
+				period: string;
+				warning?: { lower?: number; upper?: number };
+				critical?: { lower?: number; upper?: number };
+				thresholds?: Array<{ value: number; severity: string }>;
+			}>;
+			realtimeThresholds?: Array<{
+				id?: string;
+				metricKey: string;
+				warning?: { lower?: number; upper?: number };
+				critical?: { lower?: number; upper?: number };
+				operator?: ">" | ">=" | "<" | "<=" | "=";
+				value?: number;
+				severity?: string;
+				label?: string;
 			}>;
 		};
 		validFrom: string;
@@ -1576,12 +1633,33 @@ export const energyConfigsApi = {
 				consumptionThresholds?: Array<{
 					id?: string;
 					period: string;
-					thresholds: Array<{ value: number; severity: string }>;
+					warning?: { lower?: number; upper?: number };
+					critical?: { lower?: number; upper?: number };
+					thresholds?: Array<{ value: number; severity: string }>;
 				}>;
 				costThresholds?: Array<{
 					id?: string;
 					period: string;
-					thresholds: Array<{ value: number; severity: string }>;
+					warning?: { lower?: number; upper?: number };
+					critical?: { lower?: number; upper?: number };
+					thresholds?: Array<{ value: number; severity: string }>;
+				}>;
+				reactiveConsumptionThresholds?: Array<{
+					id?: string;
+					period: string;
+					warning?: { lower?: number; upper?: number };
+					critical?: { lower?: number; upper?: number };
+					thresholds?: Array<{ value: number; severity: string }>;
+				}>;
+				realtimeThresholds?: Array<{
+					id?: string;
+					metricKey: string;
+					warning?: { lower?: number; upper?: number };
+					critical?: { lower?: number; upper?: number };
+					operator?: ">" | ">=" | "<" | "<=" | "=";
+					value?: number;
+					severity?: string;
+					label?: string;
 				}>;
 			};
 			validFrom?: string;

@@ -567,12 +567,36 @@ export function EnergyOverviewPage({
       kWh: number;
     }> = [];
 
+    // Fill null midnight points by linear interpolation so gap days
+    // (e.g. during calibration) still get per-day rows in the chart.
+    const filledPoints = midnightPoints.map((pt) => ({ ...pt }));
+    let lastKnownIdx = -1;
+    for (let i = 0; i < filledPoints.length; i++) {
+      if (filledPoints[i].energyKwh !== null) {
+        if (lastKnownIdx >= 0 && i - lastKnownIdx > 1) {
+          const startVal = filledPoints[lastKnownIdx].energyKwh!;
+          const endVal = filledPoints[i].energyKwh!;
+          const steps = i - lastKnownIdx;
+          for (let j = lastKnownIdx + 1; j < i; j++) {
+            const fraction = (j - lastKnownIdx) / steps;
+            filledPoints[j] = {
+              ...filledPoints[j],
+              energyKwh: Number(
+                (startVal + (endVal - startVal) * fraction).toFixed(2),
+              ),
+            };
+          }
+        }
+        lastKnownIdx = i;
+      }
+    }
+
     // Determine loop start based on globalRange.from so chart/table respect selected date filter
     let loopStart = 1;
     if (globalRange.from) {
       const fromParts = getJakartaDateTimeParts(new Date(globalRange.from));
       const fromKey = `${fromParts.year}-${fromParts.month}-${fromParts.day}`;
-      const idx = midnightPoints.findIndex((pt) => pt.key >= fromKey);
+      const idx = filledPoints.findIndex((pt) => pt.key >= fromKey);
       if (idx >= 0) loopStart = Math.max(1, idx + 1);
     }
 
@@ -583,9 +607,9 @@ export function EnergyOverviewPage({
       toKey = `${toParts.year}-${toParts.month}-${toParts.day}`;
     }
 
-    for (let i = loopStart; i < midnightPoints.length; i++) {
-      const curr = midnightPoints[i];
-      const prev = midnightPoints[i - 1];
+    for (let i = loopStart; i < filledPoints.length; i++) {
+      const curr = filledPoints[i];
+      const prev = filledPoints[i - 1];
       if (curr.energyKwh === null || prev.energyKwh === null) continue;
 
       // Skip days beyond the selected end date
@@ -691,7 +715,8 @@ export function EnergyOverviewPage({
       const startKey = toJakartaDayKey(intervalStartAt);
       const endKey = toJakartaDayKey(row.readingAt);
 
-      let dayKeys = listDayKeysBetween(startKey, endKey).filter((key) =>
+      const allIntervalDayKeys = listDayKeysBetween(startKey, endKey);
+      let dayKeys = allIntervalDayKeys.filter((key) =>
         dayMeta.has(key),
       );
 
@@ -707,7 +732,11 @@ export function EnergyOverviewPage({
         Math.max(0, baseByDay.get(key) ?? 0),
       );
       const baseTotal = baseValues.reduce((sum, value) => sum + value, 0);
-      const targetTotal = Math.max(0, Number(row.deltaPq));
+      // Pro-rate targetTotal when only part of the calibration interval
+      // falls inside the visible date range (e.g. 7d filter cuts off earlier days).
+      const totalIntervalDays = Math.max(dayKeys.length, allIntervalDayKeys.length);
+      const proRatio = dayKeys.length / totalIntervalDays;
+      const targetTotal = Math.max(0, Number(row.deltaPq)) * proRatio;
 
       dayKeys.forEach((key, idx) => {
         const baseVal = baseValues[idx] ?? 0;
@@ -1035,12 +1064,20 @@ export function EnergyOverviewPage({
       return;
     }
 
+    // Fetch calibration with a wider window so intervals that overlap the
+    // visible range are fully captured (prevents mis-distribution in 7d view).
+    const calFrom = globalRange.from
+      ? new Date(
+          new Date(globalRange.from).getTime() - 60 * 24 * 60 * 60 * 1000,
+        ).toISOString()
+      : globalRange.from;
+
     try {
       if (effectiveScopeId) {
         const res = await energyDashboardApi.getCalibrationHistory(
           effectiveScopeId,
           {
-            from: globalRange.from,
+            from: calFrom,
             to: globalRange.to,
           },
         );
@@ -1055,7 +1092,7 @@ export function EnergyOverviewPage({
       const settled = await Promise.allSettled(
         scopes.map((scope) =>
           energyDashboardApi.getCalibrationHistory(scope.id, {
-            from: globalRange.from,
+            from: calFrom,
             to: globalRange.to,
           }),
         ),

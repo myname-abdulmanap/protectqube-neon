@@ -89,7 +89,7 @@ function normalizeSeverityLabel(severity: string): string {
 
 function getAlertCategory(
   alert: AlertEvent,
-): "critical" | "suspicious" | "health" {
+): "critical" | "warning" | "health" {
   const severity = String(alert.severity ?? "").toLowerCase();
   const alertType = String(alert.alertType ?? "").toUpperCase();
   if (severity === "critical" || alertType.includes("OVERLOAD"))
@@ -100,7 +100,7 @@ function getAlertCategory(
     alertType.includes("ANOMALY") ||
     alertType.includes("SUSPICIOUS")
   )
-    return "suspicious";
+    return "warning";
   return "health";
 }
 
@@ -249,6 +249,7 @@ function buildAlertDetail(
     imageUrls,
     latitude,
     longitude,
+    offlineCount: readNumber(metadata, ["offlineCount", "totalOfflineCount", "offline_count"]) ?? null,
     deviceStatus: alert.device?.status || "unknown",
     deviceId,
     deviceName,
@@ -259,7 +260,7 @@ function buildAlertDetail(
 
 const severityStyles: Record<string, string> = {
   critical: "bg-red-500/10 text-red-600 border-red-500/30",
-  suspicious: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  warning: "bg-blue-500/10 text-blue-600 border-blue-500/30",
   health: "bg-amber-500/10 text-amber-600 border-amber-500/30",
 };
 
@@ -532,7 +533,7 @@ export function AlertHistory() {
                             <div className="flex items-center gap-2">
                               {category === "critical" ? (
                                 <ShieldAlert className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                              ) : category === "suspicious" ? (
+                              ) : category === "warning" ? (
                                 <Info className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
                               ) : (
                                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />

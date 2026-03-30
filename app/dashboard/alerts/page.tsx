@@ -18,7 +18,9 @@ export default function AlertsDashboardPage() {
   const [filterOutlet, setFilterOutlet] = useState("all");
   const [filterDevice, setFilterDevice] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [outlets, setOutlets] = useState<{ scopeId: string; scope: { name: string } }[]>([]);
+  const [outlets, setOutlets] = useState<
+    { scopeId: string; scope: { name: string } }[]
+  >([]);
   const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
 
@@ -35,18 +37,27 @@ export default function AlertsDashboardPage() {
     <div className="flex h-full flex-col gap-2 p-3">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-lg font-semibold tracking-tight">Alert</h1>
-        
+
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="flex items-center gap-1">
             <MapPin className="h-3 w-3 text-muted-foreground" />
             <Select value={filterOutlet} onValueChange={setFilterOutlet}>
-              <SelectTrigger size="sm" className="h-7 w-[130px] text-xs border-0 bg-secondary">
+              <SelectTrigger
+                size="sm"
+                className="h-7 w-[130px] text-xs border-0 bg-secondary"
+              >
                 <SelectValue placeholder="Outlets" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">All Outlets</SelectItem>
+                <SelectItem value="all" className="text-xs">
+                  All Outlets
+                </SelectItem>
                 {outlets.map((o) => (
-                  <SelectItem key={o.scopeId} value={o.scope.name} className="text-xs">
+                  <SelectItem
+                    key={o.scopeId}
+                    value={o.scope.name}
+                    className="text-xs"
+                  >
                     {o.scope.name}
                   </SelectItem>
                 ))}
@@ -57,13 +68,20 @@ export default function AlertsDashboardPage() {
           <div className="flex items-center gap-1">
             <Camera className="h-3 w-3 text-muted-foreground" />
             <Select value={filterDevice} onValueChange={setFilterDevice}>
-              <SelectTrigger size="sm" className="h-7 w-[140px] text-xs border-0 bg-secondary">
+              <SelectTrigger
+                size="sm"
+                className="h-7 w-[140px] text-xs border-0 bg-secondary"
+              >
                 <SelectValue placeholder="Devices" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">All Devices</SelectItem>
+                <SelectItem value="all" className="text-xs">
+                  All Devices
+                </SelectItem>
                 {devices.map((d) => (
-                  <SelectItem key={d.id} value={d.id} className="text-xs">{d.name}</SelectItem>
+                  <SelectItem key={d.id} value={d.id} className="text-xs">
+                    {d.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -84,8 +102,8 @@ export default function AlertsDashboardPage() {
           </Badge>
         </div>
       </div>
-      
-      <AlertsDashboard 
+
+      <AlertsDashboard
         filterOutlet={filterOutlet}
         onFilterOutletChange={setFilterOutlet}
         filterDevice={filterDevice}

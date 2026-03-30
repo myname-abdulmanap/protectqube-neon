@@ -31,6 +31,7 @@ import {
   scopesApi,
   type DeviceHealth,
   type DeviceHealthHistoryData,
+  type DeviceOfflineEvent,
   type Scope,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -54,6 +55,16 @@ const formatDateTime = (value: string | null): string => {
     second: "2-digit",
   });
 };
+
+function formatDuration(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  if (hours > 0) return `${hours}j ${minutes}m ${secs}d`;
+  if (minutes > 0) return `${minutes}m ${secs}d`;
+  return `${secs}d`;
+}
 
 export default function DeviceHealthPage() {
   const { hasPermission } = useAuth();
@@ -388,6 +399,49 @@ export default function DeviceHealthPage() {
                     {formatDateTime(historyData.device.lastSeenAt)}
                   </p>
                 </div>
+              </div>
+
+              <div className="rounded border p-3 text-xs">
+                <p className="font-semibold mb-2">
+                  Riwayat Online / Offline
+                  <span className="ml-2 font-normal text-muted-foreground">
+                    ({historyData.offlineEvents?.length ?? 0} kejadian offline)
+                  </span>
+                </p>
+                {(historyData.offlineEvents?.length ?? 0) === 0 ? (
+                  <p className="text-muted-foreground">
+                    Tidak ada kejadian offline terdeteksi.
+                  </p>
+                ) : (
+                  <div className="max-h-40 overflow-auto rounded bg-muted/30 p-2 space-y-1.5">
+                    {historyData.offlineEvents.map(
+                      (ev: DeviceOfflineEvent, idx: number) => (
+                        <div
+                          key={`${ev.offlineAt}-${idx}`}
+                          className="flex flex-wrap items-start gap-x-3 gap-y-0.5"
+                        >
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-red-500">
+                            ↓ Offline {formatDateTime(ev.offlineAt)}
+                          </span>
+                          {ev.onlineAt ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-600">
+                              ↑ Online {formatDateTime(ev.onlineAt)}
+                              {ev.durationMs != null && (
+                                <span className="text-muted-foreground font-normal">
+                                  ({formatDuration(ev.durationMs)})
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground italic">
+                              masih offline
+                            </span>
+                          )}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="max-h-[55vh] overflow-auto rounded border">

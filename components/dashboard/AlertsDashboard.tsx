@@ -43,7 +43,7 @@ const containerVariants = {
   },
 };
 
-type AlertCategoryKey = "critical" | "suspicious" | "health";
+type AlertCategoryKey = "critical" | "warning" | "health";
 
 interface OutletData {
   scopeId: string;
@@ -74,24 +74,24 @@ const categorySections: {
     badgeTone: "bg-red-500/10 text-red-600 border-red-500/30",
   },
   {
-    key: "suspicious",
-    label: "Suspicious Alerts",
-    icon: Info,
-    iconColor: "text-blue-500",
-    cardTone: "bg-blue-500/5 hover:bg-blue-500/10",
-    borderTone: "border-blue-500/30",
-    textTone: "text-blue-600",
-    badgeTone: "bg-blue-500/10 text-blue-600 border-blue-500/30",
-  },
-  {
-    key: "health",
-    label: "Health Alerts",
+    key: "warning",
+    label: "Warning Alerts",
     icon: AlertTriangle,
     iconColor: "text-amber-500",
     cardTone: "bg-amber-500/5 hover:bg-amber-500/10",
     borderTone: "border-amber-500/30",
     textTone: "text-amber-600",
     badgeTone: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  },
+  {
+    key: "health",
+    label: "Health Alerts",
+    icon: Info,
+    iconColor: "text-blue-500",
+    cardTone: "bg-blue-500/5 hover:bg-blue-500/10",
+    borderTone: "border-blue-500/30",
+    textTone: "text-blue-600",
+    badgeTone: "bg-blue-500/10 text-blue-600 border-blue-500/30",
   },
 ];
 
@@ -133,7 +133,8 @@ function readNumber(
 function normalizeSeverityLabel(severity: string): string {
   const value = String(severity).toLowerCase();
   if (value === "critical") return "Critical";
-  if (value === "suspicious" || value === "high") return "Suspicious";
+  if (value === "warning" || value === "suspicious" || value === "high")
+    return "Warning";
   return "Health";
 }
 
@@ -141,17 +142,27 @@ function getAlertCategory(alert: AlertEvent): AlertCategoryKey {
   const severity = String(alert.severity ?? "").toLowerCase();
   const alertType = String(alert.alertType ?? "").toUpperCase();
 
+  // Device health alerts always go to "health" regardless of severity
+  if (
+    alertType.startsWith("DEVICE_") ||
+    alertType === "LOW_VOLTAGE" ||
+    alertType === "LOW_SIGNAL"
+  ) {
+    return "health";
+  }
+
   if (severity === "critical" || alertType.includes("OVERLOAD")) {
     return "critical";
   }
 
   if (
+    severity === "warning" ||
     severity === "suspicious" ||
     severity === "high" ||
     alertType.includes("ANOMALY") ||
     alertType.includes("SUSPICIOUS")
   ) {
-    return "suspicious";
+    return "warning";
   }
 
   return "health";
@@ -250,6 +261,24 @@ function collectTimeline(
 ): string[] {
   const timelineEntries: string[] = [];
 
+  // Read backend-maintained historyLog (previous trigger timestamps)
+  const historyLog = metadata?.historyLog;
+  if (Array.isArray(historyLog)) {
+    for (const item of historyLog) {
+      const entry = toRecord(item);
+      if (!entry) continue;
+      const at = readString(entry, ["at", "time", "timestamp"]);
+      const desc = readString(entry, ["description", "message", "desc"]);
+      if (at) {
+        const formatted = format(new Date(at), "PPPpp");
+        timelineEntries.push(
+          desc ? `${formatted} — ${desc}` : `Triggered at ${formatted}`,
+        );
+      }
+    }
+  }
+
+  // Also read legacy timeline array if present
   const timelineValue = metadata?.timeline;
   if (Array.isArray(timelineValue)) {
     for (const item of timelineValue) {
@@ -276,23 +305,59 @@ function collectTimeline(
     }
   }
 
-  if (timelineEntries.length === 0) {
+  // Always show the current (most recent) trigger at the end
+  timelineEntries.push(
+    `Latest trigger at ${format(new Date(alert.timestamp), "PPPpp")}`,
+  );
+
+  if (timelineEntries.length === 1 && alert.createdAt) {
     timelineEntries.push(
-      `Alert triggered at ${format(new Date(alert.timestamp), "PPPpp")}`,
+      `Recorded at ${format(new Date(alert.createdAt), "PPPpp")}`,
     );
-    if (alert.createdAt) {
-      timelineEntries.push(
-        `Recorded at ${format(new Date(alert.createdAt), "PPPpp")}`,
-      );
-    }
   }
 
   return timelineEntries;
 }
 
+function getOfflineCount(
+  alert: AlertEvent,
+  metadata: Record<string, unknown> | null,
+): number | null {
+  const alertType = String(alert.alertType ?? "").toUpperCase();
+  if (!alertType.startsWith("DEVICE_")) return null;
+
+  const storedCount = readNumber(metadata, [
+    "offlineCount",
+    "offline_count",
+    "offlineHistoryCount",
+    "offline_history_count",
+    "totalOfflineCount",
+  ]);
+
+  const historyLog = metadata?.historyLog;
+  const historyCount = Array.isArray(historyLog) ? historyLog.length : 0;
+  const timelineValue = metadata?.timeline;
+  const timelineCount = Array.isArray(timelineValue) ? timelineValue.length : 0;
+
+  // For DEVICE_OFFLINE rows, the current row is one additional trigger.
+  const derivedFromHistory =
+    alertType === "DEVICE_OFFLINE"
+      ? historyCount + 1
+      : Math.max(historyCount, timelineCount);
+
+  if (storedCount != null && Number.isFinite(storedCount)) {
+    return Math.max(Math.floor(storedCount), derivedFromHistory);
+  }
+
+  if (derivedFromHistory > 0) return derivedFromHistory;
+
+  return alertType === "DEVICE_OFFLINE" ? 1 : null;
+}
+
 function buildAlertDetail(
   alert: AlertEvent,
   outletNameByScopeId: Record<string, string>,
+  offlineCountByDevice: Record<string, number>,
   minioBucketUrl: string,
 ): AlertDetailData {
   const metadata = toRecord(alert.metadata);
@@ -314,13 +379,18 @@ function buildAlertDetail(
   );
 
   const latitude =
+    alert.device?.latitude ??
     alert.device?.scope?.latitude ??
     readNumber(metadata, ["lat", "latitude"]) ??
     null;
   const longitude =
+    alert.device?.longitude ??
     alert.device?.scope?.longitude ??
     readNumber(metadata, ["lng", "longitude", "lon"]) ??
     null;
+  const computedOfflineCount = getOfflineCount(alert, metadata);
+  const offlineCount =
+    computedOfflineCount ?? offlineCountByDevice[deviceId] ?? null;
 
   return {
     alertType: alert.title || alert.alertType,
@@ -334,6 +404,7 @@ function buildAlertDetail(
       readString(metadata, ["description", "desc", "detail"]) ||
       "No description available",
     timeline: collectTimeline(alert, metadata),
+    offlineCount,
     imageUrls,
     latitude,
     longitude,
@@ -464,15 +535,37 @@ export function AlertsDashboard({
     }
   };
 
-  const handleActionUpdateAll = async (actionKey: string): Promise<boolean> => {
+  const handleActionUpdateAll = async (params: {
+    actionKey: string;
+    alertType?: string;
+    moduleType?: string;
+  }): Promise<boolean> => {
+    const { actionKey, alertType, moduleType } = params;
     try {
       const result = await alertEventsApi.bulkUpdateAction({
         actionKey,
         filterActionKey: "open", // only update currently-open alerts
+        alertType,
+        moduleType,
       });
       if (result.success) {
-        // Clear all alerts from the active list
-        setAlerts([]);
+        // Remove only alerts that match the same card context.
+        setAlerts((prev) =>
+          prev.filter((alert) => {
+            const matchesAlertType =
+              !alertType || alert.alertType === alertType;
+            const matchesModuleType =
+              !moduleType ||
+              String(alert.moduleType || "").toLowerCase() ===
+                String(moduleType || "").toLowerCase();
+
+            if (matchesAlertType && matchesModuleType) {
+              return false;
+            }
+
+            return true;
+          }),
+        );
         setSelectedAlert(null);
         return true;
       }
@@ -559,11 +652,71 @@ export function AlertsDashboard({
     severityConfigs.forEach((config) => {
       map[config.key] = { color: config.color, label: config.label };
     });
+    // Alias unmapped backend severity values to configured keys
+    if (!map["high"] && map["warning"]) map["high"] = map["warning"];
+    if (!map["medium"] && map["info"]) map["medium"] = map["info"];
+    if (!map["low"] && map["info"]) map["low"] = map["info"];
     return map;
   }, [severityConfigs]);
 
+  const dedupedAlerts = useMemo(() => {
+    // Group all alerts by deviceId::alertType
+    const groups = new Map<string, AlertEvent[]>();
+    for (const alert of alerts) {
+      const key = `${alert.deviceId}::${alert.alertType}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(alert);
+    }
+
+    return Array.from(groups.values()).map((group) => {
+      // Sort newest-first; keep the most recent as the displayed alert
+      const sorted = [...group].sort(
+        (a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      );
+      const newest = sorted[0];
+      if (sorted.length === 1) return newest;
+
+      // Merge older alerts' timestamps into metadata.historyLog so the timeline is complete
+      const existingMeta = toRecord(newest.metadata) ?? {};
+      const existingLog: Array<{ at: string; description: string | null }> =
+        Array.isArray(existingMeta.historyLog)
+          ? (existingMeta.historyLog as Array<{
+              at: string;
+              description: string | null;
+            }>)
+          : [];
+
+      // sorted.slice(1) is older-alerts newest-first; reverse → oldest-first for chronological display
+      const syntheticEntries = sorted
+        .slice(1)
+        .reverse()
+        .map((a) => ({ at: a.timestamp, description: a.description ?? null }))
+        .filter((entry) => !existingLog.some((e) => e.at === entry.at));
+
+      const mergedLog = [...syntheticEntries, ...existingLog];
+
+      return {
+        ...newest,
+        metadata: { ...existingMeta, historyLog: mergedLog },
+      };
+    });
+  }, [alerts]);
+
+  const offlineCountByDevice = useMemo(() => {
+    const map: Record<string, number> = {};
+    dedupedAlerts.forEach((alert) => {
+      const alertType = String(alert.alertType ?? "").toUpperCase();
+      if (alertType !== "DEVICE_OFFLINE") return;
+      const count = getOfflineCount(alert, toRecord(alert.metadata));
+      if (count == null) return;
+      map[alert.deviceId] = Math.max(map[alert.deviceId] ?? 0, count);
+    });
+    return map;
+  }, [dedupedAlerts]);
+
   const filteredAlerts = useMemo(() => {
-    return alerts.filter((alert) => {
+    return dedupedAlerts.filter((alert) => {
       const outletName = getOutletName(alert, outletNameByScopeId);
       const area =
         alert.device?.locationName ||
@@ -587,12 +740,18 @@ export function AlertsDashboard({
 
       return matchesOutlet && matchesDevice && matchesSearch;
     });
-  }, [alerts, filterOutlet, filterDevice, searchTerm, outletNameByScopeId]);
+  }, [
+    dedupedAlerts,
+    filterOutlet,
+    filterDevice,
+    searchTerm,
+    outletNameByScopeId,
+  ]);
 
   const alertsByCategory = useMemo(() => {
     const grouped: Record<AlertCategoryKey, AlertEvent[]> = {
       critical: [],
-      suspicious: [],
+      warning: [],
       health: [],
     };
 
@@ -605,8 +764,18 @@ export function AlertsDashboard({
 
   const selectedDetail = useMemo(() => {
     if (!selectedAlert) return null;
-    return buildAlertDetail(selectedAlert, outletNameByScopeId, minioBucketUrl);
-  }, [selectedAlert, outletNameByScopeId, minioBucketUrl]);
+    return buildAlertDetail(
+      selectedAlert,
+      outletNameByScopeId,
+      offlineCountByDevice,
+      minioBucketUrl,
+    );
+  }, [
+    selectedAlert,
+    outletNameByScopeId,
+    offlineCountByDevice,
+    minioBucketUrl,
+  ]);
 
   return (
     <motion.div

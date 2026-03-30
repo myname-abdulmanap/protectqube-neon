@@ -38,6 +38,225 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { History, Pencil, Trash2, Plus, Zap } from "lucide-react";
 
+/** Format a Date as "YYYY-MM-DDTHH:mm" in local time (for datetime-local inputs). */
+const toLocalDatetimeString = (d: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+type FormPeriodThreshold = {
+  id: string;
+  period: string;
+  warningLower: string;
+  warningUpper: string;
+  criticalLower: string;
+  criticalUpper: string;
+};
+
+type FormRealtimeThreshold = {
+  id: string;
+  metricKey: string;
+  label: string;
+  warningLower: string;
+  warningUpper: string;
+  criticalLower: string;
+  criticalUpper: string;
+};
+
+const PERIOD_OPTIONS = ["1d", "7d", "30d"];
+
+const POWER_METRIC_KEYS = new Set([
+  "power_total",
+  "power",
+  "power_l1",
+  "power_l2",
+  "power_l3",
+]);
+
+const isPowerMetricKey = (metricKey: string): boolean =>
+  POWER_METRIC_KEYS.has(
+    String(metricKey || "")
+      .trim()
+      .toLowerCase(),
+  );
+
+const formatRealtimeThresholdInput = (
+  metricKey: string,
+  value: unknown,
+): string => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  if (isPowerMetricKey(metricKey)) {
+    return String(Number((n / 1000).toFixed(6)));
+  }
+  return String(n);
+};
+
+const parseRealtimeThresholdInput = (
+  metricKey: string,
+  value: string,
+): number | undefined => {
+  const n = toOptionalNumber(value);
+  if (n === undefined) return undefined;
+  if (isPowerMetricKey(metricKey)) {
+    return Number((n * 1000).toFixed(6));
+  }
+  return n;
+};
+
+const REALTIME_METRIC_OPTIONS = [
+  { value: "power_total", label: "Power Total (input kW)" },
+  { value: "power_l1", label: "Power L1 (W)" },
+  { value: "power_l2", label: "Power L2 (W)" },
+  { value: "power_l3", label: "Power L3 (W)" },
+  { value: "voltage_l1", label: "Voltage L1 (V)" },
+  { value: "voltage_l2", label: "Voltage L2 (V)" },
+  { value: "voltage_l3", label: "Voltage L3 (V)" },
+  { value: "current_l1", label: "Current L1 (A)" },
+  { value: "current_l2", label: "Current L2 (A)" },
+  { value: "current_l3", label: "Current L3 (A)" },
+  { value: "current_total", label: "Current Total (A)" },
+  { value: "frequency", label: "Frequency" },
+  { value: "pf_sigma", label: "Power Factor Total" },
+  { value: "pf_a", label: "Power Factor A" },
+  { value: "pf_b", label: "Power Factor B" },
+  { value: "pf_c", label: "Power Factor C" },
+  { value: "va_sigma", label: "Apparent Power Total (VA)" },
+  { value: "va_a", label: "Apparent Power A (VA)" },
+  { value: "va_b", label: "Apparent Power B (VA)" },
+  { value: "va_c", label: "Apparent Power C (VA)" },
+  // Backward compatibility with old custom keys
+  { value: "voltage_phase_a", label: "Voltage Phase A (legacy)" },
+  { value: "voltage_phase_b", label: "Voltage Phase B (legacy)" },
+  { value: "voltage_phase_c", label: "Voltage Phase C (legacy)" },
+  { value: "current_phase_a", label: "Current Phase A (legacy)" },
+  { value: "current_phase_b", label: "Current Phase B (legacy)" },
+  { value: "current_phase_c", label: "Current Phase C (legacy)" },
+];
+
+const makeId = (prefix: string): string =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const createPeriodThreshold = (period = "1d"): FormPeriodThreshold => ({
+  id: makeId("pt"),
+  period,
+  warningLower: "",
+  warningUpper: "",
+  criticalLower: "",
+  criticalUpper: "",
+});
+
+const createRealtimeThreshold = (
+  metricKey = "power_total",
+): FormRealtimeThreshold => ({
+  id: makeId("rt"),
+  metricKey,
+  label: "",
+  warningLower: "",
+  warningUpper: "",
+  criticalLower: "",
+  criticalUpper: "",
+});
+
+const toBoundString = (value: unknown): string => {
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "";
+};
+
+const toOptionalNumber = (value: string): number | undefined => {
+  if (value.trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const mapPeriodThresholdsFromConfig = (
+  items: unknown,
+): FormPeriodThreshold[] => {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    const current = (item || {}) as {
+      id?: string;
+      period?: string;
+      warning?: { lower?: number; upper?: number };
+      critical?: { lower?: number; upper?: number };
+      thresholds?: Array<{ value: number; severity: string }>;
+    };
+
+    const legacyWarning = current.thresholds?.find(
+      (t) => String(t.severity).toLowerCase() === "warning",
+    );
+    const legacyCritical = current.thresholds?.find(
+      (t) => String(t.severity).toLowerCase() === "critical",
+    );
+
+    return {
+      id: current.id || makeId("pt"),
+      period: current.period || "1d",
+      warningLower: toBoundString(current.warning?.lower),
+      warningUpper: toBoundString(
+        current.warning?.upper ?? legacyWarning?.value,
+      ),
+      criticalLower: toBoundString(current.critical?.lower),
+      criticalUpper: toBoundString(
+        current.critical?.upper ?? legacyCritical?.value,
+      ),
+    };
+  });
+};
+
+const mapRealtimeThresholdsFromConfig = (
+  items: unknown,
+): FormRealtimeThreshold[] => {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    const current = (item || {}) as {
+      id?: string;
+      metricKey?: string;
+      label?: string;
+      warning?: { lower?: number; upper?: number };
+      critical?: { lower?: number; upper?: number };
+      operator?: string;
+      value?: number;
+      severity?: string;
+    };
+
+    const legacyIsLower = current.operator === "<" || current.operator === "<=";
+    const legacyIsUpper = current.operator === ">" || current.operator === ">=";
+    const legacySeverity = String(current.severity || "warning").toLowerCase();
+    const metricKey = current.metricKey || "power_total";
+
+    return {
+      id: current.id || makeId("rt"),
+      metricKey,
+      label: current.label || "",
+      warningLower:
+        current.warning?.lower !== undefined
+          ? formatRealtimeThresholdInput(metricKey, current.warning.lower)
+          : legacySeverity === "warning" && legacyIsLower
+            ? formatRealtimeThresholdInput(metricKey, current.value)
+            : "",
+      warningUpper:
+        current.warning?.upper !== undefined
+          ? formatRealtimeThresholdInput(metricKey, current.warning.upper)
+          : legacySeverity === "warning" && legacyIsUpper
+            ? formatRealtimeThresholdInput(metricKey, current.value)
+            : "",
+      criticalLower:
+        current.critical?.lower !== undefined
+          ? formatRealtimeThresholdInput(metricKey, current.critical.lower)
+          : legacySeverity === "critical" && legacyIsLower
+            ? formatRealtimeThresholdInput(metricKey, current.value)
+            : "",
+      criticalUpper:
+        current.critical?.upper !== undefined
+          ? formatRealtimeThresholdInput(metricKey, current.critical.upper)
+          : legacySeverity === "critical" && legacyIsUpper
+            ? formatRealtimeThresholdInput(metricKey, current.value)
+            : "",
+    };
+  });
+};
+
 export default function EnergyConfigsPage() {
   const { hasPermission } = useAuth();
   const [configs, setConfigs] = useState<EnergyConfig[]>([]);
@@ -75,22 +294,14 @@ export default function EnergyConfigsPage() {
       endTime: string;
       pricePerKwh: string;
     }>,
-    maxLoadKw: "",
     capacityVa: "",
-    upperLimitKwh: "",
     startPointStartAt: "",
     startPointInitialKwh: "",
     validFrom: "",
-    consumptionThresholds: [] as Array<{
-      id: string;
-      period: string;
-      thresholds: Array<{ value: string; severity: string }>;
-    }>,
-    costThresholds: [] as Array<{
-      id: string;
-      period: string;
-      thresholds: Array<{ value: string; severity: string }>;
-    }>,
+    consumptionThresholds: [] as FormPeriodThreshold[],
+    reactiveConsumptionThresholds: [] as FormPeriodThreshold[],
+    costThresholds: [] as FormPeriodThreshold[],
+    realtimeThresholds: [] as FormRealtimeThreshold[],
   });
 
   const canRead = hasPermission("energy_configs:read");
@@ -140,14 +351,14 @@ export default function EnergyConfigsPage() {
           pricePerKwh: "",
         },
       ],
-      maxLoadKw: "",
       capacityVa: "",
-      upperLimitKwh: "",
       startPointStartAt: "",
       startPointInitialKwh: "",
       validFrom: "",
       consumptionThresholds: [],
+      reactiveConsumptionThresholds: [],
       costThresholds: [],
+      realtimeThresholds: [],
     });
     setEditingId(null);
   };
@@ -160,7 +371,9 @@ export default function EnergyConfigsPage() {
   const openEdit = (c: EnergyConfig) => {
     const tariff = c.config?.tariff;
     const touPeriods =
-      tariff?.mode === "tou" && Array.isArray(tariff.touPeriods) && tariff.touPeriods.length > 0
+      tariff?.mode === "tou" &&
+      Array.isArray(tariff.touPeriods) &&
+      tariff.touPeriods.length > 0
         ? tariff.touPeriods.map((p) => ({
             id: p.id || `tou-${Date.now()}-${Math.random()}`,
             label: p.label || "Period",
@@ -197,35 +410,27 @@ export default function EnergyConfigsPage() {
           ? String(tariff.flatPricePerKwh)
           : String(c.pricePerKwh),
       touPeriods,
-      maxLoadKw: c.maxLoadKw ? String(c.maxLoadKw) : "",
       capacityVa: c.capacityVa ? String(c.capacityVa) : "",
-      upperLimitKwh: c.upperLimitKwh ? String(c.upperLimitKwh) : "",
       startPointStartAt: c.config?.startPoint?.startAt
-        ? new Date(c.config.startPoint.startAt).toISOString().slice(0, 16)
+        ? toLocalDatetimeString(new Date(c.config.startPoint.startAt))
         : "",
       startPointInitialKwh:
         c.config?.startPoint?.initialKwh !== undefined
           ? String(c.config.startPoint.initialKwh)
           : "",
       validFrom: c.validFrom
-        ? new Date(c.validFrom).toISOString().slice(0, 16)
+        ? toLocalDatetimeString(new Date(c.validFrom))
         : "",
-      consumptionThresholds: (c.config?.consumptionThresholds || []).map((ct) => ({
-        id: ct.id || `threshold-${Date.now()}-${Math.random()}`,
-        period: ct.period,
-        thresholds: ct.thresholds.map((t) => ({
-          value: String(t.value),
-          severity: t.severity,
-        })),
-      })),
-      costThresholds: (c.config?.costThresholds || []).map((ct) => ({
-        id: ct.id || `cost-threshold-${Date.now()}-${Math.random()}`,
-        period: ct.period,
-        thresholds: ct.thresholds.map((t) => ({
-          value: String(t.value),
-          severity: t.severity,
-        })),
-      })),
+      consumptionThresholds: mapPeriodThresholdsFromConfig(
+        c.config?.consumptionThresholds,
+      ),
+      reactiveConsumptionThresholds: mapPeriodThresholdsFromConfig(
+        c.config?.reactiveConsumptionThresholds,
+      ),
+      costThresholds: mapPeriodThresholdsFromConfig(c.config?.costThresholds),
+      realtimeThresholds: mapRealtimeThresholdsFromConfig(
+        c.config?.realtimeThresholds,
+      ),
     });
     setModalOpen(true);
   };
@@ -247,13 +452,23 @@ export default function EnergyConfigsPage() {
         }>;
       };
 
-      type ThresholdPayload = {
-        id: string;
+      type AlertJsonThresholdPayload = {
+        id?: string;
         period: string;
-        thresholds: Array<{
-          value: number;
-          severity: string;
-        }>;
+        warning?: { lower?: number; upper?: number };
+        critical?: { lower?: number; upper?: number };
+        thresholds?: Array<{ value: number; severity: string }>;
+      };
+
+      type AlertJsonRealtimePayload = {
+        id?: string;
+        metricKey: string;
+        warning?: { lower?: number; upper?: number };
+        critical?: { lower?: number; upper?: number };
+        operator?: ">" | ">=" | "<" | "<=" | "=";
+        value?: number;
+        severity?: string;
+        label?: string;
       };
 
       const config: {
@@ -262,11 +477,120 @@ export default function EnergyConfigsPage() {
           initialKwh: number;
         };
         tariff?: TariffConfigPayload;
-        consumptionThresholds?: ThresholdPayload[];
-        costThresholds?: ThresholdPayload[];
+        consumptionThresholds?: AlertJsonThresholdPayload[];
+        costThresholds?: AlertJsonThresholdPayload[];
+        reactiveConsumptionThresholds?: AlertJsonThresholdPayload[];
+        realtimeThresholds?: AlertJsonRealtimePayload[];
       } = {};
+
+      const buildPeriodPayload = (
+        list: FormPeriodThreshold[],
+      ): AlertJsonThresholdPayload[] =>
+        list
+          .map((item) => {
+            const warningLower = toOptionalNumber(item.warningLower);
+            const warningUpper = toOptionalNumber(item.warningUpper);
+            const criticalLower = toOptionalNumber(item.criticalLower);
+            const criticalUpper = toOptionalNumber(item.criticalUpper);
+
+            const warning =
+              warningLower !== undefined || warningUpper !== undefined
+                ? {
+                    ...(warningLower !== undefined
+                      ? { lower: warningLower }
+                      : {}),
+                    ...(warningUpper !== undefined
+                      ? { upper: warningUpper }
+                      : {}),
+                  }
+                : undefined;
+
+            const critical =
+              criticalLower !== undefined || criticalUpper !== undefined
+                ? {
+                    ...(criticalLower !== undefined
+                      ? { lower: criticalLower }
+                      : {}),
+                    ...(criticalUpper !== undefined
+                      ? { upper: criticalUpper }
+                      : {}),
+                  }
+                : undefined;
+
+            return {
+              id: item.id,
+              period: item.period,
+              warning,
+              critical,
+            };
+          })
+          .filter(
+            (item) =>
+              item.period &&
+              (item.warning !== undefined || item.critical !== undefined),
+          );
+
+      const buildRealtimePayload = (
+        list: FormRealtimeThreshold[],
+      ): AlertJsonRealtimePayload[] =>
+        list
+          .map((item) => {
+            const warningLower = parseRealtimeThresholdInput(
+              item.metricKey,
+              item.warningLower,
+            );
+            const warningUpper = parseRealtimeThresholdInput(
+              item.metricKey,
+              item.warningUpper,
+            );
+            const criticalLower = parseRealtimeThresholdInput(
+              item.metricKey,
+              item.criticalLower,
+            );
+            const criticalUpper = parseRealtimeThresholdInput(
+              item.metricKey,
+              item.criticalUpper,
+            );
+
+            const warning =
+              warningLower !== undefined || warningUpper !== undefined
+                ? {
+                    ...(warningLower !== undefined
+                      ? { lower: warningLower }
+                      : {}),
+                    ...(warningUpper !== undefined
+                      ? { upper: warningUpper }
+                      : {}),
+                  }
+                : undefined;
+
+            const critical =
+              criticalLower !== undefined || criticalUpper !== undefined
+                ? {
+                    ...(criticalLower !== undefined
+                      ? { lower: criticalLower }
+                      : {}),
+                    ...(criticalUpper !== undefined
+                      ? { upper: criticalUpper }
+                      : {}),
+                  }
+                : undefined;
+
+            return {
+              id: item.id,
+              metricKey: item.metricKey,
+              label: item.label || undefined,
+              warning,
+              critical,
+            };
+          })
+          .filter(
+            (item) =>
+              item.metricKey &&
+              (item.warning !== undefined || item.critical !== undefined),
+          );
       const tariffMode = form.tariffMode === "tou" ? "tou" : "flat";
-      
+
       // Add start point if provided
       if (form.startPointStartAt && form.startPointInitialKwh) {
         config.startPoint = {
@@ -306,49 +630,48 @@ export default function EnergyConfigsPage() {
         };
       }
 
-      // Add consumption thresholds if provided
-      if (form.consumptionThresholds.length > 0) {
-        config.consumptionThresholds = form.consumptionThresholds.map((ct) => ({
-          ...ct,
-          thresholds: ct.thresholds.map((t) => ({
-            value: parseFloat(t.value),
-            severity: t.severity,
-          })),
-        }));
+      const consumptionThresholdsPayload = buildPeriodPayload(
+        form.consumptionThresholds,
+      );
+      const reactiveThresholdsPayload = buildPeriodPayload(
+        form.reactiveConsumptionThresholds,
+      );
+      const costThresholdsPayload = buildPeriodPayload(form.costThresholds);
+      const realtimeThresholdsPayload = buildRealtimePayload(
+        form.realtimeThresholds,
+      );
+
+      if (consumptionThresholdsPayload.length > 0) {
+        config.consumptionThresholds = consumptionThresholdsPayload;
+      }
+      if (reactiveThresholdsPayload.length > 0) {
+        config.reactiveConsumptionThresholds = reactiveThresholdsPayload;
+      }
+      if (costThresholdsPayload.length > 0) {
+        config.costThresholds = costThresholdsPayload;
+      }
+      if (realtimeThresholdsPayload.length > 0) {
+        config.realtimeThresholds = realtimeThresholdsPayload;
       }
 
-      if (form.costThresholds.length > 0) {
-        config.costThresholds = form.costThresholds.map((ct) => ({
-          ...ct,
-          thresholds: ct.thresholds.map((t) => ({
-            value: parseFloat(t.value),
-            severity: t.severity,
-          })),
-        }));
-      }
-
-      const resolvedPricePerKwh = tariffMode === "flat"
-        ? (form.flatPricePerKwh
+      const resolvedPricePerKwh =
+        tariffMode === "flat"
+          ? form.flatPricePerKwh
             ? parseFloat(form.flatPricePerKwh)
             : form.pricePerKwh
               ? parseFloat(form.pricePerKwh)
-              : 0)
-        : (() => {
-            const prices = form.touPeriods
-              .map((p) => parseFloat(p.pricePerKwh))
-              .filter((v) => Number.isFinite(v));
-            if (!prices.length) return 0;
-            return prices.reduce((sum, v) => sum + v, 0) / prices.length;
-          })();
+              : 0
+          : (() => {
+              const prices = form.touPeriods
+                .map((p) => parseFloat(p.pricePerKwh))
+                .filter((v) => Number.isFinite(v));
+              if (!prices.length) return 0;
+              return prices.reduce((sum, v) => sum + v, 0) / prices.length;
+            })();
 
-      const payload = {
-        scopeId: form.scopeId,
+      const basePayload = {
         pricePerKwh: resolvedPricePerKwh,
-        maxLoadKw: form.maxLoadKw ? parseFloat(form.maxLoadKw) : undefined,
         capacityVa: form.capacityVa ? parseFloat(form.capacityVa) : undefined,
-        upperLimitKwh: form.upperLimitKwh
-          ? parseFloat(form.upperLimitKwh)
-          : undefined,
         config: Object.keys(config).length > 0 ? config : undefined,
         validFrom: form.validFrom
           ? new Date(form.validFrom).toISOString()
@@ -356,9 +679,16 @@ export default function EnergyConfigsPage() {
       };
 
       if (editingId) {
-        await energyConfigsApi.update(editingId, payload);
+        const updatePayload: Parameters<typeof energyConfigsApi.update>[1] = {
+          ...basePayload,
+        };
+        await energyConfigsApi.update(editingId, updatePayload);
       } else {
-        await energyConfigsApi.create(payload);
+        const createPayload: Parameters<typeof energyConfigsApi.create>[0] = {
+          scopeId: form.scopeId,
+          ...basePayload,
+        };
+        await energyConfigsApi.create(createPayload);
       }
       setModalOpen(false);
       resetForm();
@@ -447,9 +777,7 @@ export default function EnergyConfigsPage() {
                 <TableHead className="text-xs">Scope</TableHead>
                 <TableHead className="text-xs">Tariff</TableHead>
                 <TableHead className="text-xs">Price/kWh</TableHead>
-                <TableHead className="text-xs">Kapasitas kW</TableHead>
                 <TableHead className="text-xs">Kapasitas VA</TableHead>
-                <TableHead className="text-xs">Kapasitas kWh</TableHead>
                 <TableHead className="text-xs">Thresholds</TableHead>
                 <TableHead className="text-xs">Starting Point</TableHead>
                 <TableHead className="text-xs">Valid From</TableHead>
@@ -461,7 +789,7 @@ export default function EnergyConfigsPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={11}
+                    colSpan={9}
                     className="text-center text-xs text-muted-foreground"
                   >
                     Loading...
@@ -470,7 +798,7 @@ export default function EnergyConfigsPage() {
               ) : configs.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={11}
+                    colSpan={9}
                     className="text-center text-xs text-muted-foreground"
                   >
                     No configs
@@ -489,27 +817,127 @@ export default function EnergyConfigsPage() {
                       {c.pricePerKwh}
                     </TableCell>
                     <TableCell className="text-xs">
-                      {c.maxLoadKw ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-xs">
                       {c.capacityVa ?? "-"}
                     </TableCell>
                     <TableCell className="text-xs">
-                      {c.upperLimitKwh ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {c.config?.consumptionThresholds &&
-                      c.config.consumptionThresholds.length > 0 ? (
+                      {(c.config?.consumptionThresholds?.length ?? 0) > 0 ||
+                      (c.config?.reactiveConsumptionThresholds?.length ?? 0) >
+                        0 ||
+                      (c.config?.costThresholds?.length ?? 0) > 0 ||
+                      (c.config?.realtimeThresholds?.length ?? 0) > 0 ? (
                         <div className="space-y-1">
-                          {c.config.consumptionThresholds.map((t) => (
+                          {c.config?.consumptionThresholds?.map((t) => (
                             <div key={t.id} className="text-xs">
-                              <span className="font-medium">{t.period}:</span>{" "}
-                              {t.thresholds
-                                .map(
-                                  (th) =>
-                                    `${th.severity}: ${th.value} kWh`
-                                )
-                                .join(", ")}
+                              <span className="font-medium">
+                                kWh {t.period}:
+                              </span>{" "}
+                              {t.warning || t.critical
+                                ? [
+                                    t.warning?.lower !== undefined
+                                      ? `warning bawah: ${t.warning.lower}`
+                                      : null,
+                                    t.warning?.upper !== undefined
+                                      ? `warning atas: ${t.warning.upper}`
+                                      : null,
+                                    t.critical?.lower !== undefined
+                                      ? `critical bawah: ${t.critical.lower}`
+                                      : null,
+                                    t.critical?.upper !== undefined
+                                      ? `critical atas: ${t.critical.upper}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ")
+                                : (t.thresholds || [])
+                                    .map(
+                                      (th) => `${th.severity}: ${th.value} kWh`,
+                                    )
+                                    .join(", ")}
+                            </div>
+                          ))}
+                          {c.config?.reactiveConsumptionThresholds?.map((t) => (
+                            <div key={t.id} className="text-xs">
+                              <span className="font-medium">
+                                kVArh {t.period}:
+                              </span>{" "}
+                              {t.warning || t.critical
+                                ? [
+                                    t.warning?.lower !== undefined
+                                      ? `warning bawah: ${t.warning.lower}`
+                                      : null,
+                                    t.warning?.upper !== undefined
+                                      ? `warning atas: ${t.warning.upper}`
+                                      : null,
+                                    t.critical?.lower !== undefined
+                                      ? `critical bawah: ${t.critical.lower}`
+                                      : null,
+                                    t.critical?.upper !== undefined
+                                      ? `critical atas: ${t.critical.upper}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ")
+                                : (t.thresholds || [])
+                                    .map(
+                                      (th) =>
+                                        `${th.severity}: ${th.value} kVArh`,
+                                    )
+                                    .join(", ")}
+                            </div>
+                          ))}
+                          {c.config?.costThresholds?.map((t) => (
+                            <div key={t.id} className="text-xs">
+                              <span className="font-medium">
+                                Cost {t.period}:
+                              </span>{" "}
+                              {t.warning || t.critical
+                                ? [
+                                    t.warning?.lower !== undefined
+                                      ? `warning bawah: ${t.warning.lower}`
+                                      : null,
+                                    t.warning?.upper !== undefined
+                                      ? `warning atas: ${t.warning.upper}`
+                                      : null,
+                                    t.critical?.lower !== undefined
+                                      ? `critical bawah: ${t.critical.lower}`
+                                      : null,
+                                    t.critical?.upper !== undefined
+                                      ? `critical atas: ${t.critical.upper}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ")
+                                : (t.thresholds || [])
+                                    .map(
+                                      (th) => `${th.severity}: ${th.value} Rp`,
+                                    )
+                                    .join(", ")}
+                            </div>
+                          ))}
+                          {c.config?.realtimeThresholds?.map((t) => (
+                            <div key={t.id} className="text-xs">
+                              <span className="font-medium">
+                                {t.label || t.metricKey}:
+                              </span>{" "}
+                              {[
+                                t.warning?.lower !== undefined
+                                  ? `warning bawah: ${t.warning.lower}`
+                                  : null,
+                                t.warning?.upper !== undefined
+                                  ? `warning atas: ${t.warning.upper}`
+                                  : null,
+                                t.critical?.lower !== undefined
+                                  ? `critical bawah: ${t.critical.lower}`
+                                  : null,
+                                t.critical?.upper !== undefined
+                                  ? `critical atas: ${t.critical.upper}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(", ") ||
+                                (t.operator && t.value !== undefined
+                                  ? `${t.severity || "warning"}: ${t.metricKey} ${t.operator} ${t.value}`
+                                  : "-")}
                             </div>
                           ))}
                         </div>
@@ -600,415 +1028,897 @@ export default function EnergyConfigsPage() {
               </Select>
             </div>
 
-              {/* Row 1: Tariff Mode + Capacity */}
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <Label className="text-xs">Tariff Mode *</Label>
-                  <Select
-                    value={form.tariffMode}
-                    onValueChange={(value) =>
-                      setForm({ ...form, tariffMode: value === "tou" ? "tou" : "flat" })
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Mode" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="flat" className="text-xs">Flat</SelectItem>
-                      <SelectItem value="tou" className="text-xs">TOU</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs">Max Load (kW)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={form.maxLoadKw}
-                    onChange={(e) => setForm({ ...form, maxLoadKw: e.target.value })}
-                    placeholder="5.5"
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Capacity (VA)</Label>
-                  <Input
-                    type="number"
-                    step="1"
-                    value={form.capacityVa}
-                    onChange={(e) => setForm({ ...form, capacityVa: e.target.value })}
-                    placeholder="22000"
-                    className="h-8 text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Row 2: Limit kWh */}
+            {/* Row 1: Tariff Mode + Capacity */}
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Limit Konsumsi Harian (kWh)</Label>
+                <Label className="text-xs">Tariff Mode *</Label>
+                <Select
+                  value={form.tariffMode}
+                  onValueChange={(value) =>
+                    setForm({
+                      ...form,
+                      tariffMode: value === "tou" ? "tou" : "flat",
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="flat" className="text-xs">
+                      Flat
+                    </SelectItem>
+                    <SelectItem value="tou" className="text-xs">
+                      TOU
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Capacity (VA)</Label>
                 <Input
                   type="number"
-                  value={form.upperLimitKwh}
-                  onChange={(e) => setForm({ ...form, upperLimitKwh: e.target.value })}
-                  placeholder="10000"
+                  step="1"
+                  value={form.capacityVa}
+                  onChange={(e) =>
+                    setForm({ ...form, capacityVa: e.target.value })
+                  }
+                  placeholder="22000"
                   className="h-8 text-xs"
                 />
               </div>
+            </div>
 
-              {/* FLAT ONLY: harga per kWh */}
-              {form.tariffMode === "flat" && (
-                <div>
-                  <Label className="text-xs">Harga per kWh (Rp) — Flat</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={form.flatPricePerKwh}
-                    onChange={(e) =>
-                      setForm({ ...form, flatPricePerKwh: e.target.value, pricePerKwh: e.target.value })
+            {/* FLAT ONLY: harga per kWh */}
+            {form.tariffMode === "flat" && (
+              <div>
+                <Label className="text-xs">Harga per kWh (Rp) — Flat</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={form.flatPricePerKwh}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      flatPricePerKwh: e.target.value,
+                      pricePerKwh: e.target.value,
+                    })
+                  }
+                  placeholder="1500"
+                  className="h-8 text-xs"
+                />
+              </div>
+            )}
+
+            {/* TOU ONLY: periods */}
+            {form.tariffMode === "tou" && (
+              <div className="rounded border p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <Label className="text-xs font-semibold">
+                    TOU Periods (WIB)
+                  </Label>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    className="h-6 text-xs"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        touPeriods: [
+                          ...form.touPeriods,
+                          {
+                            id: `tou-${Date.now()}`,
+                            label: "Custom",
+                            startTime: "00:00",
+                            endTime: "23:59",
+                            pricePerKwh: "",
+                          },
+                        ],
+                      })
                     }
-                    placeholder="1500"
-                    className="h-8 text-xs"
-                  />
+                  >
+                    <Plus className="mr-1 h-3 w-3" />
+                    Add Period
+                  </Button>
                 </div>
-              )}
+                <div className="grid grid-cols-12 gap-1 mb-1">
+                  <p className="col-span-3 text-[10px] text-muted-foreground">
+                    Label
+                  </p>
+                  <p className="col-span-3 text-[10px] text-muted-foreground">
+                    Mulai (WIB)
+                  </p>
+                  <p className="col-span-3 text-[10px] text-muted-foreground">
+                    Selesai (WIB)
+                  </p>
+                  <p className="col-span-2 text-[10px] text-muted-foreground">
+                    Rp/kWh
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {form.touPeriods.map((period, periodIndex) => (
+                    <div key={period.id} className="grid grid-cols-12 gap-2">
+                      <Input
+                        value={period.label}
+                        onChange={(e) => {
+                          const next = [...form.touPeriods];
+                          next[periodIndex].label = e.target.value;
+                          setForm({ ...form, touPeriods: next });
+                        }}
+                        placeholder="LWBP"
+                        className="col-span-3 h-8 text-xs"
+                      />
+                      <Input
+                        type="time"
+                        value={period.startTime}
+                        onChange={(e) => {
+                          const next = [...form.touPeriods];
+                          next[periodIndex].startTime = e.target.value;
+                          setForm({ ...form, touPeriods: next });
+                        }}
+                        className="col-span-3 h-8 text-xs"
+                      />
+                      <Input
+                        type="time"
+                        value={period.endTime}
+                        onChange={(e) => {
+                          const next = [...form.touPeriods];
+                          next[periodIndex].endTime = e.target.value;
+                          setForm({ ...form, touPeriods: next });
+                        }}
+                        className="col-span-3 h-8 text-xs"
+                      />
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={period.pricePerKwh}
+                        onChange={(e) => {
+                          const next = [...form.touPeriods];
+                          next[periodIndex].pricePerKwh = e.target.value;
+                          setForm({ ...form, touPeriods: next });
+                        }}
+                        placeholder="Rp/kWh"
+                        className="col-span-2 h-8 text-xs"
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        type="button"
+                        className="col-span-1 h-8 w-8 text-destructive"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            touPeriods: form.touPeriods.filter(
+                              (_, idx) => idx !== periodIndex,
+                            ),
+                          })
+                        }
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-              {/* TOU ONLY: periods */}
-              {form.tariffMode === "tou" && (
-                <div className="rounded border p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <Label className="text-xs font-semibold">TOU Periods (WIB)</Label>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      type="button"
-                      className="h-6 text-xs"
-                      onClick={() =>
-                        setForm({
-                          ...form,
-                          touPeriods: [
-                            ...form.touPeriods,
-                            { id: `tou-${Date.now()}`, label: "Custom", startTime: "00:00", endTime: "23:59", pricePerKwh: "" },
-                          ],
-                        })
-                      }
+            {/* Starting Point + Valid From */}
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <Label className="text-xs">Valid From</Label>
+                <Input
+                  type="datetime-local"
+                  value={form.validFrom}
+                  onChange={(e) =>
+                    setForm({ ...form, validFrom: e.target.value })
+                  }
+                  className="h-8 text-xs"
+                />
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        validFrom: toLocalDatetimeString(new Date()),
+                      })
+                    }
+                  >
+                    Berlaku Sekarang
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 1);
+                      d.setHours(0, 0, 0, 0);
+                      setForm({
+                        ...form,
+                        validFrom: toLocalDatetimeString(d),
+                      });
+                    }}
+                  >
+                    Mulai Besok 00:00
+                  </Button>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Sistem pakai config terbaru dengan validFrom yang sudah lewat
+                  waktu saat ini.
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Starting Point Datetime</Label>
+                <Input
+                  type="datetime-local"
+                  value={form.startPointStartAt}
+                  onChange={(e) =>
+                    setForm({ ...form, startPointStartAt: e.target.value })
+                  }
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Initial kWh</Label>
+                <Input
+                  type="number"
+                  step="0.0001"
+                  value={form.startPointInitialKwh}
+                  onChange={(e) =>
+                    setForm({ ...form, startPointInitialKwh: e.target.value })
+                  }
+                  placeholder="365.7645"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Alert Config UI */}
+            <div className="border-t pt-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">
+                  Alert Rules (UI)
+                </Label>
+              </div>
+
+              <div className="rounded-md border bg-muted/40 p-2 text-[11px] leading-relaxed text-muted-foreground">
+                <p className="font-medium text-foreground">Panduan isi:</p>
+                <p>1) Pilih period (1d/7d/30d) untuk kWh, kVArh, dan cost.</p>
+                <p>2) Isi batas bawah/atas untuk warning dan critical.</p>
+                <p>3) Kosongkan jika tidak ingin pakai batas tersebut.</p>
+                <p>4) Realtime pakai metricKey, bukan period.</p>
+                <p>
+                  5) Untuk metric power, input dalam kW (otomatis dikonversi ke
+                  W saat simpan).
+                </p>
+              </div>
+
+              <div className="rounded border p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">
+                    Consumption Thresholds (kWh)
+                  </Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        consumptionThresholds: [
+                          ...form.consumptionThresholds,
+                          createPeriodThreshold(),
+                        ],
+                      })
+                    }
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Add
+                  </Button>
+                </div>
+                {form.consumptionThresholds.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Belum ada rule.
+                  </p>
+                ) : (
+                  form.consumptionThresholds.map((row, idx) => (
+                    <div
+                      key={row.id}
+                      className="rounded-md border p-2 space-y-2"
                     >
-                      <Plus className="mr-1 h-3 w-3" />
-                      Add Period
-                    </Button>
-                  </div>
-                  <div className="grid grid-cols-12 gap-1 mb-1">
-                    <p className="col-span-3 text-[10px] text-muted-foreground">Label</p>
-                    <p className="col-span-3 text-[10px] text-muted-foreground">Mulai (WIB)</p>
-                    <p className="col-span-3 text-[10px] text-muted-foreground">Selesai (WIB)</p>
-                    <p className="col-span-2 text-[10px] text-muted-foreground">Rp/kWh</p>
-                  </div>
-                  <div className="space-y-2">
-                    {form.touPeriods.map((period, periodIndex) => (
-                      <div key={period.id} className="grid grid-cols-12 gap-2">
-                        <Input
-                          value={period.label}
-                          onChange={(e) => {
-                            const next = [...form.touPeriods];
-                            next[periodIndex].label = e.target.value;
-                            setForm({ ...form, touPeriods: next });
-                          }}
-                          placeholder="LWBP"
-                          className="col-span-3 h-8 text-xs"
-                        />
-                        <Input
-                          type="time"
-                          value={period.startTime}
-                          onChange={(e) => {
-                            const next = [...form.touPeriods];
-                            next[periodIndex].startTime = e.target.value;
-                            setForm({ ...form, touPeriods: next });
-                          }}
-                          className="col-span-3 h-8 text-xs"
-                        />
-                        <Input
-                          type="time"
-                          value={period.endTime}
-                          onChange={(e) => {
-                            const next = [...form.touPeriods];
-                            next[periodIndex].endTime = e.target.value;
-                            setForm({ ...form, touPeriods: next });
-                          }}
-                          className="col-span-3 h-8 text-xs"
-                        />
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={period.pricePerKwh}
-                          onChange={(e) => {
-                            const next = [...form.touPeriods];
-                            next[periodIndex].pricePerKwh = e.target.value;
-                            setForm({ ...form, touPeriods: next });
-                          }}
-                          placeholder="Rp/kWh"
-                          className="col-span-2 h-8 text-xs"
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
+                        <div>
+                          <Label className="text-[10px]">Period</Label>
+                          <Select
+                            value={row.period}
+                            onValueChange={(value) => {
+                              const next = [...form.consumptionThresholds];
+                              next[idx].period = value;
+                              setForm({ ...form, consumptionThresholds: next });
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PERIOD_OPTIONS.map((period) => (
+                                <SelectItem
+                                  key={period}
+                                  value={period}
+                                  className="text-xs"
+                                >
+                                  {period}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() =>
+                              setForm({
+                                ...form,
+                                consumptionThresholds:
+                                  form.consumptionThresholds.filter(
+                                    (_, i) => i !== idx,
+                                  ),
+                              })
+                            }
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-[10px]">Warning Bawah</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningLower}
+                            onChange={(e) => {
+                              const next = [...form.consumptionThresholds];
+                              next[idx].warningLower = e.target.value;
+                              setForm({ ...form, consumptionThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Warning Atas</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningUpper}
+                            onChange={(e) => {
+                              const next = [...form.consumptionThresholds];
+                              next[idx].warningUpper = e.target.value;
+                              setForm({ ...form, consumptionThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Critical Bawah</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalLower}
+                            onChange={(e) => {
+                              const next = [...form.consumptionThresholds];
+                              next[idx].criticalLower = e.target.value;
+                              setForm({ ...form, consumptionThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Critical Atas</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalUpper}
+                            onChange={(e) => {
+                              const next = [...form.consumptionThresholds];
+                              next[idx].criticalUpper = e.target.value;
+                              setForm({ ...form, consumptionThresholds: next });
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="rounded border p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">
+                    Reactive Thresholds (kVArh)
+                  </Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        reactiveConsumptionThresholds: [
+                          ...form.reactiveConsumptionThresholds,
+                          createPeriodThreshold(),
+                        ],
+                      })
+                    }
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Add
+                  </Button>
+                </div>
+                {form.reactiveConsumptionThresholds.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Belum ada rule.
+                  </p>
+                ) : (
+                  form.reactiveConsumptionThresholds.map((row, idx) => (
+                    <div
+                      key={row.id}
+                      className="rounded-md border p-2 space-y-2"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
+                        <div>
+                          <Label className="text-[10px]">Period</Label>
+                          <Select
+                            value={row.period}
+                            onValueChange={(value) => {
+                              const next = [
+                                ...form.reactiveConsumptionThresholds,
+                              ];
+                              next[idx].period = value;
+                              setForm({
+                                ...form,
+                                reactiveConsumptionThresholds: next,
+                              });
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PERIOD_OPTIONS.map((period) => (
+                                <SelectItem
+                                  key={period}
+                                  value={period}
+                                  className="text-xs"
+                                >
+                                  {period}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() =>
+                              setForm({
+                                ...form,
+                                reactiveConsumptionThresholds:
+                                  form.reactiveConsumptionThresholds.filter(
+                                    (_, i) => i !== idx,
+                                  ),
+                              })
+                            }
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-[10px]">Warning Bawah</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningLower}
+                            onChange={(e) => {
+                              const next = [
+                                ...form.reactiveConsumptionThresholds,
+                              ];
+                              next[idx].warningLower = e.target.value;
+                              setForm({
+                                ...form,
+                                reactiveConsumptionThresholds: next,
+                              });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Warning Atas</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningUpper}
+                            onChange={(e) => {
+                              const next = [
+                                ...form.reactiveConsumptionThresholds,
+                              ];
+                              next[idx].warningUpper = e.target.value;
+                              setForm({
+                                ...form,
+                                reactiveConsumptionThresholds: next,
+                              });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Critical Bawah</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalLower}
+                            onChange={(e) => {
+                              const next = [
+                                ...form.reactiveConsumptionThresholds,
+                              ];
+                              next[idx].criticalLower = e.target.value;
+                              setForm({
+                                ...form,
+                                reactiveConsumptionThresholds: next,
+                              });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Critical Atas</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalUpper}
+                            onChange={(e) => {
+                              const next = [
+                                ...form.reactiveConsumptionThresholds,
+                              ];
+                              next[idx].criticalUpper = e.target.value;
+                              setForm({
+                                ...form,
+                                reactiveConsumptionThresholds: next,
+                              });
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="rounded border p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">
+                    Cost Thresholds (Rp)
+                  </Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        costThresholds: [
+                          ...form.costThresholds,
+                          createPeriodThreshold(),
+                        ],
+                      })
+                    }
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Add
+                  </Button>
+                </div>
+                {form.costThresholds.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Belum ada rule.
+                  </p>
+                ) : (
+                  form.costThresholds.map((row, idx) => (
+                    <div
+                      key={row.id}
+                      className="rounded-md border p-2 space-y-2"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
+                        <div>
+                          <Label className="text-[10px]">Period</Label>
+                          <Select
+                            value={row.period}
+                            onValueChange={(value) => {
+                              const next = [...form.costThresholds];
+                              next[idx].period = value;
+                              setForm({ ...form, costThresholds: next });
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PERIOD_OPTIONS.map((period) => (
+                                <SelectItem
+                                  key={period}
+                                  value={period}
+                                  className="text-xs"
+                                >
+                                  {period}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() =>
+                              setForm({
+                                ...form,
+                                costThresholds: form.costThresholds.filter(
+                                  (_, i) => i !== idx,
+                                ),
+                              })
+                            }
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-[10px]">Warning Bawah</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningLower}
+                            onChange={(e) => {
+                              const next = [...form.costThresholds];
+                              next[idx].warningLower = e.target.value;
+                              setForm({ ...form, costThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Warning Atas</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningUpper}
+                            onChange={(e) => {
+                              const next = [...form.costThresholds];
+                              next[idx].warningUpper = e.target.value;
+                              setForm({ ...form, costThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Critical Bawah</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalLower}
+                            onChange={(e) => {
+                              const next = [...form.costThresholds];
+                              next[idx].criticalLower = e.target.value;
+                              setForm({ ...form, costThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Critical Atas</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalUpper}
+                            onChange={(e) => {
+                              const next = [...form.costThresholds];
+                              next[idx].criticalUpper = e.target.value;
+                              setForm({ ...form, costThresholds: next });
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="rounded border p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">
+                    Realtime Thresholds
+                  </Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        realtimeThresholds: [
+                          ...form.realtimeThresholds,
+                          createRealtimeThreshold(),
+                        ],
+                      })
+                    }
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Add
+                  </Button>
+                </div>
+                {form.realtimeThresholds.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Belum ada rule.
+                  </p>
+                ) : (
+                  form.realtimeThresholds.map((row, idx) => (
+                    <div
+                      key={row.id}
+                      className="rounded-md border p-2 space-y-2"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
+                        <div>
+                          <Label className="text-[10px]">Metric</Label>
+                          <Select
+                            value={row.metricKey}
+                            onValueChange={(value) => {
+                              const next = [...form.realtimeThresholds];
+                              next[idx].metricKey = value;
+                              setForm({ ...form, realtimeThresholds: next });
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {REALTIME_METRIC_OPTIONS.map((metric) => (
+                                <SelectItem
+                                  key={metric.value}
+                                  value={metric.value}
+                                  className="text-xs"
+                                >
+                                  {metric.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">
+                            Label (opsional)
+                          </Label>
+                          <Input
+                            className="h-8 text-xs"
+                            value={row.label}
+                            onChange={(e) => {
+                              const next = [...form.realtimeThresholds];
+                              next[idx].label = e.target.value;
+                              setForm({ ...form, realtimeThresholds: next });
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-[10px]">
+                            Warning Bawah{" "}
+                            {isPowerMetricKey(row.metricKey) ? "(kW)" : ""}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningLower}
+                            onChange={(e) => {
+                              const next = [...form.realtimeThresholds];
+                              next[idx].warningLower = e.target.value;
+                              setForm({ ...form, realtimeThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">
+                            Warning Atas{" "}
+                            {isPowerMetricKey(row.metricKey) ? "(kW)" : ""}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.warningUpper}
+                            onChange={(e) => {
+                              const next = [...form.realtimeThresholds];
+                              next[idx].warningUpper = e.target.value;
+                              setForm({ ...form, realtimeThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">
+                            Critical Bawah{" "}
+                            {isPowerMetricKey(row.metricKey) ? "(kW)" : ""}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalLower}
+                            onChange={(e) => {
+                              const next = [...form.realtimeThresholds];
+                              next[idx].criticalLower = e.target.value;
+                              setForm({ ...form, realtimeThresholds: next });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">
+                            Critical Atas{" "}
+                            {isPowerMetricKey(row.metricKey) ? "(kW)" : ""}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="h-8 text-xs"
+                            value={row.criticalUpper}
+                            onChange={(e) => {
+                              const next = [...form.realtimeThresholds];
+                              next[idx].criticalUpper = e.target.value;
+                              setForm({ ...form, realtimeThresholds: next });
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
                         <Button
+                          type="button"
                           size="icon"
                           variant="ghost"
-                          type="button"
-                          className="col-span-1 h-8 w-8 text-destructive"
+                          className="h-8 w-8 text-destructive"
                           onClick={() =>
-                            setForm({ ...form, touPeriods: form.touPeriods.filter((_, idx) => idx !== periodIndex) })
+                            setForm({
+                              ...form,
+                              realtimeThresholds:
+                                form.realtimeThresholds.filter(
+                                  (_, i) => i !== idx,
+                                ),
+                            })
                           }
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Starting Point + Valid From */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">Valid From</Label>
-                  <Input
-                    type="datetime-local"
-                    value={form.validFrom}
-                    onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Starting Point Datetime</Label>
-                  <Input
-                    type="datetime-local"
-                    value={form.startPointStartAt}
-                    onChange={(e) => setForm({ ...form, startPointStartAt: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Initial kWh</Label>
-                  <Input
-                    type="number"
-                    step="0.0001"
-                    value={form.startPointInitialKwh}
-                    onChange={(e) => setForm({ ...form, startPointInitialKwh: e.target.value })}
-                    placeholder="365.7645"
-                    className="h-8 text-xs"
-                  />
-                </div>
-              </div>
-
-            {/* Consumption Thresholds Section */}
-            <div className="border-t pt-3">
-              <div className="flex items-center justify-between mb-2">
-                <Label className="text-xs font-semibold">
-                  Consumption Thresholds (Multi-Period)
-                </Label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  type="button"
-                  className="h-6 text-xs"
-                  onClick={() => {
-                    const newThreshold = {
-                      id: `threshold-${Date.now()}`,
-                      period: "7d",
-                      thresholds: [
-                        { value: "", severity: "warning" },
-                        { value: "", severity: "critical" },
-                      ],
-                    };
-                    setForm({
-                      ...form,
-                      consumptionThresholds: [
-                        ...form.consumptionThresholds,
-                        newThreshold,
-                      ],
-                    });
-                  }}
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Add Period
-                </Button>
-              </div>
-
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {form.consumptionThresholds.map((ct, ctIdx) => (
-                  <div key={ct.id} className="border rounded p-2">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Label className="text-xs w-16">Period:</Label>
-                      <Select
-                        value={ct.period}
-                        onValueChange={(value) => {
-                          const updated = [...form.consumptionThresholds];
-                          updated[ctIdx].period = value;
-                          setForm({ ...form, consumptionThresholds: updated });
-                        }}
-                      >
-                        <SelectTrigger className="h-6 text-xs flex-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1d" className="text-xs">
-                            Daily (1d)
-                          </SelectItem>
-                          <SelectItem value="7d" className="text-xs">
-                            Weekly (7d)
-                          </SelectItem>
-                          <SelectItem value="30d" className="text-xs">
-                            Monthly (30d)
-                          </SelectItem>
-                          <SelectItem value="90d" className="text-xs">
-                            Quarterly (90d)
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        type="button"
-                        className="h-6 w-6 text-destructive"
-                        onClick={() => {
-                          setForm({
-                            ...form,
-                            consumptionThresholds:
-                              form.consumptionThresholds.filter(
-                                (_, i) => i !== ctIdx
-                              ),
-                          });
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
                     </div>
-
-                    <div className="space-y-1">
-                      {ct.thresholds.map((th, thIdx) => (
-                        <div
-                          key={`${ct.id}-${thIdx}`}
-                          className="flex items-center gap-2"
-                        >
-                          <Label className="text-xs w-20">
-                            {th.severity}:
-                          </Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={th.value}
-                            onChange={(e) => {
-                              const updated = [...form.consumptionThresholds];
-                              updated[ctIdx].thresholds[thIdx].value =
-                                e.target.value;
-                              setForm({
-                                ...form,
-                                consumptionThresholds: updated,
-                              });
-                            }}
-                            placeholder="500 kWh"
-                            className="h-6 text-xs flex-1"
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            kWh
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Cost Thresholds Section */}
-            <div className="border-t pt-3">
-              <div className="flex items-center justify-between mb-2">
-                <Label className="text-xs font-semibold">
-                  Cost Thresholds (Periode Biaya)
-                </Label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  type="button"
-                  className="h-6 text-xs"
-                  onClick={() => {
-                    const newThreshold = {
-                      id: `cost-threshold-${Date.now()}`,
-                      period: "7d",
-                      thresholds: [
-                        { value: "", severity: "warning" },
-                        { value: "", severity: "critical" },
-                      ],
-                    };
-                    setForm({
-                      ...form,
-                      costThresholds: [...form.costThresholds, newThreshold],
-                    });
-                  }}
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Add Period
-                </Button>
-              </div>
-
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {form.costThresholds.map((ct, ctIdx) => (
-                  <div key={ct.id} className="border rounded p-2">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Label className="text-xs w-16">Period:</Label>
-                      <Select
-                        value={ct.period}
-                        onValueChange={(value) => {
-                          const updated = [...form.costThresholds];
-                          updated[ctIdx].period = value;
-                          setForm({ ...form, costThresholds: updated });
-                        }}
-                      >
-                        <SelectTrigger className="h-6 text-xs flex-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1d" className="text-xs">Daily (1d)</SelectItem>
-                          <SelectItem value="7d" className="text-xs">Weekly (7d)</SelectItem>
-                          <SelectItem value="30d" className="text-xs">Monthly (30d)</SelectItem>
-                          <SelectItem value="90d" className="text-xs">Quarterly (90d)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        type="button"
-                        className="h-6 w-6 text-destructive"
-                        onClick={() => {
-                          setForm({
-                            ...form,
-                            costThresholds: form.costThresholds.filter((_, i) => i !== ctIdx),
-                          });
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-
-                    <div className="space-y-1">
-                      {ct.thresholds.map((th, thIdx) => (
-                        <div key={`${ct.id}-${thIdx}`} className="flex items-center gap-2">
-                          <Label className="text-xs w-20">{th.severity}:</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={th.value}
-                            onChange={(e) => {
-                              const updated = [...form.costThresholds];
-                              updated[ctIdx].thresholds[thIdx].value = e.target.value;
-                              setForm({ ...form, costThresholds: updated });
-                            }}
-                            placeholder="1000000"
-                            className="h-6 text-xs flex-1"
-                          />
-                          <span className="text-xs text-muted-foreground">Rp</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>
