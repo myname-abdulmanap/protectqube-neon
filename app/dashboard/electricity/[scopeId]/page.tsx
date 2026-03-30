@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, BarChart2, Database } from 'lucide-react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { RealtimePowerCard } from '@/components/electricity/detail/RealtimePowerCard';
-import { PowerMeterCard } from '@/components/electricity/detail/PowerMeterCard';
+import { PowerMeterCard, type TarifValues } from '@/components/electricity/detail/PowerMeterCard';
 import { TrendChartCard } from '@/components/electricity/detail/TrendChartCard';
 import { PowerChartCard } from '@/components/electricity/detail/PowerChartCard';
 import { EnergyChartCard } from '@/components/electricity/detail/EnergyChartCard';
@@ -16,7 +16,15 @@ import { OutletProfileCard } from '@/components/electricity/detail/OutletProfile
 import { HourlyEnergyCard } from '@/components/electricity/detail/HourlyEnergyCard';
 import { DateFilter, type DateRange, buildRange, rangeDateLabel } from '@/components/electricity/detail/DateFilter';
 import { DataLoadingOverlay } from '@/components/electricity/detail/DataLoadingOverlay';
-import { deviceMetricsApi, energyDashboardApi, ExportProcessedHourBucket, type EnergyOutletDetail } from '@/lib/api';
+import {
+	deviceMetricsApi,
+	energyDashboardApi,
+	energyConfigsApi,
+	ExportProcessedHourBucket,
+	type EnergyOutletDetail,
+	type EnergyConfig,
+	type HourlyDailyEnergyData,
+} from '@/lib/api';
 import { exportToExcel, exportToPdf } from '@/lib/report-export';
 import {
 	ExportModal,
@@ -205,6 +213,9 @@ export default function ElectricityOutletDetailPage() {
 	const [isMounted, setIsMounted] = useState(false);
 	const [refreshTick, setRefreshTick] = useState(0);
 
+	const [energyConfig, setEnergyConfig] = useState<EnergyConfig | null>(null);
+	const [hourlyEnergyData, setHourlyEnergyData] = useState<HourlyDailyEnergyData | null>(null);
+
 	useEffect(() => {
 		setIsMounted(true);
 	}, []);
@@ -230,7 +241,7 @@ export default function ElectricityOutletDetailPage() {
 					return;
 				}
 				const payload = adaptApiResponse(res.data);
-				if (isInitial) setDetail(payload);
+				setDetail(payload);
 				setTimeSeries(payload.timeSeries);
 			} catch (e: unknown) {
 				setError(e instanceof Error ? e.message : 'Error loading outlet');
@@ -245,6 +256,29 @@ export default function ElectricityOutletDetailPage() {
 	useEffect(() => {
 		void fetchForRange(buildRange('today'), true);
 	}, [fetchForRange]);
+
+	// Fetch energy config once
+	useEffect(() => {
+		energyConfigsApi.getAll(scopeId).then((res) => {
+			if (res.success && res.data?.length) {
+				// Get most recent valid config
+				const sorted = [...res.data].sort(
+					(a, b) => new Date(b.validFrom).getTime() - new Date(a.validFrom).getTime(),
+				);
+				setEnergyConfig(sorted[0]);
+			}
+		});
+	}, [scopeId]);
+
+	// Fetch hourly data for TOU cost calculation when date range changes
+	useEffect(() => {
+		if (!energyConfig?.config?.tariff || energyConfig.config.tariff.mode !== 'tou') return;
+		const from = dateRange.from ?? new Date(Date.now() - 86400000).toISOString();
+		const to = dateRange.to ?? new Date().toISOString();
+		energyDashboardApi.getHourlyDailyEnergy(scopeId, from, to).then((res) => {
+			if (res.success && res.data) setHourlyEnergyData(res.data);
+		});
+	}, [scopeId, energyConfig, dateRange]);
 
 	const handleDateRangeChange = (range: DateRange) => {
 		setDateRange(range);
@@ -343,6 +377,61 @@ export default function ElectricityOutletDetailPage() {
 			penaltyKvarh,
 		};
 	}, [detail?.startingPoint, latestMetrics]);
+
+	const tarifValues = useMemo(() => {
+		if (!energyConfig) return { lwbp: null, wbp: null, totalTarif: null };
+
+		const tariff = energyConfig.config?.tariff;
+		const totalKwh = detail?.analytics.totalEnergyKwh ?? 0;
+
+		if (!tariff || tariff.mode === 'flat') {
+			// Flat: total cost = totalKwh × flatPrice
+			const price = tariff?.flatPricePerKwh ?? energyConfig.pricePerKwh ?? 0;
+			const totalCost = totalKwh * price;
+			return { lwbp: null, wbp: null, totalTarif: totalCost > 0 ? totalCost : null };
+		}
+
+		// TOU: accumulate per hour
+		if (!tariff.touPeriods?.length || !hourlyEnergyData?.days.length) {
+			return { lwbp: null, wbp: null, totalTarif: null };
+		}
+
+		const isHourInPeriod = (hour: number, startTime: string, endTime: string): boolean => {
+			const [sh] = startTime.split(':').map(Number);
+			const [eh] = endTime.split(':').map(Number);
+			if (sh < eh) return hour >= sh && hour < eh;
+			if (sh > eh) return hour >= sh || hour < eh; // overnight
+			return true; // same = full day
+		};
+
+		let lwbpCost = 0;
+		let wbpCost = 0;
+		let otherCost = 0;
+
+		for (const day of hourlyEnergyData.days) {
+			for (const h of day.hours) {
+				if (!h.hasData || h.energyKwh <= 0) continue;
+				for (const period of tariff.touPeriods) {
+					if (!period.startTime || !period.endTime) continue;
+					if (isHourInPeriod(h.hour, period.startTime, period.endTime)) {
+						const cost = h.energyKwh * (period.pricePerKwh ?? 0);
+						const labelUpper = (period.label ?? '').toUpperCase();
+						if (labelUpper.includes('LWBP')) lwbpCost += cost;
+						else if (labelUpper.includes('WBP')) wbpCost += cost;
+						else otherCost += cost;
+						break;
+					}
+				}
+			}
+		}
+
+		const totalTarif = lwbpCost + wbpCost + otherCost;
+		return {
+			lwbp: lwbpCost > 0 ? lwbpCost : null,
+			wbp: wbpCost > 0 ? wbpCost : null,
+			totalTarif: totalTarif > 0 ? totalTarif : null,
+		};
+	}, [energyConfig, detail?.analytics.totalEnergyKwh, hourlyEnergyData]);
 
 	const handleExportProcessed = async (format: ExportFormat, period: ExportPeriod) => {
 		if (!detail) return;
@@ -838,7 +927,7 @@ export default function ElectricityOutletDetailPage() {
 						dateRangeLabel={overlayLabel}
 					/>
 					<div className='lg:col-span-2'>
-						<PowerMeterCard values={pmValues} tarif={{ lwbp: null, wbp: null, totalTarif: null }} />
+						<PowerMeterCard values={pmValues} tarif={tarifValues} />
 					</div>
 				</motion.div>
 

@@ -1443,6 +1443,21 @@ export const alertEventsApi = {
 		const response = await apiClient.patch<ApiResponse<AlertEvent>>(`/alert-events/${id}/action`, data);
 		return response.data;
 	},
+	bulkUpdateAction: async (data: {
+		actionKey: string;
+		filterActionKey?: string;
+	}): Promise<ApiResponse<{ updatedCount: number }>> => {
+		const response = await apiClient.patch<ApiResponse<{ updatedCount: number }>>('/alert-events/bulk-action', data);
+		return response.data;
+	},
+	deleteOne: async (id: string): Promise<ApiResponse<void>> => {
+		const response = await apiClient.delete<ApiResponse<void>>(`/alert-events/${id}`);
+		return response.data;
+	},
+	bulkDelete: async (ids: string[]): Promise<ApiResponse<{ deletedCount: number }>> => {
+		const response = await apiClient.delete<ApiResponse<{ deletedCount: number }>>('/alert-events/bulk-delete', { data: { ids } });
+		return response.data;
+	},
 };
 
 export const alertActionsApi = {

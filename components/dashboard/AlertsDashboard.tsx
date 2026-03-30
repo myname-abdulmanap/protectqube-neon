@@ -3,14 +3,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
-  Monitor,
-  Wifi,
-  Bell,
   ShieldAlert,
   Info,
   AlertTriangle,
   Search,
-  Filter,
   MapPin,
   Camera,
   Clock,
@@ -18,14 +14,6 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import {
   alertEventsApi,
   alertActionsApi,
@@ -357,17 +345,27 @@ function buildAlertDetail(
   };
 }
 
-export function AlertsDashboard() {
+export function AlertsDashboard({
+  filterOutlet = "all",
+  onFilterOutletChange = () => {},
+  filterDevice = "all",
+  onFilterDeviceChange = () => {},
+  searchTerm = "",
+  onSearchTermChange = () => {},
+}: {
+  filterOutlet?: string;
+  onFilterOutletChange?: (value: string) => void;
+  filterDevice?: string;
+  onFilterDeviceChange?: (value: string) => void;
+  searchTerm?: string;
+  onSearchTermChange?: (value: string) => void;
+} = {}) {
   const realtime = useRealtimeContext();
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [outlets, setOutlets] = useState<OutletData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [severityConfigs, setSeverityConfigs] = useState<SeverityConfig[]>([]);
-
-  const [filterOutlet, setFilterOutlet] = useState("all");
-  const [filterDevice, setFilterDevice] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
   const [selectedAlert, setSelectedAlert] = useState<AlertEvent | null>(null);
   const [actions, setActions] = useState<AlertAction[]>([]);
 
@@ -375,8 +373,11 @@ export function AlertsDashboard() {
 
   const getApiErrorMessage = (err: unknown, fallback: string): string => {
     if (typeof err === "object" && err !== null) {
-      const maybeResponse = (err as { response?: { data?: { error?: string; message?: string } } }).response;
-      const apiError = maybeResponse?.data?.error || maybeResponse?.data?.message;
+      const maybeResponse = (
+        err as { response?: { data?: { error?: string; message?: string } } }
+      ).response;
+      const apiError =
+        maybeResponse?.data?.error || maybeResponse?.data?.message;
       if (apiError) return apiError;
     }
     return fallback;
@@ -387,12 +388,13 @@ export function AlertsDashboard() {
       setIsLoading(true);
       setError(null);
       try {
-        const [outletsRes, alertsRes, actionsRes, severitiesRes] = await Promise.all([
-          energyDashboardApi.getOutlets(),
-          alertEventsApi.getAll({ actionKey: "open", limit: 100 }),
-          alertActionsApi.getAll(),
-          severityConfigsApi.getAll(),
-        ]);
+        const [outletsRes, alertsRes, actionsRes, severitiesRes] =
+          await Promise.all([
+            energyDashboardApi.getOutlets(),
+            alertEventsApi.getAll({ actionKey: "open", limit: 100 }),
+            alertActionsApi.getAll(),
+            severityConfigsApi.getAll(),
+          ]);
 
         if (outletsRes.success && outletsRes.data) {
           setOutlets(outletsRes.data);
@@ -463,39 +465,24 @@ export function AlertsDashboard() {
   };
 
   const handleActionUpdateAll = async (actionKey: string): Promise<boolean> => {
-    if (alerts.length === 0) return true;
-
-    const results = await Promise.allSettled(
-      alerts.map((target) =>
-        alertEventsApi.updateAction(target.id, { actionKey }),
-      ),
-    );
-
-    const successIds: string[] = [];
-    let failedCount = 0;
-
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled" && result.value.success) {
-        successIds.push(alerts[index].id);
-      } else {
-        failedCount += 1;
-      }
-    });
-
-    if (successIds.length > 0) {
-      setAlerts((prev) => prev.filter((a) => !successIds.includes(a.id)));
-      if (selectedAlert && successIds.includes(selectedAlert.id)) {
+    try {
+      const result = await alertEventsApi.bulkUpdateAction({
+        actionKey,
+        filterActionKey: "open", // only update currently-open alerts
+      });
+      if (result.success) {
+        // Clear all alerts from the active list
+        setAlerts([]);
         setSelectedAlert(null);
+        return true;
       }
-    }
-
-    if (failedCount > 0) {
-      setError(`Failed to update ${failedCount} alert(s). Please retry.`);
+      setError(result.error || "Failed to bulk update alerts");
+      return false;
+    } catch (err) {
+      console.error("Failed to bulk update alert actions:", err);
+      setError(getApiErrorMessage(err, "Failed to bulk update alert actions"));
       return false;
     }
-
-    setError(null);
-    return true;
   };
 
   const nonDefaultActions = useMemo(() => {
@@ -616,37 +603,6 @@ export function AlertsDashboard() {
     return grouped;
   }, [filteredAlerts]);
 
-  const summaryCards = [
-    {
-      key: "totalDevices",
-      label: "Total Devices",
-      value: stats.totalDevices,
-      icon: Monitor,
-      bg: "bg-purple-600",
-    },
-    {
-      key: "activeDevices",
-      label: "Active Devices",
-      value: stats.activeDevices,
-      icon: Wifi,
-      bg: "bg-green-600",
-    },
-    {
-      key: "alertsToday",
-      label: "Alerts Today",
-      value: stats.alertsToday,
-      icon: Bell,
-      bg: "bg-violet-600",
-    },
-    {
-      key: "allAlerts",
-      label: "Total Alerts",
-      value: stats.allAlerts,
-      icon: ShieldAlert,
-      bg: "bg-red-600",
-    },
-  ] as const;
-
   const selectedDetail = useMemo(() => {
     if (!selectedAlert) return null;
     return buildAlertDetail(selectedAlert, outletNameByScopeId, minioBucketUrl);
@@ -657,114 +613,10 @@ export function AlertsDashboard() {
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="flex h-full flex-col gap-3"
+      className="flex h-full flex-col gap-2"
     >
-      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-        {summaryCards.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Card
-              key={item.key}
-              className={`rounded-xl border-0 shadow-sm ${item.bg} text-white`}
-            >
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/20">
-                    <Icon className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-[10px] leading-tight text-white/85">
-                      {item.label}
-                    </p>
-                    <p className="mt-1 text-xl font-extrabold leading-none">
-                      {item.value}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </motion.div>
-
-      <motion.div variants={itemVariants}>
-        <Card className="rounded-xl border border-border/70 shadow-sm">
-          <CardContent className="p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                <Filter className="h-3.5 w-3.5" />
-                <span className="font-semibold">Filters:</span>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <MapPin className="h-3 w-3 text-muted-foreground" />
-                <Select value={filterOutlet} onValueChange={setFilterOutlet}>
-                  <SelectTrigger size="sm" className="h-8 w-[180px] text-xs">
-                    <SelectValue placeholder="All Outlets" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="text-xs">
-                      All Outlets
-                    </SelectItem>
-                    {outletOptions.map((outletName) => (
-                      <SelectItem
-                        key={outletName}
-                        value={outletName}
-                        className="text-xs"
-                      >
-                        {outletName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <Camera className="h-3 w-3 text-muted-foreground" />
-                <Select value={filterDevice} onValueChange={setFilterDevice}>
-                  <SelectTrigger size="sm" className="h-8 w-[200px] text-xs">
-                    <SelectValue placeholder="All Devices" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="text-xs">
-                      All Devices
-                    </SelectItem>
-                    {devices.map((device) => (
-                      <SelectItem
-                        key={device.id}
-                        value={device.id}
-                        className="text-xs"
-                      >
-                        {device.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="relative min-w-[180px] flex-1 max-w-[260px]">
-                <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search alerts"
-                  className="h-8 pl-7 text-xs"
-                />
-              </div>
-
-              <Badge
-                variant="outline"
-                className="ml-auto h-6 px-2 text-[10px]"
-              >
-                {filteredAlerts.length} / {stats.allAlerts} alerts
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      <motion.div variants={itemVariants} className="min-h-0 flex-1">
-        <ScrollArea className="h-[calc(100vh-270px)]">
+      <motion.div variants={itemVariants} className="flex-1 min-h-0">
+        <ScrollArea className="h-full">
           <div className="space-y-5 pr-2">
             {isLoading && (
               <div className="text-center py-12 text-muted-foreground text-xs">
@@ -790,12 +642,8 @@ export function AlertsDashboard() {
                 return (
                   <div key={section.key}>
                     <div className="mb-2 flex items-center gap-2">
-                      <SectionIcon
-                        className={`h-4 w-4 ${section.iconColor}`}
-                      />
-                      <h3 className="text-sm font-semibold">
-                        {section.label}
-                      </h3>
+                      <SectionIcon className={`h-4 w-4 ${section.iconColor}`} />
+                      <h3 className="text-sm font-semibold">{section.label}</h3>
                       <Badge
                         variant="outline"
                         className={`h-5 px-2 text-[10px] ${section.badgeTone}`}
@@ -804,23 +652,18 @@ export function AlertsDashboard() {
                       </Badge>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
                       {sectionAlerts.map((alert) => {
                         const outletName = getOutletName(
                           alert,
                           outletNameByScopeId,
                         );
-                        const areaName =
-                          alert.device?.locationName ||
-                          readString(toRecord(alert.metadata), [
-                            "area",
-                            "locationName",
-                          ]) ||
-                          "-";
                         const severityInfo = severityColorMap[alert.severity];
-                        const severityBgColor = severityInfo?.color || "#EF4444";
+                        const severityBgColor =
+                          severityInfo?.color || "#EF4444";
                         const severityTextLabel =
-                          severityInfo?.label || normalizeSeverityLabel(alert.severity);
+                          severityInfo?.label ||
+                          normalizeSeverityLabel(alert.severity);
 
                         return (
                           <motion.div
@@ -832,17 +675,13 @@ export function AlertsDashboard() {
                             onClick={() => setSelectedAlert(alert)}
                           >
                             <Card
-                              className={`h-full border ${section.borderTone} ${section.cardTone} rounded-xl shadow-sm transition-all`}
+                              className={`h-full border ${section.borderTone} ${section.cardTone} rounded-lg shadow-sm transition-all`}
                             >
-                              <CardContent className="flex h-full min-h-[150px] flex-col gap-2 p-3">
+                              <CardContent className="flex h-full min-h-[90px] flex-col gap-1 p-1.5">
                                 <div className="flex items-center justify-between">
-                                  <div
-                                    className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${section.cardTone}`}
-                                  >
-                                    <SectionIcon
-                                      className={`h-3.5 w-3.5 ${section.textTone}`}
-                                    />
-                                  </div>
+                                  <p className="line-clamp-1 text-xs font-semibold leading-tight flex-1 min-w-0 mr-1">
+                                    {alert.title || alert.alertType}
+                                  </p>
                                   <Badge
                                     variant="outline"
                                     style={{
@@ -850,43 +689,37 @@ export function AlertsDashboard() {
                                       borderColor: severityBgColor,
                                       color: severityBgColor,
                                     }}
-                                    className="h-5 px-2 text-[10px]"
+                                    className="h-4 px-1.5 text-[9px] flex-shrink-0"
                                   >
                                     {severityTextLabel}
                                   </Badge>
                                 </div>
 
-                                <p className="line-clamp-2 text-sm font-semibold leading-tight">
-                                  {alert.title || alert.alertType}
-                                </p>
-
-                                <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                                <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
                                   {alert.description || "No detail provided"}
                                 </p>
 
-                                <div className="mt-auto space-y-1 text-[11px]">
-                                  <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                                    <Camera className="h-3 w-3 flex-shrink-0" />
+                                <div className="mt-auto space-y-0.5 text-[10px]">
+                                  <div className="flex min-w-0 items-center gap-1 text-muted-foreground">
+                                    <Camera className="h-2.5 w-2.5 flex-shrink-0" />
                                     <span className="truncate font-medium text-foreground">
                                       {alert.device?.name ||
                                         `Device ${alert.deviceId}`}
                                     </span>
                                   </div>
-                                  <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                                    <MapPin className="h-3 w-3 flex-shrink-0" />
+                                  <div className="flex min-w-0 items-center gap-1 text-muted-foreground">
+                                    <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
                                     <span className="truncate">
-                                      {outletName} - {areaName}
+                                      {outletName}
                                     </span>
                                   </div>
-                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                                    <Clock className="h-3 w-3 flex-shrink-0" />
+                                  <div className="flex items-center gap-1 text-muted-foreground">
+                                    <Clock className="h-2.5 w-2.5 flex-shrink-0" />
                                     <span>
                                       {formatDistance(
                                         new Date(alert.timestamp),
                                         new Date(),
-                                        {
-                                          addSuffix: true,
-                                        },
+                                        { addSuffix: true },
                                       )}
                                     </span>
                                   </div>

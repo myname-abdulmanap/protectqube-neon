@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,7 +36,7 @@ import {
   type Scope,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Pencil, Trash2, Plus, Zap } from "lucide-react";
+import { History, Pencil, Trash2, Plus, Zap } from "lucide-react";
 
 export default function EnergyConfigsPage() {
   const { hasPermission } = useAuth();
@@ -414,6 +415,12 @@ export default function EnergyConfigsPage() {
               </SelectContent>
             </Select>
           </div>
+          <Button size="sm" variant="outline" asChild className="h-8 text-xs">
+            <Link href="/dashboard/energy-configs/history">
+              <History className="mr-1 h-3 w-3" />
+              History
+            </Link>
+          </Button>
           <Button
             size="sm"
             onClick={openCreate}
@@ -592,192 +599,188 @@ export default function EnergyConfigsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-4 gap-3">
-              <div>
-                <Label className="text-xs">Tariff Mode *</Label>
-                <Select
-                  value={form.tariffMode}
-                  onValueChange={(value) =>
-                    setForm({ ...form, tariffMode: value === "tou" ? "tou" : "flat" })
-                  }
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Select tariff mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="flat" className="text-xs">Flat</SelectItem>
-                    <SelectItem value="tou" className="text-xs">TOU</SelectItem>
-                  </SelectContent>
-                </Select>
+
+              {/* Row 1: Tariff Mode + Capacity */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-xs">Tariff Mode *</Label>
+                  <Select
+                    value={form.tariffMode}
+                    onValueChange={(value) =>
+                      setForm({ ...form, tariffMode: value === "tou" ? "tou" : "flat" })
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="flat" className="text-xs">Flat</SelectItem>
+                      <SelectItem value="tou" className="text-xs">TOU</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Max Load (kW)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.maxLoadKw}
+                    onChange={(e) => setForm({ ...form, maxLoadKw: e.target.value })}
+                    placeholder="5.5"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Capacity (VA)</Label>
+                  <Input
+                    type="number"
+                    step="1"
+                    value={form.capacityVa}
+                    onChange={(e) => setForm({ ...form, capacityVa: e.target.value })}
+                    placeholder="22000"
+                    className="h-8 text-xs"
+                  />
+                </div>
               </div>
+
+              {/* Row 2: Limit kWh */}
               <div>
-                <Label className="text-xs">Flat Price/kWh</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={form.flatPricePerKwh}
-                  onChange={(e) =>
-                    setForm({ ...form, flatPricePerKwh: e.target.value, pricePerKwh: e.target.value })
-                  }
-                  placeholder="1500"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Max Load (kW)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={form.maxLoadKw}
-                  onChange={(e) =>
-                    setForm({ ...form, maxLoadKw: e.target.value })
-                  }
-                  placeholder="5.5"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Capacity (VA)</Label>
-                <Input
-                  type="number"
-                  step="1"
-                  value={form.capacityVa}
-                  onChange={(e) =>
-                    setForm({ ...form, capacityVa: e.target.value })
-                  }
-                  placeholder="22000"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Capacity (kWh)</Label>
+                <Label className="text-xs">Limit Konsumsi Harian (kWh)</Label>
                 <Input
                   type="number"
                   value={form.upperLimitKwh}
-                  onChange={(e) =>
-                    setForm({ ...form, upperLimitKwh: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, upperLimitKwh: e.target.value })}
                   placeholder="10000"
                   className="h-8 text-xs"
                 />
               </div>
-            </div>
 
-            {form.tariffMode === "tou" && (
-              <div className="rounded border p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <Label className="text-xs font-semibold">TOU Periods (WIB)</Label>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    type="button"
-                    className="h-6 text-xs"
-                    onClick={() => {
-                      setForm({
-                        ...form,
-                        touPeriods: [
-                          ...form.touPeriods,
-                          {
-                            id: `tou-${Date.now()}`,
-                            label: "Custom",
-                            startTime: "00:00",
-                            endTime: "23:59",
-                            pricePerKwh: "",
-                          },
-                        ],
-                      });
-                    }}
-                  >
-                    <Plus className="mr-1 h-3 w-3" />
-                    Add TOU
-                  </Button>
+              {/* FLAT ONLY: harga per kWh */}
+              {form.tariffMode === "flat" && (
+                <div>
+                  <Label className="text-xs">Harga per kWh (Rp) — Flat</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.flatPricePerKwh}
+                    onChange={(e) =>
+                      setForm({ ...form, flatPricePerKwh: e.target.value, pricePerKwh: e.target.value })
+                    }
+                    placeholder="1500"
+                    className="h-8 text-xs"
+                  />
                 </div>
+              )}
 
-                <div className="space-y-2">
-                  {form.touPeriods.map((period, periodIndex) => (
-                    <div key={period.id} className="grid grid-cols-12 gap-2">
-                      <Input
-                        value={period.label}
-                        onChange={(e) => {
-                          const next = [...form.touPeriods];
-                          next[periodIndex].label = e.target.value;
-                          setForm({ ...form, touPeriods: next });
-                        }}
-                        placeholder="LWBP"
-                        className="col-span-3 h-8 text-xs"
-                      />
-                      <Input
-                        type="time"
-                        value={period.startTime}
-                        onChange={(e) => {
-                          const next = [...form.touPeriods];
-                          next[periodIndex].startTime = e.target.value;
-                          setForm({ ...form, touPeriods: next });
-                        }}
-                        className="col-span-3 h-8 text-xs"
-                      />
-                      <Input
-                        type="time"
-                        value={period.endTime}
-                        onChange={(e) => {
-                          const next = [...form.touPeriods];
-                          next[periodIndex].endTime = e.target.value;
-                          setForm({ ...form, touPeriods: next });
-                        }}
-                        className="col-span-3 h-8 text-xs"
-                      />
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={period.pricePerKwh}
-                        onChange={(e) => {
-                          const next = [...form.touPeriods];
-                          next[periodIndex].pricePerKwh = e.target.value;
-                          setForm({ ...form, touPeriods: next });
-                        }}
-                        placeholder="Rp/kWh"
-                        className="col-span-2 h-8 text-xs"
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        type="button"
-                        className="col-span-1 h-8 w-8 text-destructive"
-                        onClick={() => {
-                          setForm({
-                            ...form,
-                            touPeriods: form.touPeriods.filter((_, idx) => idx !== periodIndex),
-                          });
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ))}
+              {/* TOU ONLY: periods */}
+              {form.tariffMode === "tou" && (
+                <div className="rounded border p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <Label className="text-xs font-semibold">TOU Periods (WIB)</Label>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      className="h-6 text-xs"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          touPeriods: [
+                            ...form.touPeriods,
+                            { id: `tou-${Date.now()}`, label: "Custom", startTime: "00:00", endTime: "23:59", pricePerKwh: "" },
+                          ],
+                        })
+                      }
+                    >
+                      <Plus className="mr-1 h-3 w-3" />
+                      Add Period
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-12 gap-1 mb-1">
+                    <p className="col-span-3 text-[10px] text-muted-foreground">Label</p>
+                    <p className="col-span-3 text-[10px] text-muted-foreground">Mulai (WIB)</p>
+                    <p className="col-span-3 text-[10px] text-muted-foreground">Selesai (WIB)</p>
+                    <p className="col-span-2 text-[10px] text-muted-foreground">Rp/kWh</p>
+                  </div>
+                  <div className="space-y-2">
+                    {form.touPeriods.map((period, periodIndex) => (
+                      <div key={period.id} className="grid grid-cols-12 gap-2">
+                        <Input
+                          value={period.label}
+                          onChange={(e) => {
+                            const next = [...form.touPeriods];
+                            next[periodIndex].label = e.target.value;
+                            setForm({ ...form, touPeriods: next });
+                          }}
+                          placeholder="LWBP"
+                          className="col-span-3 h-8 text-xs"
+                        />
+                        <Input
+                          type="time"
+                          value={period.startTime}
+                          onChange={(e) => {
+                            const next = [...form.touPeriods];
+                            next[periodIndex].startTime = e.target.value;
+                            setForm({ ...form, touPeriods: next });
+                          }}
+                          className="col-span-3 h-8 text-xs"
+                        />
+                        <Input
+                          type="time"
+                          value={period.endTime}
+                          onChange={(e) => {
+                            const next = [...form.touPeriods];
+                            next[periodIndex].endTime = e.target.value;
+                            setForm({ ...form, touPeriods: next });
+                          }}
+                          className="col-span-3 h-8 text-xs"
+                        />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={period.pricePerKwh}
+                          onChange={(e) => {
+                            const next = [...form.touPeriods];
+                            next[periodIndex].pricePerKwh = e.target.value;
+                            setForm({ ...form, touPeriods: next });
+                          }}
+                          placeholder="Rp/kWh"
+                          className="col-span-2 h-8 text-xs"
+                        />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          type="button"
+                          className="col-span-1 h-8 w-8 text-destructive"
+                          onClick={() =>
+                            setForm({ ...form, touPeriods: form.touPeriods.filter((_, idx) => idx !== periodIndex) })
+                          }
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-            <div className="grid grid-cols-1 gap-3">
-              <div>
-                <Label className="text-xs">Valid From</Label>
-                <Input
-                  type="datetime-local"
-                  value={form.validFrom}
-                  onChange={(e) =>
-                    setForm({ ...form, validFrom: e.target.value })
-                  }
-                  className="h-8 text-xs"
-                />
-              </div>
+              )}
+
+              {/* Starting Point + Valid From */}
               <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Valid From</Label>
+                  <Input
+                    type="datetime-local"
+                    value={form.validFrom}
+                    onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
+                    className="h-8 text-xs"
+                  />
+                </div>
                 <div>
                   <Label className="text-xs">Starting Point Datetime</Label>
                   <Input
                     type="datetime-local"
                     value={form.startPointStartAt}
-                    onChange={(e) =>
-                      setForm({ ...form, startPointStartAt: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, startPointStartAt: e.target.value })}
                     className="h-8 text-xs"
                   />
                 </div>
@@ -787,18 +790,12 @@ export default function EnergyConfigsPage() {
                     type="number"
                     step="0.0001"
                     value={form.startPointInitialKwh}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        startPointInitialKwh: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setForm({ ...form, startPointInitialKwh: e.target.value })}
                     placeholder="365.7645"
                     className="h-8 text-xs"
                   />
                 </div>
               </div>
-            </div>
 
             {/* Consumption Thresholds Section */}
             <div className="border-t pt-3">

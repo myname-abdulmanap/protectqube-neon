@@ -1,13 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ShieldAlert,
   Info,
-  ImageIcon,
   ListOrdered,
   MapPin,
   Monitor,
@@ -19,7 +17,6 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -240,24 +237,16 @@ export function AlertDetailDialog({
         {alert && detail && (
           <>
             <DialogHeader className="px-3 pt-3 pb-2 border-b space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="h-6 w-6 rounded-md flex items-center justify-center bg-muted">
-                    {getAlertCategory(alert) === "critical" ? (
-                      <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
-                    ) : getAlertCategory(alert) === "suspicious" ? (
-                      <Info className="h-3.5 w-3.5 text-blue-500" />
-                    ) : (
-                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                    )}
-                  </div>
-                  <DialogTitle className="text-xs font-semibold truncate">
-                    {detail.alertType}
-                  </DialogTitle>
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 rounded-md flex items-center justify-center bg-muted">
+                  {getAlertCategory(alert) === "critical" ? (
+                    <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
+                  ) : getAlertCategory(alert) === "suspicious" ? (
+                    <Info className="h-3.5 w-3.5 text-blue-500" />
+                  ) : (
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  )}
                 </div>
-                <Badge variant="outline" className="text-[8px] px-1.5 py-0">
-                  {detail.severityLabel}
-                </Badge>
               </div>
             </DialogHeader>
 
@@ -303,45 +292,6 @@ export function AlertDetailDialog({
                       {detail.descriptionLabel}
                     </p>
                   </div>
-
-                  <div className="border-t pt-3">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <ImageIcon className="h-3.5 w-3.5 text-cyan-500" />
-                      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Alert Evidence
-                      </h4>
-                    </div>
-
-                    {detail.imageUrls.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {detail.imageUrls.map((imgUrl) => (
-                          <a
-                            key={imgUrl}
-                            href={imgUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Open alert evidence image"
-                            aria-label="Open alert evidence image"
-                            className="relative aspect-video rounded-lg overflow-hidden bg-muted block"
-                          >
-                            <Image
-                              src={imgUrl}
-                              alt="Alert evidence"
-                              fill
-                              sizes="(max-width: 768px) 100vw, 320px"
-                              className="object-cover"
-                              loading="lazy"
-                              unoptimized
-                            />
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="h-24 rounded-lg border border-dashed border-muted-foreground/30 flex items-center justify-center text-muted-foreground text-xs">
-                        No image evidence available
-                      </div>
-                    )}
-                  </div>
                 </TabsContent>
 
                 <TabsContent value="timeline" className="p-4 space-y-3 mt-0">
@@ -384,7 +334,6 @@ export function AlertDetailDialog({
                     </h4>
                   </div>
                   <div className="space-y-2">
-                    <Row label="Device ID" value={detail.deviceId} />
                     <Row label="Device Name" value={detail.deviceName} />
                     <Row label="Status">
                       <div className="flex items-center gap-1.5">
